@@ -1,0 +1,1524 @@
+<script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
+import { useSettingsStore } from '@/stores/settings'
+import { useAppStore } from '@/stores/app'
+import { db } from '@/services/database'
+import { authenticate, setRepo, getSyncStatus, fullSync } from '@/services/github'
+import type { ThemeName } from '@/types'
+
+// ---- Stores ----
+const settingsStore = useSettingsStore()
+const appStore = useAppStore()
+
+// ---- 状态 ----
+const showToken = ref(false)
+const isTestingConnection = ref(false)
+const testResult = ref<{ success: boolean; message: string } | null>(null)
+const isSyncing = ref(false)
+const syncResult = ref<{ success: boolean; message: string } | null>(null)
+const showClearConfirm = ref(false)
+const isExporting = ref(false)
+const isImporting = ref(false)
+const isClearing = ref(false)
+
+// ---- 本地编辑副本（避免直接修改 store） ----
+const localSettings = ref({
+  githubToken: '',
+  githubRepo: '',
+  githubOwner: '',
+})
+
+// ---- 主题配置 ----
+const themeOptions: { name: ThemeName; label: string; labelEn: string; bg: string; accent: string }[] = [
+  { name: 'dark-night', label: '深夜模式', labelEn: 'Dark Night', bg: '#0D1117', accent: '#58A6FF' },
+  { name: 'morning-mist', label: '晨雾模式', labelEn: 'Morning Mist', bg: '#1A1A2E', accent: '#E94560' },
+  { name: 'daylight', label: '日光模式', labelEn: 'Daylight', bg: '#F8F9FA', accent: '#FF6B35' },
+]
+
+// ---- 计算属性 ----
+
+/** 当前主题 */
+const currentTheme = computed(() => settingsStore.settings.theme)
+
+/** 是否已配置 GitHub */
+const githubConfigured = computed(() => {
+  return !!(localSettings.value.githubToken && localSettings.value.githubOwner && localSettings.value.githubRepo)
+})
+
+/** 上次同步时间 */
+const lastSyncTime = computed(() => {
+  return appStore.syncStatus.lastSyncAt || '从未同步'
+})
+
+/** 数据库统计 */
+const dbStats = ref({
+  tasks: 0,
+  sessions: 0,
+  reflections: 0,
+})
+
+/** 计时器设置（从 store 读取，单位转换） ---- */
+const workDuration = computed({
+  get: () => Math.round(settingsStore.settings.workDuration / 60),
+  set: (v: number) => settingsStore.updateSetting('workDuration', v * 60),
+})
+
+const shortBreakDuration = computed({
+  get: () => Math.round(settingsStore.settings.shortBreakDuration / 60),
+  set: (v: number) => settingsStore.updateSetting('shortBreakDuration', v * 60),
+})
+
+const longBreakDuration = computed({
+  get: () => Math.round(settingsStore.settings.longBreakDuration / 60),
+  set: (v: number) => settingsStore.updateSetting('longBreakDuration', v * 60),
+})
+
+const longBreakInterval = computed({
+  get: () => settingsStore.settings.longBreakInterval,
+  set: (v: number) => settingsStore.updateSetting('longBreakInterval', v),
+})
+
+const autoStartBreak = computed({
+  get: () => settingsStore.settings.autoStartBreak,
+  set: (v: boolean) => settingsStore.updateSetting('autoStartBreak', v),
+})
+
+const autoStartPomodoro = computed({
+  get: () => settingsStore.settings.autoStartPomodoro,
+  set: (v: boolean) => settingsStore.updateSetting('autoStartPomodoro', v),
+})
+
+// ---- 方法 ----
+
+/** 更新 GitHub Token */
+function updateGithubToken(value: string) {
+  localSettings.value.githubToken = value
+  settingsStore.updateSetting('githubToken', value)
+}
+
+/** 更新 GitHub Owner */
+function updateGithubOwner(value: string) {
+  localSettings.value.githubOwner = value
+  settingsStore.updateSetting('githubOwner', value)
+}
+
+/** 更新 GitHub Repo */
+function updateGithubRepo(value: string) {
+  localSettings.value.githubRepo = value
+  settingsStore.updateSetting('githubRepo', value)
+}
+
+/** 测试 GitHub 连接 */
+async function testConnection() {
+  isTestingConnection.value = true
+  testResult.value = null
+
+  try {
+    authenticate(localSettings.value.githubToken)
+    setRepo(localSettings.value.githubOwner, localSettings.value.githubRepo)
+
+    const result = await getSyncStatus()
+    testResult.value = result
+  } catch (err) {
+    testResult.value = {
+      success: false,
+      message: err instanceof Error ? err.message : '连接失败',
+    }
+  } finally {
+    isTestingConnection.value = false
+  }
+}
+
+/** 执行同步 */
+async function syncNow() {
+  isSyncing.value = true
+  syncResult.value = null
+
+  try {
+    authenticate(localSettings.value.githubToken)
+    setRepo(localSettings.value.githubOwner, localSettings.value.githubRepo)
+
+    appStore.setSyncStatus({ isSyncing: true })
+
+    // 获取未同步数据
+    const [unsyncedTasks, unsyncedReflections, unsyncedSessions] = await Promise.all([
+      db.getUnsyncedTasks(),
+      db.getUnsyncedReflections(),
+      db.getUnsyncedSessions(),
+    ])
+
+    const results = await fullSync(unsyncedTasks, unsyncedReflections, unsyncedSessions)
+
+    const allSuccess = results.every((r) => r.success)
+    syncResult.value = {
+      success: allSuccess,
+      message: results.map((r) => r.message).join('\n'),
+    }
+
+    // 更新同步状态
+    const syncStatus = await db.getSyncStatus()
+    appStore.setSyncStatus({
+      isSyncing: false,
+      lastSyncAt: new Date().toISOString(),
+      pendingCount: syncStatus.pendingCount,
+    })
+  } catch (err) {
+    syncResult.value = {
+      success: false,
+      message: err instanceof Error ? err.message : '同步失败',
+    }
+    appStore.setSyncStatus({ isSyncing: false })
+  } finally {
+    isSyncing.value = false
+  }
+}
+
+/** 选择主题 */
+function selectTheme(theme: ThemeName) {
+  settingsStore.updateSetting('theme', theme)
+}
+
+/** 导出数据 */
+async function exportData() {
+  isExporting.value = true
+  try {
+    const [tasks, reflections, sessions] = await Promise.all([
+      db.getAllTasks(),
+      db.getAllReflections(),
+      db.getAllSessions(),
+    ])
+
+    const data = {
+      version: '1.0.0',
+      exportedAt: new Date().toISOString(),
+      tasks,
+      reflections,
+      sessions,
+    }
+
+    const json = JSON.stringify(data, null, 2)
+    const blob = new Blob([json], { type: 'application/json;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `pomodorox-backup-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch (err) {
+    console.error('导出数据失败:', err)
+  } finally {
+    isExporting.value = false
+  }
+}
+
+/** 导入数据 */
+async function importData() {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.json'
+  input.onchange = async (e) => {
+    const file = (e.target as HTMLInputElement).files?.[0]
+    if (!file) return
+
+    isImporting.value = true
+    try {
+      const text = await file.text()
+      const data = JSON.parse(text)
+
+      if (!data.tasks || !data.reflections || !data.sessions) {
+        alert('无效的备份文件格式')
+        return
+      }
+
+      // 导入任务
+      for (const task of data.tasks) {
+        await db.createTask({
+          title: task.title,
+          description: task.description || '',
+          priority: task.priority,
+          estimatedPomodoros: task.estimatedPomodoros || 1,
+          tags: task.tags || [],
+          dueDate: task.dueDate || null,
+        })
+      }
+
+      // 导入反思
+      for (const reflection of data.reflections) {
+        await db.createReflection({
+          date: reflection.date,
+          content: reflection.content,
+          mood: reflection.mood,
+          relatedTaskIds: reflection.relatedTaskIds || [],
+          tags: reflection.tags || [],
+        })
+      }
+
+      // 导入会话
+      for (const session of data.sessions) {
+        await db.createSession({
+          taskId: session.taskId,
+          type: session.type,
+          duration: session.duration,
+          completed: session.completed,
+          startedAt: session.startedAt,
+        })
+      }
+
+      alert('数据导入成功！请刷新页面查看。')
+    } catch (err) {
+      console.error('导入数据失败:', err)
+      alert('导入失败：文件格式不正确')
+    } finally {
+      isImporting.value = false
+    }
+  }
+  input.click()
+}
+
+/** 请求清除所有数据 */
+function requestClearData() {
+  showClearConfirm.value = true
+}
+
+/** 确认清除数据 */
+async function confirmClearData() {
+  isClearing.value = true
+  try {
+    // 清除 localStorage
+    localStorage.removeItem('pomodorox-settings')
+
+    // 提示用户需要手动清除 IndexedDB/SQLite
+    alert('数据已清除。请刷新页面以重新初始化。')
+    window.location.reload()
+  } catch (err) {
+    console.error('清除数据失败:', err)
+  } finally {
+    isClearing.value = false
+    showClearConfirm.value = false
+  }
+}
+
+/** 取消清除 */
+function cancelClear() {
+  showClearConfirm.value = false
+}
+
+/** 加载数据库统计 */
+async function loadDbStats() {
+  try {
+    const [tasks, sessions, reflections] = await Promise.all([
+      db.getAllTasks(),
+      db.getAllSessions(),
+      db.getAllReflections(),
+    ])
+    dbStats.value = {
+      tasks: tasks.length,
+      sessions: sessions.length,
+      reflections: reflections.length,
+    }
+  } catch (err) {
+    console.error('加载数据库统计失败:', err)
+  }
+}
+
+// ---- 初始化 ----
+onMounted(async () => {
+  await settingsStore.loadSettings()
+
+  // 同步本地编辑副本
+  localSettings.value = {
+    githubToken: settingsStore.settings.githubToken,
+    githubRepo: settingsStore.settings.githubRepo,
+    githubOwner: settingsStore.settings.githubOwner,
+  }
+
+  // 加载数据库统计
+  await loadDbStats()
+})
+</script>
+
+<template>
+  <div class="settings-view">
+    <!-- 顶部栏 -->
+    <header class="settings-header">
+      <h1 class="page-title">应用设置</h1>
+    </header>
+
+    <!-- 主内容 -->
+    <div class="settings-body">
+      <!-- GitHub 同步 -->
+      <section class="settings-section">
+        <h2 class="section-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" class="section-icon">
+            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+          </svg>
+          GitHub 同步
+        </h2>
+        <div class="section-content">
+          <!-- Token -->
+          <div class="form-group">
+            <label class="form-label">GitHub Token</label>
+            <div class="input-with-toggle">
+              <input
+                :type="showToken ? 'text' : 'password'"
+                :value="localSettings.githubToken"
+                @input="updateGithubToken(($event.target as HTMLInputElement).value)"
+                class="form-input"
+                placeholder="ghp_xxxxxxxxxxxx"
+              />
+              <button
+                class="input-toggle"
+                @click="showToken = !showToken"
+                :title="showToken ? '隐藏' : '显示'"
+              >
+                <svg v-if="showToken" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                  <line x1="1" y1="1" x2="23" y2="23"/>
+                </svg>
+                <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Owner -->
+          <div class="form-group">
+            <label class="form-label">仓库 Owner</label>
+            <input
+              type="text"
+              :value="localSettings.githubOwner"
+              @input="updateGithubOwner(($event.target as HTMLInputElement).value)"
+              class="form-input"
+              placeholder="your-username"
+            />
+          </div>
+
+          <!-- Repo -->
+          <div class="form-group">
+            <label class="form-label">仓库名称</label>
+            <input
+              type="text"
+              :value="localSettings.githubRepo"
+              @input="updateGithubRepo(($event.target as HTMLInputElement).value)"
+              class="form-input"
+              placeholder="pomodorox-data"
+            />
+          </div>
+
+          <!-- 操作按钮 -->
+          <div class="form-actions">
+            <button
+              class="btn-secondary"
+              :disabled="isTestingConnection || !githubConfigured"
+              @click="testConnection"
+            >
+              <svg v-if="isTestingConnection" class="spin-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 12a9 9 0 11-6.219-8.56"/>
+              </svg>
+              <span>{{ isTestingConnection ? '测试中...' : '测试连接' }}</span>
+            </button>
+            <button
+              class="btn-primary"
+              :disabled="isSyncing || !githubConfigured"
+              @click="syncNow"
+            >
+              <svg v-if="isSyncing" class="spin-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 12a9 9 0 11-6.219-8.56"/>
+              </svg>
+              <span>{{ isSyncing ? '同步中...' : '立即同步' }}</span>
+            </button>
+          </div>
+
+          <!-- 测试结果 -->
+          <div v-if="testResult" class="result-message" :class="{ success: testResult.success, error: !testResult.success }">
+            {{ testResult.message }}
+          </div>
+
+          <!-- 同步结果 -->
+          <div v-if="syncResult" class="result-message" :class="{ success: syncResult.success, error: !syncResult.success }">
+            <pre class="result-pre">{{ syncResult.message }}</pre>
+          </div>
+
+          <!-- 同步状态 -->
+          <div class="sync-status">
+            <span class="sync-status-label">上次同步：</span>
+            <span class="sync-status-value">{{ lastSyncTime }}</span>
+            <span v-if="appStore.syncStatus.pendingCount > 0" class="sync-pending">
+              ({{ appStore.syncStatus.pendingCount }} 项待同步)
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 计时器设置 -->
+      <section class="settings-section">
+        <h2 class="section-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="section-icon">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 16 14"/>
+          </svg>
+          计时器设置
+        </h2>
+        <div class="section-content">
+          <!-- 工作时长 -->
+          <div class="form-group">
+            <div class="slider-header">
+              <label class="form-label">工作时长</label>
+              <span class="slider-value">{{ workDuration }} 分钟</span>
+            </div>
+            <input
+              type="range"
+              :value="workDuration"
+              @input="workDuration = Number(($event.target as HTMLInputElement).value)"
+              min="15"
+              max="60"
+              step="5"
+              class="form-slider"
+            />
+            <div class="slider-labels">
+              <span>15</span>
+              <span>30</span>
+              <span>45</span>
+              <span>60</span>
+            </div>
+          </div>
+
+          <!-- 短休息时长 -->
+          <div class="form-group">
+            <div class="slider-header">
+              <label class="form-label">短休息时长</label>
+              <span class="slider-value">{{ shortBreakDuration }} 分钟</span>
+            </div>
+            <input
+              type="range"
+              :value="shortBreakDuration"
+              @input="shortBreakDuration = Number(($event.target as HTMLInputElement).value)"
+              min="3"
+              max="15"
+              step="1"
+              class="form-slider"
+            />
+            <div class="slider-labels">
+              <span>3</span>
+              <span>6</span>
+              <span>9</span>
+              <span>15</span>
+            </div>
+          </div>
+
+          <!-- 长休息时长 -->
+          <div class="form-group">
+            <div class="slider-header">
+              <label class="form-label">长休息时长</label>
+              <span class="slider-value">{{ longBreakDuration }} 分钟</span>
+            </div>
+            <input
+              type="range"
+              :value="longBreakDuration"
+              @input="longBreakDuration = Number(($event.target as HTMLInputElement).value)"
+              min="10"
+              max="30"
+              step="5"
+              class="form-slider"
+            />
+            <div class="slider-labels">
+              <span>10</span>
+              <span>15</span>
+              <span>20</span>
+              <span>30</span>
+            </div>
+          </div>
+
+          <!-- 长休息间隔 -->
+          <div class="form-group">
+            <label class="form-label">长休息间隔（每 N 个番茄钟后）</label>
+            <div class="number-input-group">
+              <button
+                class="number-btn"
+                :disabled="longBreakInterval <= 2"
+                @click="longBreakInterval = longBreakInterval - 1"
+              >
+                -
+              </button>
+              <span class="number-value">{{ longBreakInterval }}</span>
+              <button
+                class="number-btn"
+                :disabled="longBreakInterval >= 8"
+                @click="longBreakInterval = longBreakInterval + 1"
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          <!-- 开关选项 -->
+          <div class="form-group">
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <span class="toggle-label">自动开始休息</span>
+                <span class="toggle-desc">完成番茄钟后自动开始休息</span>
+              </div>
+              <button
+                class="toggle-switch"
+                :class="{ active: autoStartBreak }"
+                @click="autoStartBreak = !autoStartBreak"
+              >
+                <span class="toggle-knob" />
+              </button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <span class="toggle-label">自动开始番茄钟</span>
+                <span class="toggle-desc">休息结束后自动开始下一个番茄钟</span>
+              </div>
+              <button
+                class="toggle-switch"
+                :class="{ active: autoStartPomodoro }"
+                @click="autoStartPomodoro = !autoStartPomodoro"
+              >
+                <span class="toggle-knob" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 主题设置 -->
+      <section class="settings-section">
+        <h2 class="section-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="section-icon">
+            <circle cx="13.5" cy="6.5" r="2.5"/>
+            <path d="M17.5 10.5l2 2"/>
+            <path d="M20.5 17.5l-2 2"/>
+            <path d="M6.5 17.5l-2 2"/>
+            <path d="M2.5 10.5l2 2"/>
+            <circle cx="10.5" cy="17.5" r="2.5"/>
+            <circle cx="13.5" cy="17.5" r="2.5"/>
+          </svg>
+          主题
+        </h2>
+        <div class="section-content">
+          <div class="theme-grid">
+            <button
+              v-for="theme in themeOptions"
+              :key="theme.name"
+              class="theme-card"
+              :class="{ active: currentTheme === theme.name }"
+              @click="selectTheme(theme.name)"
+            >
+              <div
+                class="theme-preview"
+                :style="{ background: theme.bg }"
+              >
+                <div class="theme-preview-elements">
+                  <div class="theme-preview-bar" :style="{ background: theme.accent, width: '60%' }" />
+                  <div class="theme-preview-bar" :style="{ background: theme.accent + '40', width: '80%' }" />
+                  <div class="theme-preview-bar" :style="{ background: theme.accent + '25', width: '45%' }" />
+                </div>
+                <div class="theme-preview-accent" :style="{ background: theme.accent }" />
+              </div>
+              <div class="theme-info">
+                <span class="theme-label">{{ theme.label }}</span>
+                <span class="theme-label-en">{{ theme.labelEn }}</span>
+              </div>
+              <div v-if="currentTheme === theme.name" class="theme-check">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              </div>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 数据管理 -->
+      <section class="settings-section">
+        <h2 class="section-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="section-icon">
+            <ellipse cx="12" cy="5" rx="9" ry="3"/>
+            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+          </svg>
+          数据管理
+        </h2>
+        <div class="section-content">
+          <!-- 数据库信息 -->
+          <div class="db-info">
+            <div class="db-info-item">
+              <span class="db-info-label">任务总数</span>
+              <span class="db-info-value">{{ dbStats.tasks }}</span>
+            </div>
+            <div class="db-info-item">
+              <span class="db-info-label">会话总数</span>
+              <span class="db-info-value">{{ dbStats.sessions }}</span>
+            </div>
+            <div class="db-info-item">
+              <span class="db-info-label">反思总数</span>
+              <span class="db-info-value">{{ dbStats.reflections }}</span>
+            </div>
+          </div>
+
+          <!-- 操作按钮 -->
+          <div class="data-actions">
+            <button
+              class="btn-secondary"
+              :disabled="isExporting"
+              @click="exportData"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              <span>{{ isExporting ? '导出中...' : '导出数据' }}</span>
+            </button>
+            <button
+              class="btn-secondary"
+              :disabled="isImporting"
+              @click="importData"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              <span>{{ isImporting ? '导入中...' : '导入数据' }}</span>
+            </button>
+            <button
+              class="btn-danger"
+              :disabled="isClearing"
+              @click="requestClearData"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+              <span>{{ isClearing ? '清除中...' : '清除所有数据' }}</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 关于 -->
+      <section class="settings-section">
+        <h2 class="section-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="section-icon">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="16" x2="12" y2="12"/>
+            <line x1="12" y1="8" x2="12.01" y2="8"/>
+          </svg>
+          关于
+        </h2>
+        <div class="section-content">
+          <div class="about-content">
+            <div class="about-logo">
+              <span class="about-name">PomodoroX</span>
+              <span class="about-version">v1.0.0</span>
+            </div>
+            <p class="about-desc">
+              一款现代化的番茄钟效率工具，帮助你专注工作、追踪任务、记录反思。
+            </p>
+            <div class="about-tech">
+              <span class="tech-tag">Vue 3</span>
+              <span class="tech-tag">TypeScript</span>
+              <span class="tech-tag">Pinia</span>
+              <span class="tech-tag">Tailwind CSS</span>
+              <span class="tech-tag">Tauri</span>
+            </div>
+            <a
+              href="https://github.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="about-link"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+              </svg>
+              <span>GitHub</span>
+            </a>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- 清除确认对话框 -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="showClearConfirm" class="modal-overlay" @click.self="cancelClear">
+          <div class="modal-content">
+            <h3 class="modal-title">确认清除所有数据</h3>
+            <p class="modal-message">
+              此操作将删除所有任务、会话记录和反思数据。删除后无法恢复，建议先导出备份。
+            </p>
+            <div class="modal-actions">
+              <button class="modal-btn cancel" @click="cancelClear">取消</button>
+              <button class="modal-btn danger" :disabled="isClearing" @click="confirmClearData">
+                {{ isClearing ? '清除中...' : '确认清除' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+  </div>
+</template>
+
+<style scoped>
+.settings-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ---- 顶部栏 ---- */
+.settings-header {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+
+.page-title {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ---- 主内容 ---- */
+.settings-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* ---- 设置区块 ---- */
+.settings-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+
+.section-icon {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.section-content {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* ---- 表单元素 ---- */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.form-input {
+  padding: 10px 14px;
+  font-size: 0.875rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.form-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--active-bg);
+}
+
+.form-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.input-with-toggle {
+  display: flex;
+  gap: 0;
+}
+
+.input-with-toggle .form-input {
+  flex: 1;
+  border-radius: 8px 0 0 8px;
+  border-right: none;
+}
+
+.input-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 0 8px 8px 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.input-toggle:hover {
+  color: var(--accent);
+  background: var(--hover-bg);
+}
+
+/* ---- 滑块 ---- */
+.slider-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.slider-value {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.form-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  outline: none;
+  cursor: pointer;
+}
+
+.form-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 2px solid var(--surface);
+  box-shadow: 0 0 0 2px var(--accent);
+  transition: transform 0.15s ease;
+}
+
+.form-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.form-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 2px solid var(--surface);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.slider-labels {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 2px;
+}
+
+.slider-labels span {
+  font-size: 0.7rem;
+  color: var(--text-tertiary);
+}
+
+/* ---- 数字输入 ---- */
+.number-input-group {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  width: fit-content;
+}
+
+.number-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.number-btn:first-child {
+  border-radius: 8px 0 0 8px;
+}
+
+.number-btn:last-child {
+  border-radius: 0 8px 8px 0;
+}
+
+.number-btn:hover:not(:disabled) {
+  background: var(--hover-bg);
+  color: var(--accent);
+}
+
+.number-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.number-value {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 36px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ---- 开关 ---- */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.toggle-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toggle-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.toggle-desc {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+.toggle-switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  border: none;
+  background: var(--border);
+  cursor: pointer;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+}
+
+.toggle-switch.active {
+  background: var(--accent);
+}
+
+.toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.toggle-switch.active .toggle-knob {
+  transform: translateX(20px);
+}
+
+/* ---- 按钮 ---- */
+.form-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.btn-primary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 20px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-primary:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 20px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--hover-bg);
+  color: var(--text);
+  border-color: var(--text-tertiary);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-danger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 20px;
+  border-radius: 8px;
+  border: 1px solid #F85149;
+  background: transparent;
+  color: #F85149;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: rgba(248, 81, 73, 0.1);
+}
+
+.btn-danger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.spin-icon {
+  animation: rotate 1s linear infinite;
+}
+
+@keyframes rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ---- 结果消息 ---- */
+.result-message {
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.result-message.success {
+  background: rgba(63, 185, 80, 0.1);
+  color: #3FB950;
+  border: 1px solid rgba(63, 185, 80, 0.2);
+}
+
+.result-message.error {
+  background: rgba(248, 81, 73, 0.1);
+  color: #F85149;
+  border: 1px solid rgba(248, 81, 73, 0.2);
+}
+
+.result-pre {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ---- 同步状态 ---- */
+.sync-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+}
+
+.sync-status-value {
+  color: var(--text-secondary);
+}
+
+.sync-pending {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* ---- 主题选择 ---- */
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.theme-card {
+  position: relative;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: transparent;
+  text-align: left;
+  padding: 0;
+}
+
+.theme-card:hover {
+  border-color: var(--text-tertiary);
+}
+
+.theme-card.active {
+  border-color: var(--accent);
+}
+
+.theme-preview {
+  height: 72px;
+  padding: 12px;
+  position: relative;
+  overflow: hidden;
+}
+
+.theme-preview-elements {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+  z-index: 1;
+}
+
+.theme-preview-bar {
+  height: 4px;
+  border-radius: 2px;
+}
+
+.theme-preview-accent {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+}
+
+.theme-info {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg);
+}
+
+.theme-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.theme-label-en {
+  font-size: 0.7rem;
+  color: var(--text-tertiary);
+}
+
+.theme-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---- 数据库信息 ---- */
+.db-info {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.db-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 18px;
+  background: var(--bg);
+  border-radius: 8px;
+  min-width: 100px;
+}
+
+.db-info-label {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+.db-info-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.data-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ---- 关于 ---- */
+.about-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.about-logo {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.about-name {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.about-version {
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+  padding: 2px 8px;
+  background: var(--bg);
+  border-radius: 4px;
+}
+
+.about-desc {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.about-tech {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tech-tag {
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.about-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  width: fit-content;
+}
+
+.about-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ---- 模态框 ---- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  width: 440px;
+  max-width: 90vw;
+  animation: bounce-in 0.2s ease-out;
+}
+
+.modal-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 12px;
+}
+
+.modal-message {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+  line-height: 1.6;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.modal-btn {
+  padding: 8px 20px;
+  border-radius: 8px;
+  border: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.modal-btn.cancel {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.modal-btn.cancel:hover {
+  background: var(--hover-bg);
+  color: var(--text);
+}
+
+.modal-btn.danger {
+  background: #F85149;
+  color: #fff;
+}
+
+.modal-btn.danger:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.modal-btn.danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---- 过渡动画 ---- */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+@keyframes bounce-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ---- 响应式 ---- */
+@media (max-width: 600px) {
+  .settings-body {
+    padding: 16px;
+  }
+
+  .theme-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .data-actions {
+    flex-direction: column;
+  }
+
+  .data-actions .btn-secondary,
+  .data-actions .btn-danger {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .form-actions {
+    flex-direction: column;
+  }
+
+  .form-actions .btn-primary,
+  .form-actions .btn-secondary {
+    width: 100%;
+    justify-content: center;
+  }
+}
+</style>

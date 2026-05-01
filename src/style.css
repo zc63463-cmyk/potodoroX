@@ -1,0 +1,310 @@
+@import "tailwindcss";
+
+/* ============================================================
+   PomodoroX - 全局样式
+   Tailwind CSS v4 + 自定义主题变量
+   ============================================================ */
+
+/* ---- CSS 自定义属性（主题色） ---- */
+:root {
+  /* 默认使用暗夜主题 */
+  --bg: #0D1117;
+  --surface: #161B22;
+  --accent: #58A6FF;
+  --text: #C9D1D9;
+  --text-secondary: #8B949E;
+  --text-tertiary: #484F58;
+  --border: #30363D;
+  --hover-bg: rgba(88, 166, 255, 0.08);
+  --active-bg: rgba(88, 166, 255, 0.15);
+
+  /* 动画 */
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.3s ease;
+  --transition-slow: 0.5s ease;
+
+  /* 圆角 */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* 字体 */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', Roboto, Helvetica, Arial, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---- 暗夜主题（默认） ---- */
+.theme-dark-night {
+  --bg: #0D1117;
+  --surface: #161B22;
+  --accent: #58A6FF;
+  --text: #C9D1D9;
+  --text-secondary: #8B949E;
+  --text-tertiary: #484F58;
+  --border: #30363D;
+  --hover-bg: rgba(88, 166, 255, 0.08);
+  --active-bg: rgba(88, 166, 255, 0.15);
+}
+
+/* ---- 晨雾主题 ---- */
+.theme-morning-mist {
+  --bg: #1A1A2E;
+  --surface: #16213E;
+  --accent: #E94560;
+  --text: #E0E0E0;
+  --text-secondary: #A0A0B0;
+  --text-tertiary: #606080;
+  --border: #2A2A4A;
+  --hover-bg: rgba(233, 69, 96, 0.08);
+  --active-bg: rgba(233, 69, 96, 0.15);
+}
+
+/* ---- 日光主题 ---- */
+.theme-daylight {
+  --bg: #F8F9FA;
+  --surface: #FFFFFF;
+  --accent: #FF6B35;
+  --text: #24292F;
+  --text-secondary: #57606A;
+  --text-tertiary: #8B949E;
+  --border: #D0D7DE;
+  --hover-bg: rgba(255, 107, 53, 0.08);
+  --active-bg: rgba(255, 107, 53, 0.15);
+}
+
+/* ---- 自定义主题 ---- */
+.theme-custom {
+  --bg: #0D1117;
+  --surface: #161B22;
+  --accent: #58A6FF;
+  --text: #C9D1D9;
+  --text-secondary: #8B949E;
+  --text-tertiary: #484F58;
+  --border: #30363D;
+  --hover-bg: rgba(88, 166, 255, 0.08);
+  --active-bg: rgba(88, 166, 255, 0.15);
+}
+
+/* ---- 全局基础样式 ---- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  transition: background var(--transition-normal), color var(--transition-normal);
+}
+
+#app {
+  height: 100%;
+  width: 100%;
+}
+
+/* ---- 自定义滚动条 ---- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+/* Firefox 滚动条 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+/* ---- 选中文字样式 ---- */
+::selection {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+/* ---- 链接样式 ---- */
+a {
+  color: var(--accent);
+  text-decoration: none;
+  transition: opacity var(--transition-fast);
+}
+
+a:hover {
+  opacity: 0.8;
+}
+
+/* ---- 按钮基础样式 ---- */
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* ---- 输入框基础样式 ---- */
+input,
+textarea,
+select {
+  font-family: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--active-bg);
+}
+
+/* ---- 动画关键帧 ---- */
+
+/* 脉冲动画 */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* 淡入动画 */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 上滑动画 */
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 呼吸动画（用于计时器） */
+@keyframes breathe {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.02);
+    opacity: 0.9;
+  }
+}
+
+/* 旋转动画 */
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 弹入动画 */
+@keyframes bounce-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  50% {
+    transform: scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ---- 工具类 ---- */
+.animate-pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.4s ease-out;
+}
+
+.animate-breathe {
+  animation: breathe 4s ease-in-out infinite;
+}
+
+.animate-bounce-in {
+  animation: bounce-in 0.3s ease-out;
+}
+
+/* 平滑过渡 */
+.transition-all {
+  transition: all var(--transition-normal);
+}
+
+/* 文字颜色工具类 */
+.text-accent {
+  color: var(--accent);
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+.text-tertiary {
+  color: var(--text-tertiary);
+}
+
+/* 背景颜色工具类 */
+.bg-surface {
+  background: var(--surface);
+}
+
+.bg-accent {
+  background: var(--accent);
+}
+
+/* 边框颜色工具类 */
+.border-themed {
+  border-color: var(--border);
+}
