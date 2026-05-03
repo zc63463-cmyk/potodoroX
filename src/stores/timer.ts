@@ -10,6 +10,7 @@ import { db } from '@/services/database'
 import { formatDateTime } from '@/utils/format'
 import { generateId } from '@/utils/id'
 import { TIMER_INTERVAL_MS } from '@/utils/constants'
+import { useSettingsStore } from '@/stores/settings'
 
 export const useTimerStore = defineStore('timer', () => {
   // ---- 状态 ----
@@ -50,6 +51,9 @@ export const useTimerStore = defineStore('timer', () => {
   /** 当前会话 ID */
   let currentSessionId: string | null = null
 
+  /** 是否正在完成会话（防止竞态） */
+  let isCompleting = false
+
   // ---- 计算属性 ----
   /** 格式化剩余时间 MM:SS */
   const formattedRemaining = computed(() => {
@@ -72,18 +76,12 @@ export const useTimerStore = defineStore('timer', () => {
 
   /**
    * 获取当前会话类型的总时长
+   * 通过延迟调用 settingsStore 获取，保持响应式
    */
   function getTotalDuration(): number {
-    // 从 settings store 获取时长，避免循环依赖
-    const settingsStr = localStorage.getItem('pomodorox-settings')
-    let settings: Record<string, number> = {}
-    if (settingsStr) {
-      try {
-        settings = JSON.parse(settingsStr)
-      } catch {
-        // 使用默认值
-      }
-    }
+    // 延迟调用避免模块级循环依赖
+    const settingsStore = useSettingsStore()
+    const settings = settingsStore.settings
 
     switch (sessionType.value) {
       case 'work':
@@ -131,9 +129,6 @@ export const useTimerStore = defineStore('timer', () => {
 
     // 监听页面可见性变化
     document.addEventListener('visibilitychange', onVisibilityChange)
-
-    // 如果在 Tauri 环境中，通知 Rust 端
-    notifyTauriTimerStart()
   }
 
   /**
@@ -160,7 +155,6 @@ export const useTimerStore = defineStore('timer', () => {
 
     timerInterval = setInterval(tick, TIMER_INTERVAL_MS)
     document.addEventListener('visibilitychange', onVisibilityChange)
-    notifyTauriTimerStart()
   }
 
   /**
@@ -186,6 +180,9 @@ export const useTimerStore = defineStore('timer', () => {
    * 完成当前会话
    */
   async function completeSession(completed = true) {
+    if (isCompleting) return
+    isCompleting = true
+
     stopTimer()
 
     const session: Session = {
@@ -243,26 +240,18 @@ export const useTimerStore = defineStore('timer', () => {
     } else {
       remaining.value = getTotalDuration()
     }
+
+    isCompleting = false
   }
 
   /**
    * 自动切换到下一个会话类型
    */
   function autoSwitchSession() {
-    const settingsStr = localStorage.getItem('pomodorox-settings')
-    let longBreakInterval = 4
-    let autoStartBreak = false
-    let autoStartPomodoro = false
-    if (settingsStr) {
-      try {
-        const s = JSON.parse(settingsStr)
-        longBreakInterval = s.longBreakInterval || 4
-        autoStartBreak = s.autoStartBreak || false
-        autoStartPomodoro = s.autoStartPomodoro || false
-      } catch {
-        // 使用默认值
-      }
-    }
+    const settingsStore = useSettingsStore()
+    const longBreakInterval = settingsStore.settings.longBreakInterval || 4
+    const autoStartBreak = settingsStore.settings.autoStartBreak || false
+    const autoStartPomodoro = settingsStore.settings.autoStartPomodoro || false
 
     if (sessionType.value === 'work') {
       // 工作完成后切换到休息
@@ -331,7 +320,6 @@ export const useTimerStore = defineStore('timer', () => {
       timerInterval = null
     }
     document.removeEventListener('visibilitychange', onVisibilityChange)
-    notifyTauriTimerStop()
   }
 
   /**
@@ -348,34 +336,6 @@ export const useTimerStore = defineStore('timer', () => {
       if (newRemaining <= 0) {
         completeSession(true)
       }
-    }
-  }
-
-  /**
-   * 通知 Tauri Rust 端计时器开始
-   */
-  async function notifyTauriTimerStart() {
-    try {
-      if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
-        const { invoke } = await import('@tauri-apps/api/core')
-        await invoke('timer_tick', { remaining: remaining.value })
-      }
-    } catch {
-      // Rust 端可能未实现，忽略
-    }
-  }
-
-  /**
-   * 通知 Tauri Rust 端计时器停止
-   */
-  async function notifyTauriTimerStop() {
-    try {
-      if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
-        const { invoke } = await import('@tauri-apps/api/core')
-        await invoke('timer_stop')
-      }
-    } catch {
-      // 忽略
     }
   }
 

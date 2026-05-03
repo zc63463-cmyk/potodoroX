@@ -4,14 +4,10 @@
 // ============================================================
 
 import { ref } from 'vue'
+import { isTauriAvailable } from '@/utils/tauri'
 
 /** 通知权限状态 */
 const permissionState = ref<'default' | 'granted' | 'denied' | 'unavailable'>('default')
-
-/** 检测是否在 Tauri 环境中 */
-function isTauriAvailable(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
-}
 
 /**
  * 请求通知权限

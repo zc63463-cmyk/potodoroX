@@ -301,15 +301,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div
-    class="timer-view"
-    :style="backgroundStyle"
-  >
+  <div class="timer-view" :style="backgroundStyle">
     <!-- 动态背景层 -->
     <div class="timer-bg-layer" :class="`session-${timerStore.sessionType}`">
       <div class="bg-orb bg-orb-1" />
       <div class="bg-orb bg-orb-2" />
       <div class="bg-orb bg-orb-3" />
+      <div class="bg-mesh" />
     </div>
 
     <!-- 庆祝粒子 -->
@@ -336,10 +334,7 @@ onUnmounted(() => {
       <header class="timer-header">
         <div class="header-left">
           <div class="task-selector-container">
-            <button
-              class="current-task-btn"
-              @click.stop="toggleTaskSelector"
-            >
+            <button class="current-task-btn glass" @click.stop="toggleTaskSelector">
               <span class="task-icon">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                   <path d="M3 3h10v1H3V3zm0 4h7v1H3V7zm0 4h10v1H3v-1z" fill="currentColor" opacity="0.7"/>
@@ -353,7 +348,7 @@ onUnmounted(() => {
 
             <!-- 任务下拉选择 -->
             <Transition name="dropdown">
-              <div v-if="showTaskSelector" class="task-dropdown" @click.stop>
+              <div v-if="showTaskSelector" class="task-dropdown glass-strong" @click.stop>
                 <div class="dropdown-header">选择任务</div>
                 <button
                   class="dropdown-item"
@@ -397,10 +392,7 @@ onUnmounted(() => {
       <div class="timer-center">
         <!-- 会话类型标签 -->
         <div class="session-label-wrapper">
-          <span
-            class="session-label"
-            :style="{ color: sessionColor }"
-          >
+          <span class="session-type-badge" :style="{ color: sessionColor, borderColor: sessionColor + '40', background: sessionColor + '15' }">
             {{ sessionLabel }}
           </span>
         </div>
@@ -414,17 +406,31 @@ onUnmounted(() => {
           }"
           @click="onTimerCenterClick"
         >
+          <!-- 外发光环 -->
+          <div class="ring-glow" :style="{ boxShadow: `0 0 60px ${sessionColor}20, 0 0 120px ${sessionColor}10` }" />
+
           <!-- SVG 环形进度 -->
           <svg
             class="timer-ring-svg"
-            :width="RING_RADIUS * 2 + RING_STROKE * 2 + 40"
-            :height="RING_RADIUS * 2 + RING_STROKE * 2 + 40"
-            viewBox="0 0 340 340"
+            :width="RING_RADIUS * 2 + RING_STROKE * 2 + 60"
+            :height="RING_RADIUS * 2 + RING_STROKE * 2 + 60"
+            viewBox="0 0 380 380"
           >
+            <!-- 外层装饰环 -->
+            <circle
+              cx="190"
+              cy="190"
+              :r="RING_RADIUS + 12"
+              fill="none"
+              :stroke="sessionColor"
+              stroke-opacity="0.04"
+              stroke-width="1"
+            />
+
             <!-- 背景环 -->
             <circle
-              cx="170"
-              cy="170"
+              cx="190"
+              cy="190"
               :r="RING_RADIUS"
               fill="none"
               :stroke="sessionColor"
@@ -434,28 +440,40 @@ onUnmounted(() => {
 
             <!-- 进度环 -->
             <circle
-              cx="170"
-              cy="170"
+              cx="190"
+              cy="190"
               :r="RING_RADIUS"
               fill="none"
               :stroke="ringColor"
-              :stroke-width="RING_STROKE"
+              :stroke-width="RING_STROKE + 2"
               stroke-linecap="round"
               :stroke-dasharray="RING_CIRCUMFERENCE"
               :stroke-dashoffset="ringDashoffset"
               class="progress-ring"
               :style="{ filter: isActive ? ringGlow : 'none' }"
-              transform="rotate(-90 170 170)"
+              transform="rotate(-90 190 190)"
+            />
+
+            <!-- 内层装饰环 -->
+            <circle
+              cx="190"
+              cy="190"
+              :r="RING_RADIUS - 16"
+              fill="none"
+              :stroke="sessionColor"
+              stroke-opacity="0.06"
+              stroke-width="1"
+              stroke-dasharray="4 6"
             />
 
             <!-- 刻度点（12个） -->
             <g v-for="i in 12" :key="'tick-' + i">
               <circle
-                :cx="170 + (RING_RADIUS + 16) * Math.cos(((i - 1) * 30 - 90) * Math.PI / 180)"
-                :cy="170 + (RING_RADIUS + 16) * Math.sin(((i - 1) * 30 - 90) * Math.PI / 180)"
-                r="1.5"
+                :cx="190 + (RING_RADIUS + 20) * Math.cos(((i - 1) * 30 - 90) * Math.PI / 180)"
+                :cy="190 + (RING_RADIUS + 20) * Math.sin(((i - 1) * 30 - 90) * Math.PI / 180)"
+                r="2"
                 :fill="sessionColor"
-                :fill-opacity="i % 3 === 0 ? 0.4 : 0.15"
+                :fill-opacity="i % 3 === 0 ? 0.5 : 0.15"
               />
             </g>
           </svg>
@@ -486,20 +504,21 @@ onUnmounted(() => {
               :style="{
                 backgroundColor: i <= streakCount ? sessionColor : undefined,
                 borderColor: i <= streakCount ? sessionColor : undefined,
+                boxShadow: i <= streakCount ? `0 0 10px ${sessionColor}40` : 'none',
               }"
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" opacity="0.3"/>
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" opacity="0.7"/>
+              <svg v-if="i <= streakCount" width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
               </svg>
+              <span v-else class="dot-number">{{ i }}</span>
             </span>
           </template>
         </div>
       </div>
 
-      <!-- 控制按钮 -->
-      <div class="timer-controls">
-        <!-- 重置按钮 -->
+      <!-- 控制按钮区（玻璃拟态面板） -->
+      <div class="timer-controls glass">
+        <!-- 重置/回退按钮 -->
         <button
           class="control-btn secondary-btn"
           :disabled="isIdle"
@@ -510,29 +529,30 @@ onUnmounted(() => {
             <polyline points="1 4 1 10 7 10"/>
             <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
           </svg>
+          <span class="control-label">重置</span>
         </button>
 
         <!-- 开始/暂停 主按钮 -->
         <button
           class="control-btn primary-btn"
+          :class="{ 'is-running': isActive }"
           :style="{
             '--btn-color': sessionColor,
             '--btn-glow': `${sessionColor}40`,
           }"
           @click="toggleTimer"
         >
-          <!-- 暂停图标 -->
           <svg v-if="isActive" width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
             <rect x="6" y="4" width="4" height="16" rx="1"/>
             <rect x="14" y="4" width="4" height="16" rx="1"/>
           </svg>
-          <!-- 播放图标 -->
           <svg v-else width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
             <path d="M8 5v14l11-7z"/>
           </svg>
+          <span class="control-label">{{ isActive ? '暂停' : (isPausedState ? '继续' : '开始') }}</span>
         </button>
 
-        <!-- 跳过按钮 -->
+        <!-- 跳过/提前结束按钮 -->
         <button
           class="control-btn secondary-btn"
           :disabled="isIdle"
@@ -543,24 +563,38 @@ onUnmounted(() => {
             <polygon points="5 4 15 12 5 20 5 4" fill="currentColor" stroke="none"/>
             <line x1="19" y1="5" x2="19" y2="19"/>
           </svg>
+          <span class="control-label">跳过</span>
         </button>
       </div>
 
-      <!-- 底部统计 -->
+      <!-- 底部统计信息栏 -->
       <footer class="timer-footer">
-        <div class="stat-item">
-          <div class="stat-value" :style="{ color: sessionColor }">{{ completedCount }}</div>
-          <div class="stat-label">今日番茄</div>
+        <div class="stat-card glass">
+          <div class="stat-icon-wrapper" :style="{ background: sessionColor + '20', color: sessionColor }">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" opacity="0.3"/><circle cx="12" cy="12" r="4"/></svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-value" :style="{ color: sessionColor }">{{ completedCount }}</span>
+            <span class="stat-label">今日番茄</span>
+          </div>
         </div>
-        <div class="stat-divider" />
-        <div class="stat-item">
-          <div class="stat-value">{{ todayFocusDisplay }}</div>
-          <div class="stat-label">专注时长</div>
+        <div class="stat-card glass">
+          <div class="stat-icon-wrapper" style="background: rgba(63, 185, 80, 0.2); color: var(--success);">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-value">{{ todayFocusDisplay }}</span>
+            <span class="stat-label">专注时长</span>
+          </div>
         </div>
-        <div class="stat-divider" />
-        <div class="stat-item">
-          <div class="stat-value">{{ streakCount }}/{{ longBreakInterval }}</div>
-          <div class="stat-label">连续进度</div>
+        <div class="stat-card glass">
+          <div class="stat-icon-wrapper" style="background: rgba(240, 136, 62, 0.2); color: var(--warning);">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-value">{{ streakCount }}/{{ longBreakInterval }}</span>
+            <span class="stat-label">连续进度</span>
+          </div>
         </div>
       </footer>
     </div>
@@ -569,7 +603,8 @@ onUnmounted(() => {
 
 <style scoped>
 /* ============================================================
-   TimerView - 沉浸式计时器视图
+   TimerView 2.0 - 沉浸式计时器视图
+   双层环形进度 + 玻璃拟态 + 动态粒子背景
    ============================================================ */
 
 /* ---- 主容器 ---- */
@@ -597,34 +632,42 @@ onUnmounted(() => {
 .bg-orb {
   position: absolute;
   border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0.5;
+  filter: blur(100px);
+  opacity: 0.4;
   transition: background 2s ease, opacity 2s ease;
+}
+
+.bg-mesh {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 20% 30%, rgba(88, 166, 255, 0.03) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 70%, rgba(136, 100, 255, 0.03) 0%, transparent 50%);
 }
 
 /* 工作模式 - 蓝紫色调 */
 .session-work .bg-orb-1 {
-  width: 500px;
-  height: 500px;
-  background: radial-gradient(circle, rgba(88, 166, 255, 0.12) 0%, transparent 70%);
-  top: -10%;
-  left: -5%;
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(88, 166, 255, 0.15) 0%, transparent 70%);
+  top: -15%;
+  left: -10%;
   animation: orb-float-1 20s ease-in-out infinite;
 }
 
 .session-work .bg-orb-2 {
-  width: 400px;
-  height: 400px;
-  background: radial-gradient(circle, rgba(136, 100, 255, 0.1) 0%, transparent 70%);
-  bottom: -5%;
-  right: -5%;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(136, 100, 255, 0.12) 0%, transparent 70%);
+  bottom: -10%;
+  right: -10%;
   animation: orb-float-2 25s ease-in-out infinite;
 }
 
 .session-work .bg-orb-3 {
-  width: 300px;
-  height: 300px;
-  background: radial-gradient(circle, rgba(88, 166, 255, 0.06) 0%, transparent 70%);
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(88, 166, 255, 0.08) 0%, transparent 70%);
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -633,85 +676,85 @@ onUnmounted(() => {
 
 /* 短休息 - 青绿色调 */
 .session-short_break .bg-orb-1 {
-  width: 500px;
-  height: 500px;
-  background: radial-gradient(circle, rgba(63, 185, 80, 0.12) 0%, transparent 70%);
-  top: -10%;
-  left: -5%;
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(78, 205, 196, 0.15) 0%, transparent 70%);
+  top: -15%;
+  left: -10%;
   animation: orb-float-1 22s ease-in-out infinite;
 }
 
 .session-short_break .bg-orb-2 {
-  width: 400px;
-  height: 400px;
-  background: radial-gradient(circle, rgba(56, 211, 159, 0.1) 0%, transparent 70%);
-  bottom: -5%;
-  right: -5%;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(63, 185, 80, 0.12) 0%, transparent 70%);
+  bottom: -10%;
+  right: -10%;
   animation: orb-float-2 20s ease-in-out infinite;
 }
 
 .session-short_break .bg-orb-3 {
-  width: 300px;
-  height: 300px;
-  background: radial-gradient(circle, rgba(63, 185, 80, 0.06) 0%, transparent 70%);
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(78, 205, 196, 0.08) 0%, transparent 70%);
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   animation: orb-float-3 16s ease-in-out infinite;
 }
 
-/* 长休息 - 暖琥珀色调 */
+/* 长休息 - 暖紫色调 */
 .session-long_break .bg-orb-1 {
-  width: 500px;
-  height: 500px;
-  background: radial-gradient(circle, rgba(240, 136, 62, 0.12) 0%, transparent 70%);
-  top: -10%;
-  left: -5%;
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(167, 139, 250, 0.15) 0%, transparent 70%);
+  top: -15%;
+  left: -10%;
   animation: orb-float-1 24s ease-in-out infinite;
 }
 
 .session-long_break .bg-orb-2 {
-  width: 400px;
-  height: 400px;
-  background: radial-gradient(circle, rgba(255, 183, 77, 0.1) 0%, transparent 70%);
-  bottom: -5%;
-  right: -5%;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(192, 132, 252, 0.12) 0%, transparent 70%);
+  bottom: -10%;
+  right: -10%;
   animation: orb-float-2 22s ease-in-out infinite;
 }
 
 .session-long_break .bg-orb-3 {
-  width: 300px;
-  height: 300px;
-  background: radial-gradient(circle, rgba(240, 136, 62, 0.06) 0%, transparent 70%);
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(167, 139, 250, 0.08) 0%, transparent 70%);
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   animation: orb-float-3 20s ease-in-out infinite;
 }
 
-/* 自由计时 - 橙色调 */
+/* 自由计时 - 橙红色调 */
 .session-free .bg-orb-1 {
-  width: 500px;
-  height: 500px;
-  background: radial-gradient(circle, rgba(240, 136, 62, 0.12) 0%, transparent 70%);
-  top: -10%;
-  left: -5%;
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(255, 107, 107, 0.15) 0%, transparent 70%);
+  top: -15%;
+  left: -10%;
   animation: orb-float-1 20s ease-in-out infinite;
 }
 
 .session-free .bg-orb-2 {
-  width: 400px;
-  height: 400px;
-  background: radial-gradient(circle, rgba(248, 81, 73, 0.08) 0%, transparent 70%);
-  bottom: -5%;
-  right: -5%;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(248, 81, 73, 0.12) 0%, transparent 70%);
+  bottom: -10%;
+  right: -10%;
   animation: orb-float-2 25s ease-in-out infinite;
 }
 
 .session-free .bg-orb-3 {
-  width: 300px;
-  height: 300px;
-  background: radial-gradient(circle, rgba(240, 136, 62, 0.06) 0%, transparent 70%);
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(255, 107, 107, 0.08) 0%, transparent 70%);
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -720,19 +763,19 @@ onUnmounted(() => {
 
 @keyframes orb-float-1 {
   0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(40px, -30px) scale(1.1); }
-  66% { transform: translate(-20px, 20px) scale(0.95); }
+  33% { transform: translate(50px, -40px) scale(1.1); }
+  66% { transform: translate(-30px, 30px) scale(0.95); }
 }
 
 @keyframes orb-float-2 {
   0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(-30px, 40px) scale(1.05); }
-  66% { transform: translate(30px, -20px) scale(0.9); }
+  33% { transform: translate(-40px, 50px) scale(1.05); }
+  66% { transform: translate(40px, -30px) scale(0.9); }
 }
 
 @keyframes orb-float-3 {
-  0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.5; }
-  50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.8; }
+  0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.4; }
+  50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.7; }
 }
 
 /* ---- 主内容 ---- */
@@ -745,7 +788,7 @@ onUnmounted(() => {
   justify-content: center;
   width: 100%;
   height: 100%;
-  padding: 24px 32px;
+  padding: 16px 24px;
   gap: 0;
 }
 
@@ -758,7 +801,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 32px;
+  padding: 16px 24px;
   z-index: 10;
 }
 
@@ -788,20 +831,18 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--surface);
+  border-radius: var(--radius-lg);
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 0.85rem;
-  transition: all 0.3s ease;
+  transition: all var(--transition-normal);
   max-width: 280px;
 }
 
 .current-task-btn:hover {
   border-color: var(--accent);
   color: var(--text);
-  background: var(--hover-bg);
+  background: var(--surface-hover);
 }
 
 .task-icon {
@@ -820,7 +861,7 @@ onUnmounted(() => {
 .chevron-icon {
   flex-shrink: 0;
   opacity: 0.5;
-  transition: transform 0.3s ease;
+  transition: transform var(--transition-normal);
 }
 
 .chevron-icon.open {
@@ -836,12 +877,9 @@ onUnmounted(() => {
   max-width: 400px;
   max-height: 360px;
   overflow-y: auto;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  border-radius: var(--radius-lg);
   z-index: 100;
-  padding: 6px;
+  padding: 8px;
 }
 
 .dropdown-header {
@@ -860,22 +898,22 @@ onUnmounted(() => {
   width: 100%;
   padding: 10px 12px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 0.85rem;
   text-align: left;
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
 }
 
 .dropdown-item:hover {
-  background: var(--hover-bg);
+  background: var(--surface-hover);
   color: var(--text);
 }
 
 .dropdown-item.active {
-  background: var(--active-bg);
+  background: var(--accent-dim);
   color: var(--accent);
 }
 
@@ -885,7 +923,7 @@ onUnmounted(() => {
   border-radius: 50%;
   flex-shrink: 0;
   border: 1.5px solid var(--text-tertiary);
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
 }
 
 .item-title {
@@ -905,6 +943,7 @@ onUnmounted(() => {
   height: 1px;
   background: var(--border);
   margin: 4px 8px;
+  opacity: 0.5;
 }
 
 .dropdown-empty {
@@ -919,23 +958,25 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
   flex: 1;
   justify-content: center;
 }
 
 /* 会话类型标签 */
 .session-label-wrapper {
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
-.session-label {
-  font-size: 0.9rem;
+.session-type-badge {
+  font-size: 0.75rem;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  transition: color 0.5s ease;
-  opacity: 0.8;
+  padding: 4px 14px;
+  border-radius: var(--radius-full);
+  border: 1px solid;
+  transition: all var(--transition-slow);
 }
 
 /* ---- 环形进度容器 ---- */
@@ -945,16 +986,26 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: transform 0.3s ease;
+  transition: transform var(--transition-normal);
   -webkit-tap-highlight-color: transparent;
 }
 
 .timer-ring-container:hover {
-  transform: scale(1.01);
+  transform: scale(1.02);
 }
 
 .timer-ring-container:active {
-  transform: scale(0.99);
+  transform: scale(0.98);
+}
+
+/* 外发光环 */
+.ring-glow {
+  position: absolute;
+  width: 340px;
+  height: 340px;
+  border-radius: 50%;
+  transition: box-shadow var(--transition-slow);
+  pointer-events: none;
 }
 
 /* 呼吸动画 - 运行中 */
@@ -963,12 +1014,8 @@ onUnmounted(() => {
 }
 
 @keyframes timer-breathe {
-  0%, 100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.015);
-  }
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02); }
 }
 
 /* 暂停状态 - 微弱闪烁 */
@@ -977,12 +1024,8 @@ onUnmounted(() => {
 }
 
 @keyframes timer-paused-pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.85;
-  }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
 }
 
 /* SVG 进度环 */
@@ -995,9 +1038,7 @@ onUnmounted(() => {
 }
 
 .progress-ring {
-  transition: stroke-dashoffset 0.5s ease, stroke 0.5s ease;
-  filter: none;
-  transition: stroke-dashoffset 0.3s linear, stroke 0.5s ease, filter 0.5s ease;
+  transition: stroke-dashoffset 0.3s linear, stroke var(--transition-slow), filter var(--transition-slow);
 }
 
 /* 中心内容 */
@@ -1007,44 +1048,45 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  width: 260px;
-  height: 260px;
+  gap: 10px;
+  width: 280px;
+  height: 280px;
   justify-content: center;
 }
 
 .timer-digits {
-  font-size: 4.5rem;
+  font-size: 5rem;
   font-weight: 200;
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
   line-height: 1;
-  transition: color 0.5s ease;
+  transition: color var(--transition-slow);
   user-select: none;
+  text-shadow: 0 0 40px var(--accent-dim);
 }
 
 .timer-status-badge {
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 600;
-  padding: 3px 10px;
-  border-radius: 20px;
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
   letter-spacing: 0.05em;
 }
 
 .paused-badge {
   color: var(--text-secondary);
-  background: var(--hover-bg);
+  background: var(--surface);
   border: 1px solid var(--border);
   animation: badge-pulse 2s ease-in-out infinite;
 }
 
 @keyframes badge-pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+  50% { opacity: 0.5; }
 }
 
 .timer-status-hint {
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   color: var(--text-tertiary);
   letter-spacing: 0.03em;
 }
@@ -1053,13 +1095,13 @@ onUnmounted(() => {
 .pomodoro-indicators {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 4px;
+  gap: 10px;
+  margin-top: 8px;
 }
 
 .pomodoro-dot {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -1067,20 +1109,30 @@ onUnmounted(() => {
   border: 1.5px solid var(--border);
   background: transparent;
   color: var(--text-tertiary);
-  transition: all 0.4s ease;
+  transition: all var(--transition-normal);
   opacity: 0.4;
+  font-size: 0.7rem;
+}
+
+.dot-number {
+  font-weight: 600;
 }
 
 .pomodoro-dot.filled {
   opacity: 1;
   border-color: transparent;
   color: white;
-  box-shadow: 0 0 8px var(--btn-color, rgba(88, 166, 255, 0.3));
 }
 
 .pomodoro-dot.current {
   opacity: 0.7;
   border-style: dashed;
+  animation: dot-pulse 2s ease-in-out infinite;
+}
+
+@keyframes dot-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
 }
 
 /* ---- 控制按钮 ---- */
@@ -1089,112 +1141,155 @@ onUnmounted(() => {
   align-items: center;
   gap: 20px;
   margin-top: 12px;
+  margin-bottom: 4px;
+  padding: 12px 24px;
+  border-radius: var(--radius-xl);
 }
 
 .control-btn {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   border: none;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all var(--transition-normal);
   -webkit-tap-highlight-color: transparent;
+  gap: 6px;
+}
+
+.control-label {
+  font-size: 0.7rem;
+  color: var(--text-tertiary);
+  letter-spacing: 0.02em;
+  font-weight: 500;
 }
 
 .secondary-btn {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
+  width: 60px;
+  height: 60px;
+  border-radius: var(--radius-lg);
   background: var(--surface);
   color: var(--text-secondary);
   border: 1px solid var(--border);
 }
 
 .secondary-btn:hover:not(:disabled) {
-  background: var(--hover-bg);
+  background: var(--surface-hover);
   color: var(--text);
   border-color: var(--text-tertiary);
-  transform: scale(1.05);
+  transform: translateY(-2px);
 }
 
 .secondary-btn:active:not(:disabled) {
-  transform: scale(0.95);
+  transform: translateY(0) scale(0.95);
 }
 
 .secondary-btn:disabled {
-  opacity: 0.3;
+  opacity: 0.25;
   cursor: not-allowed;
 }
 
+.secondary-btn:disabled .control-label {
+  opacity: 0.5;
+}
+
 .primary-btn {
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
+  width: 88px;
+  height: 88px;
+  border-radius: 28px;
   background: var(--btn-color, var(--accent));
   color: white;
   box-shadow:
-    0 4px 16px var(--btn-glow, rgba(88, 166, 255, 0.25)),
-    0 0 0 0 var(--btn-glow, rgba(88, 166, 255, 0.25));
-  transition: all 0.3s ease;
+    0 4px 24px var(--btn-glow, rgba(88, 166, 255, 0.3)),
+    0 0 0 0 var(--btn-glow, rgba(88, 166, 255, 0.2));
+  transition: all var(--transition-normal);
 }
 
 .primary-btn:hover {
-  transform: scale(1.08);
+  transform: translateY(-3px) scale(1.05);
   box-shadow:
-    0 6px 24px var(--btn-glow, rgba(88, 166, 255, 0.35)),
-    0 0 0 4px var(--btn-glow, rgba(88, 166, 255, 0.1));
+    0 8px 32px var(--btn-glow, rgba(88, 166, 255, 0.4)),
+    0 0 0 8px var(--btn-glow, rgba(88, 166, 255, 0.1));
 }
 
 .primary-btn:active {
-  transform: scale(0.95);
+  transform: translateY(0) scale(0.95);
   box-shadow:
-    0 2px 8px var(--btn-glow, rgba(88, 166, 255, 0.2)),
+    0 2px 12px var(--btn-glow, rgba(88, 166, 255, 0.2)),
     0 0 0 0 var(--btn-glow, rgba(88, 166, 255, 0.2));
 }
 
-/* 运行中主按钮脉冲 */
-.primary-btn:active {
-  animation: none;
+.primary-btn .control-label {
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 600;
+}
+
+/* 运行中状态 */
+.primary-btn.is-running {
+  animation: primary-pulse 2s ease-in-out infinite;
+}
+
+@keyframes primary-pulse {
+  0%, 100% {
+    box-shadow:
+      0 4px 24px var(--btn-glow, rgba(88, 166, 255, 0.3)),
+      0 0 0 0 var(--btn-glow, rgba(88, 166, 255, 0.2));
+  }
+  50% {
+    box-shadow:
+      0 6px 32px var(--btn-glow, rgba(88, 166, 255, 0.5)),
+      0 0 0 10px var(--btn-glow, rgba(88, 166, 255, 0.05));
+  }
 }
 
 /* ---- 底部统计 ---- */
 .timer-footer {
   position: absolute;
-  bottom: 0;
+  bottom: 8px;
   left: 0;
   right: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 32px;
-  padding: 24px 32px;
+  gap: 12px;
+  padding: 12px 24px;
 }
 
-.stat-item {
+.stat-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: var(--radius-lg);
+}
+
+.stat-icon-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+}
+
+.stat-info {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 4px;
+  gap: 2px;
 }
 
 .stat-value {
-  font-size: 1.1rem;
-  font-weight: 600;
+  font-size: 1rem;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--text);
-  transition: color 0.5s ease;
+  line-height: 1;
 }
 
 .stat-label {
   font-size: 0.7rem;
   color: var(--text-tertiary);
-  letter-spacing: 0.03em;
-}
-
-.stat-divider {
-  width: 1px;
-  height: 28px;
-  background: var(--border);
+  letter-spacing: 0.02em;
 }
 
 /* ---- 庆祝动画 ---- */
@@ -1260,11 +1355,11 @@ onUnmounted(() => {
 /* ---- 响应式 ---- */
 @media (max-width: 640px) {
   .timer-content {
-    padding: 16px 20px;
+    padding: 12px 16px;
   }
 
   .timer-header {
-    padding: 16px 20px;
+    padding: 12px 16px;
   }
 
   .current-task-btn {
@@ -1279,31 +1374,37 @@ onUnmounted(() => {
   }
 
   .timer-digits {
-    font-size: 3.5rem;
+    font-size: 4rem;
   }
 
   .timer-center-content {
-    width: 200px;
-    height: 200px;
+    width: 240px;
+    height: 240px;
+  }
+
+  .ring-glow {
+    width: 300px;
+    height: 300px;
   }
 
   .primary-btn {
-    width: 64px;
-    height: 64px;
+    width: 72px;
+    height: 72px;
+    border-radius: 24px;
   }
 
   .secondary-btn {
-    width: 44px;
-    height: 44px;
+    width: 52px;
+    height: 52px;
   }
 
   .timer-footer {
-    gap: 20px;
-    padding: 20px;
+    gap: 8px;
+    padding: 8px 16px;
   }
 
-  .stat-value {
-    font-size: 1rem;
+  .stat-card {
+    padding: 8px 12px;
   }
 
   .pomodoro-indicators {
@@ -1311,19 +1412,24 @@ onUnmounted(() => {
   }
 
   .pomodoro-dot {
-    width: 24px;
-    height: 24px;
+    width: 28px;
+    height: 28px;
   }
 }
 
 @media (max-width: 380px) {
   .timer-digits {
-    font-size: 2.8rem;
+    font-size: 3.2rem;
   }
 
   .timer-center-content {
-    width: 160px;
-    height: 160px;
+    width: 200px;
+    height: 200px;
+  }
+
+  .ring-glow {
+    width: 260px;
+    height: 260px;
   }
 }
 </style>

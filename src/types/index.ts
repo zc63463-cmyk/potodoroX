@@ -152,3 +152,6 @@ export interface SortOption {
   field: SortField
   order: SortOrder
 }
+
+/** Toast 通知类型 */
+export type ToastType = 'success' | 'error' | 'warning' | 'info'

@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
@@ -16,11 +17,24 @@ export default defineConfig({
     },
   },
 
+  // 测试配置
+  test: {
+    environment: 'happy-dom',
+    globals: true,
+    include: ['src/**/*.test.ts'],
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.ts'],
+      exclude: ['src/**/*.test.ts', 'src/types/**', 'src/**/*.d.ts'],
+    },
+  },
+
   // Tauri 开发服务器配置
   // 需要固定端口，以便 Tauri 知道向哪里发送请求
   server: {
     port: 1420,
     strictPort: true,
+    host: true,
     watch: {
       // 告知 vite 监听 `src` 目录以外的文件变化
       ignored: ['**/src-tauri/**'],

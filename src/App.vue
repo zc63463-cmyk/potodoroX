@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { onMounted, computed } from 'vue'
+import { onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore } from '@/stores/settings'
 import { useKeyboard } from '@/composables/useKeyboard'
+import ToastContainer from '@/components/ToastContainer.vue'
+import GlobalSearch from '@/components/GlobalSearch.vue'
 import type { ViewName } from '@/types'
 
 const router = useRouter()
@@ -11,13 +13,13 @@ const route = useRoute()
 const appStore = useAppStore()
 const settingsStore = useSettingsStore()
 
-// ---- 侧边栏导航配置 ----
+// ---- 底部导航配置 ----
 const navItems = [
-  { name: 'timer' as ViewName, path: '/', label: '计时器', icon: '⏱️', shortcut: 'Ctrl+1' },
-  { name: 'tasks' as ViewName, path: '/tasks', label: '任务', icon: '📋', shortcut: 'Ctrl+2' },
-  { name: 'reflections' as ViewName, path: '/reflections', label: '反思', icon: '💭', shortcut: 'Ctrl+3' },
-  { name: 'stats' as ViewName, path: '/stats', label: '统计', icon: '📊', shortcut: 'Ctrl+4' },
-  { name: 'settings' as ViewName, path: '/settings', label: '设置', icon: '⚙️', shortcut: 'Ctrl+5' },
+  { name: 'timer' as ViewName, path: '/', label: '专注', icon: 'focus', shortcut: 'Ctrl+1' },
+  { name: 'tasks' as ViewName, path: '/tasks', label: '任务', icon: 'tasks', shortcut: 'Ctrl+2' },
+  { name: 'reflections' as ViewName, path: '/reflections', label: '反思', icon: 'journal', shortcut: 'Ctrl+3' },
+  { name: 'stats' as ViewName, path: '/stats', label: '统计', icon: 'stats', shortcut: 'Ctrl+4' },
+  { name: 'settings' as ViewName, path: '/settings', label: '设置', icon: 'settings', shortcut: 'Ctrl+5' },
 ]
 
 /** 当前激活的导航项 */
@@ -48,89 +50,100 @@ useKeyboard({
 
 // ---- 初始化 ----
 onMounted(async () => {
-  // 加载设置
   await settingsStore.loadSettings()
-  // 同步当前视图状态
   const currentNav = navItems.find((item) => item.path === route.path)
   if (currentNav) {
     appStore.navigateTo(currentNav.name)
   }
 })
+
+// ---- SVG 图标渲染函数 ----
+function renderIcon(name: string, active: boolean) {
+  const color = active ? 'currentColor' : 'currentColor'
+  const opacity = active ? '1' : '0.5'
+
+  switch (name) {
+    case 'focus':
+      return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`
+    case 'tasks':
+      return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>`
+    case 'journal':
+      return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`
+    case 'stats':
+      return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>`
+    case 'settings':
+      return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.67 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.67a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>`
+    default:
+      return ''
+  }
+}
 </script>
 
 <template>
   <div class="app-container">
-    <!-- 侧边栏 -->
-    <aside
-      class="sidebar"
-      :class="{ collapsed: appStore.sidebarCollapsed }"
-    >
-      <!-- Logo / 标题 -->
-      <div class="sidebar-header">
-        <span v-if="!appStore.sidebarCollapsed" class="sidebar-title">
-          PomodoroX
+    <!-- 顶部栏 -->
+    <header class="top-bar">
+      <div class="top-bar-left">
+        <span class="app-logo">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" stroke="var(--accent)" stroke-width="2"/>
+            <circle cx="12" cy="12" r="3" fill="var(--accent)"/>
+            <path d="M12 2v4M12 18v4M2 12h4M18 12h4" stroke="var(--accent)" stroke-width="1.5" opacity="0.5"/>
+          </svg>
         </span>
-        <span v-else class="sidebar-title-short">PX</span>
+        <span class="app-title">PomodoroX</span>
       </div>
-
-      <!-- 导航菜单 -->
-      <nav class="sidebar-nav">
+      <div class="top-bar-right">
         <button
-          v-for="item in navItems"
-          :key="item.name"
-          class="nav-item"
-          :class="{ active: activeNav.name === item.name }"
-          :title="appStore.sidebarCollapsed ? `${item.label} (${item.shortcut})` : undefined"
-          @click="navigateTo(item.name)"
+          class="search-trigger"
+          title="全局搜索 (Ctrl+K)"
+          @click="appStore.toggleGlobalSearch()"
         >
-          <span class="nav-icon">{{ item.icon }}</span>
-          <span v-if="!appStore.sidebarCollapsed" class="nav-label">{{ item.label }}</span>
-        </button>
-      </nav>
-
-      <!-- 底部操作 -->
-      <div class="sidebar-footer">
-        <!-- 在线/离线状态 -->
-        <div class="status-indicator" :title="appStore.isOnline ? '在线' : '离线'">
-          <span class="status-dot" :class="{ online: appStore.isOnline, offline: !appStore.isOnline }" />
-          <span v-if="!appStore.sidebarCollapsed" class="status-text">
-            {{ appStore.isOnline ? '在线' : '离线' }}
-          </span>
-        </div>
-
-        <!-- 同步状态 -->
-        <div
-          v-if="appStore.hasPendingSync"
-          class="sync-indicator"
-          title="有待同步的数据"
-        >
-          <span class="sync-icon">↻</span>
-          <span v-if="!appStore.sidebarCollapsed" class="sync-text">
-            {{ appStore.syncStatus.pendingCount }} 项待同步
-          </span>
-        </div>
-
-        <!-- 折叠按钮 -->
-        <button
-          class="collapse-btn"
-          :title="appStore.sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'"
-          @click="appStore.toggleSidebar()"
-        >
-          <span>{{ appStore.sidebarCollapsed ? '»' : '«' }}</span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <span class="search-hint">Ctrl K</span>
         </button>
       </div>
-    </aside>
+    </header>
 
     <!-- 主内容区 -->
     <main class="main-content">
-      <router-view />
+      <router-view v-slot="{ Component }">
+        <Transition name="page" mode="out-in">
+          <component :is="Component" />
+        </Transition>
+      </router-view>
     </main>
+
+    <!-- 底部导航栏 -->
+    <nav class="bottom-nav">
+      <button
+        v-for="item in navItems"
+        :key="item.name"
+        class="nav-item"
+        :class="{ active: activeNav.name === item.name }"
+        @click="navigateTo(item.name)"
+      >
+        <span class="nav-icon" v-html="renderIcon(item.icon, activeNav.name === item.name)" />
+        <span class="nav-label">{{ item.label }}</span>
+        <span v-if="activeNav.name === item.name" class="nav-indicator" />
+      </button>
+    </nav>
+
+    <!-- Toast 通知容器 -->
+    <ToastContainer />
+
+    <!-- 全局搜索 -->
+    <GlobalSearch />
   </div>
 </template>
 
 <style scoped>
 .app-container {
   display: flex;
+  flex-direction: column;
   height: 100vh;
   width: 100vw;
   overflow: hidden;
@@ -138,160 +151,74 @@ onMounted(async () => {
   color: var(--text);
 }
 
-/* ---- 侧边栏 ---- */
-.sidebar {
-  width: 240px;
-  min-width: 240px;
-  display: flex;
-  flex-direction: column;
-  background: var(--surface);
-  border-right: 1px solid var(--border);
-  transition: width 0.3s ease, min-width 0.3s ease;
-  overflow: hidden;
-}
-
-.sidebar.collapsed {
-  width: 64px;
-  min-width: 64px;
-}
-
-.sidebar-header {
-  padding: 20px 16px;
-  border-bottom: 1px solid var(--border);
-  text-align: center;
-}
-
-.sidebar-title {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: var(--accent);
-  letter-spacing: -0.02em;
-}
-
-.sidebar-title-short {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: var(--accent);
-}
-
-/* ---- 导航 ---- */
-.sidebar-nav {
-  flex: 1;
-  padding: 12px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.nav-item {
+/* ---- 顶部栏 ---- */
+.top-bar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: 0.9rem;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-  width: 100%;
-  text-align: left;
-}
-
-.nav-item:hover {
-  background: var(--hover-bg);
-  color: var(--text);
-}
-
-.nav-item.active {
-  background: var(--active-bg);
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.nav-icon {
-  font-size: 1.2rem;
+  justify-content: space-between;
+  padding: 12px 20px;
   flex-shrink: 0;
-  width: 24px;
-  text-align: center;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid var(--glass-border);
+  z-index: 50;
 }
 
-.nav-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* ---- 底部 ---- */
-.sidebar-footer {
-  padding: 12px 8px;
-  border-top: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.status-indicator {
+.top-bar-left {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  font-size: 0.8rem;
-  color: var(--text-tertiary);
+  gap: 10px;
 }
 
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.status-dot.online {
-  background: #3fb950;
-  box-shadow: 0 0 6px rgba(63, 185, 80, 0.5);
-}
-
-.status-dot.offline {
-  background: #8b949e;
-}
-
-.sync-indicator {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  font-size: 0.8rem;
-  color: var(--accent);
-}
-
-.sync-icon {
-  animation: spin 2s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.collapse-btn {
+.app-logo {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 8px;
-  border-radius: 8px;
-  border: none;
-  background: transparent;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  font-size: 1rem;
-  transition: all 0.2s ease;
 }
 
-.collapse-btn:hover {
-  background: var(--hover-bg);
+.app-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, var(--accent), #A78BFA);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.top-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.search-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.search-trigger:hover {
+  border-color: var(--accent);
   color: var(--text);
+  background: var(--surface-hover);
+}
+
+.search-hint {
+  font-size: 0.7rem;
+  color: var(--text-tertiary);
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--border);
 }
 
 /* ---- 主内容区 ---- */
@@ -299,5 +226,101 @@ onMounted(async () => {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+  position: relative;
+}
+
+/* ---- 底部导航栏 ---- */
+.bottom-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px));
+  flex-shrink: 0;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-top: 1px solid var(--glass-border);
+  z-index: 50;
+}
+
+.nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  position: relative;
+  border-radius: var(--radius-lg);
+  min-width: 64px;
+}
+
+.nav-item:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.nav-item.active {
+  color: var(--accent);
+}
+
+.nav-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform var(--transition-spring);
+}
+
+.nav-item.active .nav-icon {
+  transform: translateY(-2px);
+}
+
+.nav-label {
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  transition: all var(--transition-fast);
+}
+
+.nav-indicator {
+  position: absolute;
+  bottom: 2px;
+  width: 20px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+/* ---- 页面过渡动画 ---- */
+.page-enter-active,
+.page-leave-active {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-12px);
+}
+
+/* ---- 响应式 ---- */
+@media (min-width: 1024px) {
+  .bottom-nav {
+    padding: 10px 32px calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .nav-item {
+    padding: 8px 24px;
+    min-width: 80px;
+  }
 }
 </style>

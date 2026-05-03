@@ -4,7 +4,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { SyncStatus, ViewName } from '@/types'
+import type { SyncStatus, ViewName, ToastType } from '@/types'
 
 export const useAppStore = defineStore('app', () => {
   // ---- 状态 ----
@@ -29,6 +29,12 @@ export const useAppStore = defineStore('app', () => {
 
   /** 是否显示模态框 */
   const modalOpen = ref(false)
+
+  /** Toast 通知列表 */
+  const toasts = ref<Array<{ id: string; message: string; type: ToastType }>>([])
+
+  /** Toast ID 计数器 */
+  let toastIdCounter = 0
 
   // ---- 计算属性 ----
   /** 侧边栏宽度 */
@@ -78,6 +84,24 @@ export const useAppStore = defineStore('app', () => {
     modalOpen.value = false
   }
 
+  /** 显示 Toast 通知 */
+  function showToast(message: string, type: ToastType = 'info', duration = 3000) {
+    const id = `toast-${++toastIdCounter}`
+    toasts.value.push({ id, message, type })
+
+    setTimeout(() => {
+      removeToast(id)
+    }, duration)
+  }
+
+  /** 移除 Toast */
+  function removeToast(id: string) {
+    const index = toasts.value.findIndex((t) => t.id === id)
+    if (index !== -1) {
+      toasts.value.splice(index, 1)
+    }
+  }
+
   // ---- 初始化 ----
   // 监听在线/离线事件
   if (typeof window !== 'undefined') {
@@ -93,6 +117,7 @@ export const useAppStore = defineStore('app', () => {
     syncStatus,
     showGlobalSearch,
     modalOpen,
+    toasts,
     // 计算属性
     sidebarWidth,
     hasPendingSync,
@@ -105,5 +130,7 @@ export const useAppStore = defineStore('app', () => {
     closeGlobalSearch,
     openModal,
     closeModal,
+    showToast,
+    removeToast,
   }
 })

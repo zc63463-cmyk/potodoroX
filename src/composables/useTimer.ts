@@ -1,17 +1,15 @@
 // ============================================================
 // PomodoroX - 计时器 Composable
 // 基于时间戳的计时方案，处理后台节流
+//
+// ⚠️ 已废弃：请使用 useTimerStore (stores/timer.ts) 代替
+// 本 composable 仅保留作为参考，不在任何视图中使用
 // ============================================================
 
 import { ref, computed, onUnmounted } from 'vue'
 import type { SessionType } from '@/types'
 import { TIMER_INTERVAL_MS } from '@/utils/constants'
 import { playFocusStart, playBreakStart, playSessionComplete } from './useAudio'
-
-/** 检测是否在 Tauri 环境中 */
-function isTauriAvailable(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
-}
 
 export function useTimer() {
   // ---- 响应式状态 ----
@@ -98,9 +96,6 @@ export function useTimer() {
 
     // 监听页面可见性变化
     document.addEventListener('visibilitychange', handleVisibilityChange)
-
-    // 通知 Tauri Rust 端
-    notifyTauriStart(durationSeconds, type)
   }
 
   /**
@@ -122,7 +117,6 @@ export function useTimer() {
     }
 
     document.removeEventListener('visibilitychange', handleVisibilityChange)
-    notifyTauriStop()
   }
 
   /**
@@ -141,7 +135,6 @@ export function useTimer() {
     timerInterval = setInterval(tick, TIMER_INTERVAL_MS)
 
     document.addEventListener('visibilitychange', handleVisibilityChange)
-    notifyTauriStart(Math.ceil(remaining.value), sessionType.value)
   }
 
   /**
@@ -174,9 +167,6 @@ export function useTimer() {
     const newRemaining = Math.max(0, (targetEndTime - now) / 1000)
     remaining.value = newRemaining
 
-    // 通知 Tauri 端
-    notifyTauriTick(newRemaining)
-
     // 检查是否完成
     if (newRemaining <= 0) {
       handleComplete()
@@ -206,7 +196,6 @@ export function useTimer() {
     }
     isRunning.value = false
     document.removeEventListener('visibilitychange', handleVisibilityChange)
-    notifyTauriStop()
   }
 
   /**
@@ -223,45 +212,6 @@ export function useTimer() {
       if (newRemaining <= 0) {
         handleComplete()
       }
-    }
-  }
-
-  /**
-   * 通知 Tauri Rust 端计时开始
-   */
-  async function notifyTauriStart(duration: number, type: SessionType) {
-    if (!isTauriAvailable()) return
-    try {
-      const { invoke } = await import('@tauri-apps/api/core')
-      await invoke('plugin:timer|start', { duration, sessionType: type })
-    } catch {
-      // Rust 端可能未实现，忽略
-    }
-  }
-
-  /**
-   * 通知 Tauri Rust 端计时 tick
-   */
-  async function notifyTauriTick(rem: number) {
-    if (!isTauriAvailable()) return
-    try {
-      const { invoke } = await import('@tauri-apps/api/core')
-      await invoke('plugin:timer|tick', { remaining: rem })
-    } catch {
-      // 忽略
-    }
-  }
-
-  /**
-   * 通知 Tauri Rust 端计时停止
-   */
-  async function notifyTauriStop() {
-    if (!isTauriAvailable()) return
-    try {
-      const { invoke } = await import('@tauri-apps/api/core')
-      await invoke('plugin:timer|stop')
-    } catch {
-      // 忽略
     }
   }
 

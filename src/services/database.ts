@@ -17,6 +17,7 @@ import type {
 import { generateId } from '@/utils/id'
 import { formatDateTime } from '@/utils/format'
 import { DB_FILENAME } from '@/utils/constants'
+import { isTauriAvailable } from '@/utils/tauri'
 
 // ---- Tauri SQL 插件类型 ----
 type SqlValue = string | number | null | Uint8Array
@@ -24,14 +25,6 @@ type SqlValue = string | number | null | Uint8Array
 interface Database {
   execute(sql: string, bind?: SqlValue[]): Promise<number>
   select<T>(sql: string, bind?: SqlValue[]): Promise<T[]>
-}
-
-// ---- 检测是否在 Tauri 环境中 ----
-function isTauriAvailable(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    '__TAURI_INTERNALS__' in window
-  )
 }
 
 // ============================================================
@@ -205,8 +198,13 @@ class MemoryStore {
   }
 
   async getSessionsByDateRange(start: string, end: string): Promise<Session[]> {
+    const endDate = new Date(end + 'T23:59:59')
+    const startDate = new Date(start + 'T00:00:00')
     return Array.from(this.sessions.values()).filter(
-      (s) => s.startedAt >= start && s.startedAt <= end + ' 23:59:59'
+      (s) => {
+        const d = new Date(s.startedAt)
+        return d >= startDate && d <= endDate
+      }
     )
   }
 

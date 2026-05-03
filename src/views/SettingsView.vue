@@ -228,7 +228,7 @@ async function importData() {
       const data = JSON.parse(text)
 
       if (!data.tasks || !data.reflections || !data.sessions) {
-        alert('无效的备份文件格式')
+        appStore.showToast('无效的备份文件格式', 'error')
         return
       }
 
@@ -266,10 +266,10 @@ async function importData() {
         })
       }
 
-      alert('数据导入成功！请刷新页面查看。')
+      appStore.showToast('数据导入成功！请刷新页面查看', 'success')
     } catch (err) {
       console.error('导入数据失败:', err)
-      alert('导入失败：文件格式不正确')
+      appStore.showToast('导入失败：文件格式不正确', 'error')
     } finally {
       isImporting.value = false
     }
@@ -290,8 +290,8 @@ async function confirmClearData() {
     localStorage.removeItem('pomodorox-settings')
 
     // 提示用户需要手动清除 IndexedDB/SQLite
-    alert('数据已清除。请刷新页面以重新初始化。')
-    window.location.reload()
+    appStore.showToast('数据已清除，页面即将刷新', 'success')
+    setTimeout(() => window.location.reload(), 1500)
   } catch (err) {
     console.error('清除数据失败:', err)
   } finally {
@@ -341,6 +341,10 @@ onMounted(async () => {
 
 <template>
   <div class="settings-view">
+    <!-- 动态背景 -->
+    <div class="bg-orb bg-orb-1" />
+    <div class="bg-orb bg-orb-2" />
+
     <!-- 顶部栏 -->
     <header class="settings-header">
       <h1 class="page-title">应用设置</h1>
@@ -776,14 +780,57 @@ onMounted(async () => {
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+  position: relative;
+}
+
+/* ---- 动态背景 ---- */
+.bg-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+.bg-orb-1 {
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(88, 166, 255, 0.1) 0%, transparent 70%);
+  top: -15%;
+  right: -10%;
+  animation: orb-drift-1 25s ease-in-out infinite;
+}
+
+.bg-orb-2 {
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(136, 100, 255, 0.08) 0%, transparent 70%);
+  bottom: -10%;
+  left: -5%;
+  animation: orb-drift-2 30s ease-in-out infinite;
+}
+
+@keyframes orb-drift-1 {
+  0%, 100% { transform: translate(0, 0); }
+  33% { transform: translate(-30px, 20px); }
+  66% { transform: translate(20px, -15px); }
+}
+
+@keyframes orb-drift-2 {
+  0%, 100% { transform: translate(0, 0); }
+  33% { transform: translate(25px, -20px); }
+  66% { transform: translate(-15px, 15px); }
 }
 
 /* ---- 顶部栏 ---- */
 .settings-header {
   padding: 16px 24px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  border-bottom: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
   flex-shrink: 0;
+  position: relative;
+  z-index: 1;
 }
 
 .page-title {
@@ -803,13 +850,17 @@ onMounted(async () => {
   max-width: 720px;
   width: 100%;
   margin: 0 auto;
+  position: relative;
+  z-index: 1;
 }
 
 /* ---- 设置区块 ---- */
 .settings-section {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  border-radius: 16px;
   overflow: hidden;
 }
 
@@ -821,7 +872,8 @@ onMounted(async () => {
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--text);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--glass-border);
+  box-shadow: 0 1px 0 0 rgba(88, 166, 255, 0.05);
 }
 
 .section-icon {
@@ -852,9 +904,9 @@ onMounted(async () => {
 .form-input {
   padding: 10px 14px;
   font-size: 0.875rem;
-  background: var(--bg);
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   color: var(--text);
   outline: none;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
@@ -862,7 +914,7 @@ onMounted(async () => {
 
 .form-input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--active-bg);
+  box-shadow: 0 0 0 3px var(--accent-glow), 0 0 16px var(--accent-dim);
 }
 
 .form-input::placeholder {
@@ -876,7 +928,7 @@ onMounted(async () => {
 
 .input-with-toggle .form-input {
   flex: 1;
-  border-radius: 8px 0 0 8px;
+  border-radius: 10px 0 0 10px;
   border-right: none;
 }
 
@@ -885,9 +937,9 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   width: 42px;
-  background: var(--bg);
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 0 8px 8px 0;
+  border-radius: 0 10px 10px 0;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s ease;
@@ -917,7 +969,7 @@ onMounted(async () => {
   width: 100%;
   height: 6px;
   border-radius: 3px;
-  background: var(--border);
+  background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--value, 0%), var(--border) var(--value, 0%), var(--border) 100%);
   outline: none;
   cursor: pointer;
 }
@@ -932,11 +984,12 @@ onMounted(async () => {
   cursor: pointer;
   border: 2px solid var(--surface);
   box-shadow: 0 0 0 2px var(--accent);
-  transition: transform 0.15s ease;
+  transition: transform 0.15s ease, box-shadow 0.2s ease;
 }
 
 .form-slider::-webkit-slider-thumb:hover {
-  transform: scale(1.15);
+  transform: scale(1.2);
+  box-shadow: 0 0 0 3px var(--accent), 0 0 12px var(--accent-glow);
 }
 
 .form-slider::-moz-range-thumb {
@@ -947,6 +1000,12 @@ onMounted(async () => {
   cursor: pointer;
   border: 2px solid var(--surface);
   box-shadow: 0 0 0 2px var(--accent);
+  transition: transform 0.15s ease, box-shadow 0.2s ease;
+}
+
+.form-slider::-moz-range-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 0 3px var(--accent), 0 0 12px var(--accent-glow);
 }
 
 .slider-labels {
@@ -975,7 +1034,7 @@ onMounted(async () => {
   width: 36px;
   height: 36px;
   border: 1px solid var(--border);
-  background: var(--bg);
+  background: var(--surface);
   color: var(--text);
   font-size: 1.1rem;
   cursor: pointer;
@@ -983,16 +1042,17 @@ onMounted(async () => {
 }
 
 .number-btn:first-child {
-  border-radius: 8px 0 0 8px;
+  border-radius: 10px 0 0 10px;
 }
 
 .number-btn:last-child {
-  border-radius: 0 8px 8px 0;
+  border-radius: 0 10px 10px 0;
 }
 
 .number-btn:hover:not(:disabled) {
   background: var(--hover-bg);
   color: var(--accent);
+  border-color: var(--accent);
 }
 
 .number-btn:disabled {
@@ -1008,7 +1068,7 @@ onMounted(async () => {
   height: 36px;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
-  background: var(--bg);
+  background: var(--surface);
   font-size: 1rem;
   font-weight: 600;
   color: var(--text);
@@ -1041,34 +1101,35 @@ onMounted(async () => {
 
 .toggle-switch {
   position: relative;
-  width: 44px;
-  height: 24px;
-  border-radius: 12px;
+  width: 48px;
+  height: 26px;
+  border-radius: 13px;
   border: none;
   background: var(--border);
   cursor: pointer;
-  transition: background 0.2s ease;
+  transition: background 0.3s ease, box-shadow 0.3s ease;
   flex-shrink: 0;
 }
 
 .toggle-switch.active {
   background: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
 }
 
 .toggle-knob {
   position: absolute;
   top: 3px;
   left: 3px;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: #fff;
-  transition: transform 0.2s ease;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
 .toggle-switch.active .toggle-knob {
-  transform: translateX(20px);
+  transform: translateX(22px);
 }
 
 /* ---- 按钮 ---- */
@@ -1082,7 +1143,7 @@ onMounted(async () => {
   align-items: center;
   gap: 6px;
   padding: 9px 20px;
-  border-radius: 8px;
+  border-radius: 10px;
   border: none;
   background: var(--accent);
   color: #fff;
@@ -1090,15 +1151,19 @@ onMounted(async () => {
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
+  box-shadow: 0 0 16px var(--accent-glow);
 }
 
 .btn-primary:hover:not(:disabled) {
-  opacity: 0.9;
+  opacity: 0.95;
+  box-shadow: 0 0 24px var(--accent-glow);
+  transform: translateY(-1px);
 }
 
 .btn-primary:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 .btn-secondary {
@@ -1106,20 +1171,23 @@ onMounted(async () => {
   align-items: center;
   gap: 6px;
   padding: 9px 20px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: transparent;
+  border-radius: 10px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
   color: var(--text-secondary);
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
+  backdrop-filter: blur(10px);
 }
 
 .btn-secondary:hover:not(:disabled) {
   background: var(--hover-bg);
   color: var(--text);
-  border-color: var(--text-tertiary);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
+  transform: translateY(-1px);
 }
 
 .btn-secondary:disabled {
@@ -1132,18 +1200,22 @@ onMounted(async () => {
   align-items: center;
   gap: 6px;
   padding: 9px 20px;
-  border-radius: 8px;
-  border: 1px solid #F85149;
-  background: transparent;
-  color: #F85149;
+  border-radius: 10px;
+  border: 1px solid rgba(248, 81, 73, 0.4);
+  background: rgba(248, 81, 73, 0.08);
+  color: var(--danger);
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
+  backdrop-filter: blur(10px);
 }
 
 .btn-danger:hover:not(:disabled) {
-  background: rgba(248, 81, 73, 0.1);
+  background: rgba(248, 81, 73, 0.15);
+  border-color: rgba(248, 81, 73, 0.6);
+  box-shadow: 0 0 12px rgba(248, 81, 73, 0.2);
+  transform: translateY(-1px);
 }
 
 .btn-danger:disabled {
@@ -1163,20 +1235,20 @@ onMounted(async () => {
 /* ---- 结果消息 ---- */
 .result-message {
   padding: 10px 14px;
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: 0.8rem;
   line-height: 1.5;
 }
 
 .result-message.success {
-  background: rgba(63, 185, 80, 0.1);
-  color: #3FB950;
+  background: rgba(63, 185, 80, 0.08);
+  color: var(--success);
   border: 1px solid rgba(63, 185, 80, 0.2);
 }
 
 .result-message.error {
-  background: rgba(248, 81, 73, 0.1);
-  color: #F85149;
+  background: rgba(248, 81, 73, 0.08);
+  color: var(--danger);
   border: 1px solid rgba(248, 81, 73, 0.2);
 }
 
@@ -1212,22 +1284,27 @@ onMounted(async () => {
 
 .theme-card {
   position: relative;
-  border: 2px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
   overflow: hidden;
   cursor: pointer;
-  transition: all 0.2s ease;
-  background: transparent;
+  transition: all 0.3s ease;
+  background: var(--glass-bg);
+  backdrop-filter: blur(10px);
   text-align: left;
   padding: 0;
+  box-shadow: var(--glass-shadow);
 }
 
 .theme-card:hover {
-  border-color: var(--text-tertiary);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15), 0 0 16px var(--accent-glow);
+  border-color: var(--accent);
 }
 
 .theme-card.active {
   border-color: var(--accent);
+  box-shadow: 0 0 20px var(--accent-glow), 0 4px 16px rgba(0, 0, 0, 0.1);
 }
 
 .theme-preview {
@@ -1263,7 +1340,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  background: var(--bg);
+  background: var(--surface);
 }
 
 .theme-label {
@@ -1289,6 +1366,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 0 8px var(--accent-glow);
 }
 
 /* ---- 数据库信息 ---- */
@@ -1303,9 +1381,12 @@ onMounted(async () => {
   flex-direction: column;
   gap: 2px;
   padding: 12px 18px;
-  background: var(--bg);
-  border-radius: 8px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
   min-width: 100px;
+  box-shadow: var(--glass-shadow);
 }
 
 .db-info-label {
@@ -1317,6 +1398,7 @@ onMounted(async () => {
   font-size: 1.25rem;
   font-weight: 700;
   color: var(--text);
+  text-shadow: 0 0 12px var(--accent-glow);
 }
 
 .data-actions {
@@ -1342,13 +1424,14 @@ onMounted(async () => {
   font-size: 1.3rem;
   font-weight: 700;
   color: var(--accent);
+  text-shadow: 0 0 16px var(--accent-glow);
 }
 
 .about-version {
   font-size: 0.8rem;
   color: var(--text-tertiary);
   padding: 2px 8px;
-  background: var(--bg);
+  background: var(--surface);
   border-radius: 4px;
 }
 
@@ -1367,7 +1450,7 @@ onMounted(async () => {
 .tech-tag {
   padding: 4px 10px;
   border-radius: 6px;
-  background: var(--bg);
+  background: var(--surface);
   border: 1px solid var(--border);
   font-size: 0.75rem;
   color: var(--text-secondary);
@@ -1378,26 +1461,29 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  border-radius: 8px;
-  background: var(--bg);
-  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
   color: var(--text-secondary);
   font-size: 0.85rem;
   text-decoration: none;
   transition: all 0.2s ease;
+  backdrop-filter: blur(10px);
   width: fit-content;
 }
 
 .about-link:hover {
   border-color: var(--accent);
   color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
 }
 
 /* ---- 模态框 ---- */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1405,13 +1491,15 @@ onMounted(async () => {
 }
 
 .modal-content {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), 0 24px 48px rgba(0, 0, 0, 0.3);
+  border-radius: 16px;
   padding: 24px;
   width: 440px;
   max-width: 90vw;
-  animation: bounce-in 0.2s ease-out;
+  animation: bounce-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .modal-title {
@@ -1436,7 +1524,7 @@ onMounted(async () => {
 
 .modal-btn {
   padding: 8px 20px;
-  border-radius: 8px;
+  border-radius: 10px;
   border: none;
   font-size: 0.875rem;
   font-weight: 500;
@@ -1446,22 +1534,25 @@ onMounted(async () => {
 
 .modal-btn.cancel {
   background: transparent;
-  border: 1px solid var(--border);
+  border: 1px solid var(--glass-border);
   color: var(--text-secondary);
 }
 
 .modal-btn.cancel:hover {
   background: var(--hover-bg);
   color: var(--text);
+  border-color: var(--accent);
 }
 
 .modal-btn.danger {
-  background: #F85149;
-  color: #fff;
+  background: rgba(248, 81, 73, 0.15);
+  color: var(--danger);
+  border: 1px solid rgba(248, 81, 73, 0.4);
 }
 
 .modal-btn.danger:hover:not(:disabled) {
-  opacity: 0.9;
+  background: rgba(248, 81, 73, 0.25);
+  box-shadow: 0 0 16px rgba(248, 81, 73, 0.2);
 }
 
 .modal-btn.danger:disabled {
@@ -1472,7 +1563,7 @@ onMounted(async () => {
 /* ---- 过渡动画 ---- */
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.2s ease;
+  transition: opacity 0.25s ease;
 }
 
 .fade-enter-from,
@@ -1483,7 +1574,7 @@ onMounted(async () => {
 @keyframes bounce-in {
   0% {
     opacity: 0;
-    transform: scale(0.95);
+    transform: scale(0.9);
   }
   100% {
     opacity: 1;

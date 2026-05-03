@@ -1116,7 +1116,8 @@ onUnmounted(() => {
 
 <style scoped>
 /* ============================================================
-   TasksView - 任务管理视图
+   TasksView - Focus Flow Design System
+   玻璃拟态 + 动态背景 + 现代交互
    ============================================================ */
 
 /* ---- 主容器 ---- */
@@ -1143,6 +1144,7 @@ onUnmounted(() => {
   border-radius: 50%;
   filter: blur(100px);
   opacity: 0.4;
+  pointer-events: none;
 }
 
 .bg-orb-1 {
@@ -1188,8 +1190,15 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 28px 12px;
+  padding: 16px 24px;
   flex-shrink: 0;
+  margin: 16px 28px 8px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow);
 }
 
 .header-left {
@@ -1234,17 +1243,18 @@ onUnmounted(() => {
   width: 220px;
   padding: 7px 32px 7px 32px;
   font-size: 0.85rem;
-  border-radius: 8px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--glass-bg);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--glass-border);
   color: var(--text);
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
 }
 
 .search-input:focus {
   width: 280px;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--active-bg);
+  box-shadow: 0 0 0 3px var(--active-bg), 0 0 15px var(--accent-glow);
 }
 
 .search-input::placeholder {
@@ -1264,7 +1274,7 @@ onUnmounted(() => {
   color: var(--text-tertiary);
   cursor: pointer;
   border-radius: 4px;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast);
 }
 
 .search-clear:hover {
@@ -1278,20 +1288,21 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   padding: 8px 16px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   border: none;
   background: var(--accent);
   color: white;
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
   white-space: nowrap;
+  box-shadow: 0 0 15px var(--accent-glow);
 }
 
 .new-task-btn:hover {
-  filter: brightness(1.1);
-  box-shadow: 0 4px 12px rgba(88, 166, 255, 0.3);
+  filter: brightness(1.15);
+  box-shadow: 0 0 25px var(--accent-glow), 0 4px 12px rgba(0, 0, 0, 0.2);
   transform: translateY(-1px);
 }
 
@@ -1304,10 +1315,17 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 28px 12px;
+  padding: 10px 16px;
   flex-shrink: 0;
   gap: 16px;
   flex-wrap: wrap;
+  margin: 0 28px 12px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow);
 }
 
 /* ---- 视图切换标签 ---- */
@@ -1316,9 +1334,12 @@ onUnmounted(() => {
   align-items: center;
   gap: 2px;
   padding: 3px;
-  background: var(--surface);
-  border-radius: 10px;
-  border: 1px solid var(--border);
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
 }
 
 .view-tab {
@@ -1327,13 +1348,13 @@ onUnmounted(() => {
   gap: 6px;
   padding: 6px 14px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--text-secondary);
   font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
   white-space: nowrap;
 }
 
@@ -1345,7 +1366,7 @@ onUnmounted(() => {
 .view-tab.active {
   color: white;
   background: var(--accent);
-  box-shadow: 0 2px 8px rgba(88, 166, 255, 0.3);
+  box-shadow: 0 0 12px var(--accent-glow);
 }
 
 /* ---- 筛选栏 ---- */
@@ -1361,20 +1382,23 @@ onUnmounted(() => {
   align-items: center;
   gap: 2px;
   padding: 2px;
-  background: var(--surface);
-  border-radius: 8px;
-  border: 1px solid var(--border);
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
 }
 
 .filter-chip {
   padding: 4px 10px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--text-secondary);
   font-size: 0.75rem;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast);
   white-space: nowrap;
 }
 
@@ -1387,22 +1411,25 @@ onUnmounted(() => {
   color: var(--accent);
   background: var(--active-bg);
   font-weight: 600;
+  box-shadow: 0 0 8px var(--accent-glow);
 }
 
 .filter-select {
   padding: 5px 10px;
   font-size: 0.75rem;
-  border-radius: 6px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--glass-bg);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--glass-border);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast);
   outline: none;
 }
 
 .filter-select:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow);
 }
 
 .sort-btn {
@@ -1411,12 +1438,12 @@ onUnmounted(() => {
   gap: 4px;
   padding: 4px 10px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--text-tertiary);
   font-size: 0.75rem;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast);
   white-space: nowrap;
 }
 
@@ -1430,7 +1457,7 @@ onUnmounted(() => {
 }
 
 .sort-btn svg {
-  transition: transform 0.2s ease;
+  transition: transform var(--transition-fast);
 }
 
 /* ---- 主内容区域 ---- */
@@ -1454,21 +1481,24 @@ onUnmounted(() => {
 
 /* ---- 任务卡片 ---- */
 .task-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  transition: all 0.2s ease;
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow);
+  transition: all var(--transition-fast);
   overflow: hidden;
 }
 
 .task-card:hover {
-  border-color: var(--text-tertiary);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+  border-color: var(--accent-dim);
+  box-shadow: 0 0 20px var(--accent-glow), var(--glass-shadow);
 }
 
 .task-card.expanded {
   border-color: var(--accent);
-  box-shadow: 0 2px 16px rgba(88, 166, 255, 0.1);
+  box-shadow: 0 0 24px var(--accent-glow), var(--glass-shadow);
 }
 
 .task-card.done {
@@ -1476,7 +1506,7 @@ onUnmounted(() => {
 }
 
 .task-card.overdue {
-  border-left: 3px solid #F85149;
+  border-left: 3px solid var(--danger);
 }
 
 /* ---- 任务主行 ---- */
@@ -1486,7 +1516,7 @@ onUnmounted(() => {
   gap: 12px;
   padding: 12px 16px;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: background var(--transition-fast);
 }
 
 .task-row:hover {
@@ -1505,7 +1535,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
   color: transparent;
 }
 
@@ -1515,8 +1545,8 @@ onUnmounted(() => {
 }
 
 .task-checkbox.checked {
-  border-color: #3FB950;
-  background: #3FB950;
+  border-color: var(--success);
+  background: var(--success);
   color: white;
 }
 
@@ -1539,7 +1569,7 @@ onUnmounted(() => {
   width: 100%;
   padding: 4px 8px;
   font-size: 0.9rem;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--bg);
   border: 1px solid var(--accent);
   color: var(--text);
@@ -1550,7 +1580,7 @@ onUnmounted(() => {
 /* ---- 优先级徽章 ---- */
 .priority-badge {
   padding: 2px 8px;
-  border-radius: 12px;
+  border-radius: var(--radius-full);
   font-size: 0.7rem;
   font-weight: 600;
   white-space: nowrap;
@@ -1567,7 +1597,7 @@ onUnmounted(() => {
 
 .tag-chip {
   padding: 2px 8px;
-  border-radius: 12px;
+  border-radius: var(--radius-full);
   font-size: 0.7rem;
   background: var(--active-bg);
   color: var(--accent);
@@ -1597,12 +1627,12 @@ onUnmounted(() => {
   color: var(--text-tertiary);
   cursor: pointer;
   border-radius: 50%;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast);
 }
 
 .tag-remove:hover {
-  color: #F85149;
-  background: rgba(248, 81, 73, 0.15);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
 }
 
 .tag-more {
@@ -1634,11 +1664,11 @@ onUnmounted(() => {
 }
 
 .due-date.overdue {
-  color: #F85149;
+  color: var(--danger);
 }
 
 .due-date.due-soon {
-  color: #F0883E;
+  color: var(--warning);
 }
 
 /* ---- 操作按钮 ---- */
@@ -1647,7 +1677,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 4px;
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--transition-fast);
   flex-shrink: 0;
 }
 
@@ -1663,11 +1693,11 @@ onUnmounted(() => {
   width: 28px;
   height: 28px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast);
 }
 
 .action-btn:hover {
@@ -1676,14 +1706,14 @@ onUnmounted(() => {
 }
 
 .action-btn.delete-btn:hover {
-  background: rgba(248, 81, 73, 0.15);
-  color: #F85149;
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  color: var(--danger);
 }
 
 /* ---- 展开详情 ---- */
 .task-detail {
   padding: 0 16px 16px 48px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--glass-border);
   animation: expand-in 0.2s ease-out;
 }
 
@@ -1727,7 +1757,7 @@ onUnmounted(() => {
 .status-badge {
   display: inline-block;
   padding: 3px 10px;
-  border-radius: 12px;
+  border-radius: var(--radius-full);
   font-size: 0.75rem;
   font-weight: 600;
 }
@@ -1737,7 +1767,7 @@ onUnmounted(() => {
   gap: 16px;
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--glass-border);
   font-size: 0.75rem;
   color: var(--text-tertiary);
 }
@@ -1757,16 +1787,20 @@ onUnmounted(() => {
 .kanban-column {
   display: flex;
   flex-direction: column;
-  background: rgba(22, 27, 34, 0.5);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow);
   overflow: hidden;
 }
 
 .column-header {
   padding: 14px 16px;
   border-top: 3px solid;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--glass-bg) 60%, transparent);
+  backdrop-filter: blur(8px);
   flex-shrink: 0;
 }
 
@@ -1820,17 +1854,20 @@ onUnmounted(() => {
 /* ---- 看板任务卡片 ---- */
 .kanban-task-card {
   padding: 12px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
 }
 
 .kanban-task-card:hover {
-  border-color: var(--text-tertiary);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  transform: translateY(-1px);
+  border-color: var(--accent-dim);
+  box-shadow: 0 0 16px var(--accent-glow), var(--glass-shadow);
+  transform: translateY(-2px);
 }
 
 .kanban-card-header {
@@ -1894,19 +1931,19 @@ onUnmounted(() => {
   gap: 4px;
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--glass-border);
   flex-wrap: wrap;
 }
 
 .kanban-move-btn {
   padding: 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-tertiary);
   font-size: 0.65rem;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast);
   white-space: nowrap;
 }
 
@@ -1914,6 +1951,7 @@ onUnmounted(() => {
   border-color: var(--accent);
   color: var(--accent);
   background: var(--active-bg);
+  box-shadow: 0 0 8px var(--accent-glow);
 }
 
 /* ==================== 日历热力图视图 ==================== */
@@ -1925,9 +1963,12 @@ onUnmounted(() => {
 }
 
 .heatmap-container {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow);
   padding: 24px;
   overflow-x: auto;
 }
@@ -1982,7 +2023,7 @@ onUnmounted(() => {
   height: 15px;
   border-radius: 3px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast);
   outline: 1px solid rgba(255, 255, 255, 0.04);
 }
 
@@ -1992,12 +2033,12 @@ onUnmounted(() => {
 }
 
 .heatmap-cell.future {
-  outline: 1px dashed var(--border);
+  outline: 1px dashed var(--glass-border);
   cursor: default;
 }
 
 .heatmap-cell.future:hover {
-  outline: 1px dashed var(--border);
+  outline: 1px dashed var(--glass-border);
   transform: none;
 }
 
@@ -2032,15 +2073,17 @@ onUnmounted(() => {
   position: fixed;
   z-index: 1000;
   padding: 6px 10px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
   font-size: 0.75rem;
   color: var(--text);
   white-space: nowrap;
   pointer-events: none;
   transform: translate(-50%, -100%);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--glass-shadow);
 }
 
 .tooltip-date {
@@ -2058,18 +2101,21 @@ onUnmounted(() => {
 }
 
 .stat-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow);
   padding: 16px;
   text-align: center;
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
 }
 
 .stat-card:hover {
-  border-color: var(--text-tertiary);
+  border-color: var(--accent-dim);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 0 20px var(--accent-glow), var(--glass-shadow);
 }
 
 .stat-card .stat-value {
@@ -2122,19 +2168,20 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   padding: 8px 20px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--accent);
   background: transparent;
   color: var(--accent);
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
 }
 
 .empty-action:hover {
   background: var(--accent);
   color: white;
+  box-shadow: 0 0 20px var(--accent-glow);
 }
 
 /* ==================== 模态框 ==================== */
@@ -2146,7 +2193,8 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   padding: 20px;
 }
 
@@ -2154,12 +2202,14 @@ onUnmounted(() => {
   width: 100%;
   max-width: 560px;
   max-height: 85vh;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-border);
   border-radius: 16px;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--glass-shadow), 0 20px 60px rgba(0, 0, 0, 0.4);
   overflow: hidden;
 }
 
@@ -2172,7 +2222,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 20px 24px 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--glass-border);
   flex-shrink: 0;
 }
 
@@ -2189,11 +2239,11 @@ onUnmounted(() => {
   width: 32px;
   height: 32px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast);
 }
 
 .modal-close:hover {
@@ -2213,7 +2263,7 @@ onUnmounted(() => {
   justify-content: flex-end;
   gap: 10px;
   padding: 16px 24px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--glass-border);
   flex-shrink: 0;
 }
 
@@ -2223,10 +2273,10 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
-  background: rgba(248, 81, 73, 0.1);
-  border: 1px solid rgba(248, 81, 73, 0.3);
-  border-radius: 8px;
-  color: #F85149;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  border-radius: var(--radius-lg);
+  color: var(--danger);
   font-size: 0.85rem;
   margin-bottom: 16px;
 }
@@ -2249,7 +2299,7 @@ onUnmounted(() => {
 }
 
 .required {
-  color: #F85149;
+  color: var(--danger);
 }
 
 .form-input,
@@ -2258,19 +2308,19 @@ onUnmounted(() => {
   width: 100%;
   padding: 8px 12px;
   font-size: 0.85rem;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: var(--bg);
-  border: 1px solid var(--border);
+  border: 1px solid var(--glass-border);
   color: var(--text);
   outline: none;
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
 }
 
 .form-input:focus,
 .form-select:focus,
 .form-textarea:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--active-bg);
+  box-shadow: 0 0 0 3px var(--active-bg), 0 0 15px var(--accent-glow);
 }
 
 .form-textarea {
@@ -2296,16 +2346,16 @@ onUnmounted(() => {
   gap: 6px;
   padding: 6px 8px;
   background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
   min-height: 38px;
   align-items: center;
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
 }
 
 .tags-chips:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--active-bg);
+  box-shadow: 0 0 0 3px var(--active-bg), 0 0 15px var(--accent-glow);
 }
 
 .tag-input {
@@ -2339,13 +2389,13 @@ onUnmounted(() => {
 
 .quick-tag-btn {
   padding: 2px 8px;
-  border: 1px dashed var(--border);
-  border-radius: 12px;
+  border: 1px dashed var(--glass-border);
+  border-radius: var(--radius-full);
   background: transparent;
   color: var(--text-tertiary);
   font-size: 0.7rem;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--transition-fast);
   white-space: nowrap;
 }
 
@@ -2354,23 +2404,24 @@ onUnmounted(() => {
   color: var(--accent);
   border-style: solid;
   background: var(--active-bg);
+  box-shadow: 0 0 8px var(--accent-glow);
 }
 
 /* ---- 按钮 ---- */
 .btn {
   padding: 8px 20px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
   border: none;
 }
 
 .btn-secondary {
   background: var(--bg);
   color: var(--text-secondary);
-  border: 1px solid var(--border);
+  border: 1px solid var(--glass-border);
 }
 
 .btn-secondary:hover {
@@ -2386,17 +2437,17 @@ onUnmounted(() => {
 
 .btn-primary:hover {
   filter: brightness(1.1);
-  box-shadow: 0 4px 12px rgba(88, 166, 255, 0.3);
+  box-shadow: 0 0 20px var(--accent-glow), 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 .btn-danger {
-  background: #F85149;
+  background: var(--danger);
   color: white;
 }
 
 .btn-danger:hover {
   filter: brightness(1.1);
-  box-shadow: 0 4px 12px rgba(248, 81, 73, 0.3);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--danger) 30%, transparent);
 }
 
 .delete-message {
@@ -2409,11 +2460,11 @@ onUnmounted(() => {
 
 /* 视图切换 */
 .view-fade-enter-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: opacity var(--transition-normal), transform var(--transition-normal);
 }
 
 .view-fade-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
 }
 
 .view-fade-enter-from {
@@ -2428,11 +2479,11 @@ onUnmounted(() => {
 
 /* 任务列表项 */
 .task-item-enter-active {
-  transition: all 0.3s ease;
+  transition: all var(--transition-normal);
 }
 
 .task-item-leave-active {
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
 }
 
 .task-item-enter-from {
@@ -2446,16 +2497,16 @@ onUnmounted(() => {
 }
 
 .task-item-move {
-  transition: transform 0.3s ease;
+  transition: transform var(--transition-normal);
 }
 
 /* 看板卡片 */
 .kanban-card-enter-active {
-  transition: all 0.3s ease;
+  transition: all var(--transition-normal);
 }
 
 .kanban-card-leave-active {
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
 }
 
 .kanban-card-enter-from {
@@ -2489,19 +2540,19 @@ onUnmounted(() => {
 
 /* 模态框 */
 .modal-enter-active {
-  transition: opacity 0.25s ease;
+  transition: opacity var(--transition-normal);
 }
 
 .modal-leave-active {
-  transition: opacity 0.2s ease;
+  transition: opacity var(--transition-fast);
 }
 
 .modal-enter-active .modal-panel {
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: all var(--transition-spring);
 }
 
 .modal-leave-active .modal-panel {
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
 }
 
 .modal-enter-from,
@@ -2521,7 +2572,7 @@ onUnmounted(() => {
 
 /* Tooltip */
 .tooltip-enter-active {
-  transition: opacity 0.15s ease;
+  transition: opacity var(--transition-fast);
 }
 
 .tooltip-leave-active {
@@ -2546,7 +2597,8 @@ onUnmounted(() => {
 
 @media (max-width: 768px) {
   .tasks-header {
-    padding: 16px 20px 8px;
+    padding: 12px 16px;
+    margin: 12px 20px 8px;
     flex-direction: column;
     align-items: flex-start;
     gap: 12px;
@@ -2570,7 +2622,8 @@ onUnmounted(() => {
   }
 
   .toolbar {
-    padding: 0 20px 8px;
+    padding: 8px 12px;
+    margin: 0 20px 8px;
     flex-direction: column;
     align-items: flex-start;
   }

@@ -7,11 +7,7 @@ import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import type { AppConfig, ThemeName } from '@/types'
 import { DEFAULT_CONFIG, STORE_FILENAME } from '@/utils/constants'
-
-/** 检测是否在 Tauri 环境中 */
-function isTauriAvailable(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
-}
+import { isTauriAvailable } from '@/utils/tauri'
 
 export const useSettingsStore = defineStore('settings', () => {
   // ---- 状态 ----

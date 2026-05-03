@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useReflectionStore } from '@/stores/reflection'
 import { useTaskStore } from '@/stores/task'
 import type { Mood, Reflection } from '@/types'
@@ -239,6 +239,11 @@ watch(selectedDate, (newDate) => {
   loadReflectionForDate(newDate)
 })
 
+// 内容变化时自动保存
+watch(content, () => {
+  triggerAutoSave()
+})
+
 // ---- 初始化 ----
 onMounted(async () => {
   await Promise.all([
@@ -247,10 +252,22 @@ onMounted(async () => {
   ])
   loadReflectionForDate(selectedDate.value)
 })
+
+// ---- 清理 ----
+onUnmounted(() => {
+  if (autoSaveTimer.value) {
+    clearTimeout(autoSaveTimer.value)
+    autoSaveTimer.value = null
+  }
+})
 </script>
 
 <template>
   <div class="reflections-view">
+    <!-- 动态背景光球 -->
+    <div class="bg-orb bg-orb-1"></div>
+    <div class="bg-orb bg-orb-2"></div>
+
     <!-- 顶部栏 -->
     <header class="reflections-header">
       <div class="header-left">
@@ -483,21 +500,73 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* ============================================================
+   Focus Flow Design System — ReflectionsView
+   ============================================================ */
+
+/* ---- 动态背景光球 ---- */
+@keyframes orb-drift-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(40px, 30px) scale(1.05); }
+  66% { transform: translate(-20px, 50px) scale(0.95); }
+}
+
+@keyframes orb-drift-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-30px, -20px) scale(1.08); }
+  66% { transform: translate(20px, -40px) scale(0.92); }
+}
+
+.bg-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+  opacity: 0.4;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.bg-orb-1 {
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(167,139,250,0.1) 0%, transparent 70%);
+  top: -15%;
+  left: -10%;
+  animation: orb-drift-1 25s ease-in-out infinite;
+}
+
+.bg-orb-2 {
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(88,166,255,0.08) 0%, transparent 70%);
+  bottom: -10%;
+  right: -5%;
+  animation: orb-drift-2 30s ease-in-out infinite;
+}
+
+/* ---- 根容器 ---- */
 .reflections-view {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+  background: var(--bg);
 }
 
-/* ---- 顶部栏 ---- */
+/* ---- 顶部栏 (Glass) ---- */
 .reflections-header {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 24px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  padding: 14px 24px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
   flex-shrink: 0;
   gap: 16px;
 }
@@ -518,18 +587,20 @@ onMounted(async () => {
   align-items: center;
   gap: 6px;
   padding: 8px 16px;
-  border-radius: 8px;
-  border: 1px solid var(--accent);
+  border-radius: 10px;
+  border: 1px solid var(--accent-dim);
   background: transparent;
   color: var(--accent);
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .btn-new:hover {
   background: var(--active-bg);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
 }
 
 .btn-icon {
@@ -543,17 +614,19 @@ onMounted(async () => {
   justify-content: center;
   width: 32px;
   height: 32px;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid var(--border);
-  background: transparent;
+  background: var(--surface);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.25s ease;
 }
 
 .date-nav-btn:hover {
   background: var(--hover-bg);
   color: var(--text);
+  border-color: var(--accent-dim);
+  box-shadow: 0 0 8px var(--accent-glow);
 }
 
 .date-display {
@@ -566,11 +639,18 @@ onMounted(async () => {
   width: 140px;
   padding: 6px 10px;
   font-size: 0.875rem;
-  background: var(--bg);
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   color: var(--text);
   cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.date-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
 .date-text {
@@ -581,12 +661,12 @@ onMounted(async () => {
 
 .save-message {
   font-size: 0.8rem;
-  color: #3FB950;
+  color: var(--success);
   animation: fade-in 0.3s ease-out;
 }
 
 .save-message.error {
-  color: #F85149;
+  color: var(--danger);
 }
 
 .btn-save {
@@ -594,23 +674,24 @@ onMounted(async () => {
   align-items: center;
   gap: 6px;
   padding: 8px 20px;
-  border-radius: 8px;
+  border-radius: 10px;
   border: none;
   background: var(--accent);
   color: #fff;
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .btn-save:hover:not(:disabled) {
-  opacity: 0.9;
+  opacity: 0.92;
   transform: translateY(-1px);
+  box-shadow: 0 4px 14px var(--accent-glow);
 }
 
 .btn-save:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
 }
 
@@ -625,12 +706,16 @@ onMounted(async () => {
 
 /* ---- 主内容区 ---- */
 .reflections-body {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex: 1;
   overflow: hidden;
+  gap: 16px;
+  padding: 16px;
 }
 
-/* ---- 编辑器面板 ---- */
+/* ---- 编辑器面板 (Glass) ---- */
 .editor-panel {
   flex: 1;
   overflow-y: auto;
@@ -638,6 +723,12 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  box-shadow: var(--glass-shadow);
 }
 
 .editor-date-header {
@@ -654,18 +745,20 @@ onMounted(async () => {
 
 .btn-today {
   padding: 4px 12px;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-secondary);
   font-size: 0.8rem;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.25s ease;
 }
 
 .btn-today:hover {
   background: var(--hover-bg);
   color: var(--accent);
+  border-color: var(--accent-dim);
+  box-shadow: 0 0 8px var(--accent-glow);
 }
 
 /* ---- 心情选择器 ---- */
@@ -688,35 +781,63 @@ onMounted(async () => {
 }
 
 .mood-card {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 10px 16px;
-  border-radius: 10px;
-  border: 2px solid transparent;
-  background: var(--bg);
+  border-radius: 12px;
+  border: 1.5px solid transparent;
+  background: linear-gradient(135deg, var(--surface) 0%, var(--bg-elevated) 100%);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   color: var(--text-secondary);
+  overflow: hidden;
+}
+
+.mood-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--mood-bg);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
 }
 
 .mood-card:hover {
   border-color: var(--mood-color, var(--border));
-  background: var(--mood-bg, var(--hover-bg));
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px var(--mood-bg);
+}
+
+.mood-card:hover::before {
+  opacity: 0.6;
 }
 
 .mood-card.active {
   border-color: var(--mood-color, var(--accent));
-  background: var(--mood-bg, var(--active-bg));
+  background: linear-gradient(135deg, var(--mood-bg) 0%, var(--surface) 100%);
   color: var(--mood-color, var(--accent));
+  box-shadow: 0 0 20px var(--mood-bg), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+.mood-card.active::before {
+  opacity: 1;
 }
 
 .mood-emoji {
+  position: relative;
+  z-index: 1;
   font-size: 1.4rem;
   line-height: 1;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.15));
 }
 
 .mood-text {
+  position: relative;
+  z-index: 1;
   font-size: 0.85rem;
   font-weight: 500;
 }
@@ -737,38 +858,48 @@ onMounted(async () => {
 
 .template-btn {
   padding: 6px 14px;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid var(--border);
-  background: transparent;
+  background: var(--surface);
   color: var(--text-secondary);
   font-size: 0.8rem;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .template-btn:hover {
   border-color: var(--accent);
   color: var(--accent);
   background: var(--hover-bg);
+  box-shadow: 0 0 10px var(--accent-glow);
+  transform: translateY(-1px);
 }
 
-/* ---- 编辑区 ---- */
+/* ---- 编辑区 (Premium Writing App) ---- */
 .editor-area {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
   overflow: hidden;
-  background: var(--bg);
+  background: var(--surface);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.editor-area:focus-within {
+  border-color: var(--accent-dim);
+  box-shadow: 0 0 0 2px var(--accent-glow), inset 0 1px 2px rgba(0,0,0,0.05);
 }
 
 .editor-toolbar {
   display: flex;
   gap: 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--glass-border);
   flex-shrink: 0;
+  background: var(--bg-elevated);
 }
 
 .toolbar-btn {
@@ -780,7 +911,7 @@ onMounted(async () => {
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.25s ease;
   border-bottom: 2px solid transparent;
 }
 
@@ -807,10 +938,15 @@ onMounted(async () => {
   resize: none;
   outline: none;
   font-family: inherit;
+  transition: background 0.2s ease;
 }
 
 .reflection-textarea::placeholder {
-  color: var(--text-tertiary);
+  color: var(--text-muted);
+}
+
+.reflection-textarea:focus {
+  background: var(--surface-hover);
 }
 
 .reflection-preview {
@@ -822,20 +958,28 @@ onMounted(async () => {
   color: var(--text-secondary);
 }
 
-/* ---- 右侧边栏 ---- */
+/* ---- 右侧边栏 (Glass) ---- */
 .sidebar-panel {
   width: 300px;
   min-width: 300px;
-  border-left: 1px solid var(--border);
-  background: var(--surface);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  box-shadow: var(--glass-shadow);
 }
 
 .sidebar-section {
   padding: 20px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.sidebar-section:last-child {
+  border-bottom: none;
 }
 
 .section-title {
@@ -851,13 +995,14 @@ onMounted(async () => {
 .section-icon {
   color: var(--accent);
   flex-shrink: 0;
+  filter: drop-shadow(0 0 4px var(--accent-glow));
 }
 
 .empty-hint {
   font-size: 0.8rem;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   text-align: center;
-  padding: 12px 0;
+  padding: 16px 0;
 }
 
 /* ---- 任务链接列表 ---- */
@@ -873,13 +1018,16 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
-  transition: background 0.2s ease;
+  transition: all 0.25s ease;
+  border: 1px solid transparent;
 }
 
 .task-link-item:hover {
   background: var(--hover-bg);
+  border-color: var(--accent-dim);
+  box-shadow: 0 0 10px var(--accent-glow);
 }
 
 .task-status-dot {
@@ -890,15 +1038,17 @@ onMounted(async () => {
 }
 
 .task-status-dot.status-todo {
-  background: #8B949E;
+  background: var(--text-muted);
 }
 
 .task-status-dot.status-progress {
-  background: #58A6FF;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent-glow);
 }
 
 .task-status-dot.status-done {
-  background: #3FB950;
+  background: var(--success);
+  box-shadow: 0 0 6px rgba(63, 185, 80, 0.3);
 }
 
 .task-link-title {
@@ -912,7 +1062,7 @@ onMounted(async () => {
 
 .task-pomo-count {
   font-size: 0.75rem;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 
@@ -927,15 +1077,18 @@ onMounted(async () => {
 .reflection-item {
   position: relative;
   padding: 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
+  border-radius: 10px;
+  border: 1px solid var(--glass-border);
+  background: var(--surface);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .reflection-item:hover {
-  border-color: var(--accent);
+  border-color: var(--accent-dim);
   background: var(--hover-bg);
+  box-shadow: 0 4px 16px var(--accent-glow);
+  transform: translateY(-1px);
 }
 
 .reflection-item:hover .reflection-item-delete {
@@ -957,11 +1110,12 @@ onMounted(async () => {
 
 .reflection-item-mood {
   font-size: 1rem;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));
 }
 
 .reflection-item-preview {
   font-size: 0.8rem;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -978,10 +1132,10 @@ onMounted(async () => {
   justify-content: center;
   width: 24px;
   height: 24px;
-  border-radius: 4px;
+  border-radius: 6px;
   border: none;
   background: transparent;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   cursor: pointer;
   opacity: 0;
   transition: all 0.2s ease;
@@ -989,14 +1143,17 @@ onMounted(async () => {
 
 .reflection-item-delete:hover {
   background: rgba(248, 81, 73, 0.15);
-  color: #F85149;
+  color: var(--danger);
+  box-shadow: 0 0 8px rgba(248, 81, 73, 0.2);
 }
 
 /* ---- 模态框 ---- */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1004,13 +1161,16 @@ onMounted(async () => {
 }
 
 .modal-content {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
   padding: 24px;
   width: 400px;
   max-width: 90vw;
-  animation: bounce-in 0.2s ease-out;
+  box-shadow: 0 24px 48px rgba(0,0,0,0.3);
+  animation: bounce-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .modal-title {
@@ -1035,12 +1195,12 @@ onMounted(async () => {
 
 .modal-btn {
   padding: 8px 20px;
-  border-radius: 8px;
+  border-radius: 10px;
   border: none;
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .modal-btn.cancel {
@@ -1052,15 +1212,18 @@ onMounted(async () => {
 .modal-btn.cancel:hover {
   background: var(--hover-bg);
   color: var(--text);
+  border-color: var(--accent-dim);
 }
 
 .modal-btn.danger {
-  background: #F85149;
+  background: var(--danger);
   color: #fff;
 }
 
 .modal-btn.danger:hover {
-  opacity: 0.9;
+  opacity: 0.92;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(248, 81, 73, 0.3);
 }
 
 /* ---- 过渡动画 ---- */
@@ -1077,7 +1240,7 @@ onMounted(async () => {
 @keyframes bounce-in {
   0% {
     opacity: 0;
-    transform: scale(0.95);
+    transform: scale(0.92);
   }
   100% {
     opacity: 1;
@@ -1094,6 +1257,10 @@ onMounted(async () => {
 @media (max-width: 900px) {
   .sidebar-panel {
     display: none;
+  }
+
+  .reflections-body {
+    padding: 12px;
   }
 }
 
@@ -1121,6 +1288,10 @@ onMounted(async () => {
 
   .editor-panel {
     padding: 16px;
+  }
+
+  .reflections-body {
+    padding: 8px;
   }
 }
 </style>

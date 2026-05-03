@@ -25,6 +25,32 @@ let octokit: Octokit | null = null
 let config: GitHubConfig = { token: '', owner: '', repo: '' }
 
 /**
+ * 将 UTF-8 字符串安全编码为 Base64
+ * 替代已废弃的 btoa(unescape(encodeURIComponent(...))) 方案
+ */
+function utf8ToBase64(str: string): string {
+  const bytes = new TextEncoder().encode(str)
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  return btoa(binary)
+}
+
+/**
+ * 从 Base64 解码为 UTF-8 字符串
+ * 替代已废弃的 decodeURIComponent(escape(atob(...))) 方案
+ */
+function base64ToUtf8(base64: string): string {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return new TextDecoder().decode(bytes)
+}
+
+/**
  * 检测是否在线
  */
 function isOnline(): boolean {
@@ -109,7 +135,7 @@ export async function pushTasks(tasks: Task[], month: string): Promise<SyncResul
       repo: config.repo,
       path,
       message: `sync: 更新 ${month} 任务数据`,
-      content: btoa(unescape(encodeURIComponent(content))),
+      content: utf8ToBase64(content),
       sha,
     })
 
@@ -145,7 +171,7 @@ export async function pullTasks(month: string): Promise<SyncResult & { tasks?: T
     }
 
     if ('content' in response.data) {
-      const content = decodeURIComponent(escape(atob(response.data.content)))
+      const content = base64ToUtf8(response.data.content)
       const tasks = JSON.parse(content) as Task[]
       return { success: true, message: `成功拉取 ${tasks.length} 个任务`, tasks }
     }
@@ -196,7 +222,7 @@ export async function pushReflections(reflections: Reflection[], month: string):
       repo: config.repo,
       path,
       message: `sync: 更新 ${month} 反思数据`,
-      content: btoa(unescape(encodeURIComponent(content))),
+      content: utf8ToBase64(content),
       sha,
     })
 
@@ -242,7 +268,7 @@ export async function pushSessions(sessions: Session[], month: string): Promise<
       repo: config.repo,
       path,
       message: `sync: 更新 ${month} 会话数据`,
-      content: btoa(unescape(encodeURIComponent(content))),
+      content: utf8ToBase64(content),
       sha,
     })
 
@@ -292,7 +318,7 @@ export async function pushMarkdown(
       repo: config.repo,
       path,
       message: `report: 更新报告 ${filename}`,
-      content: btoa(unescape(encodeURIComponent(content))),
+      content: utf8ToBase64(content),
       sha,
     })
 

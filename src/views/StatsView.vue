@@ -74,24 +74,28 @@ const prevDateRange = computed((): [string, string] => {
 /** 当前周期的已完成工作会话 */
 const currentWorkSessions = computed(() => {
   const [start, end] = dateRange.value
+  const endDate = new Date(end + 'T23:59:59')
+  const startDate = new Date(start + 'T00:00:00')
   return allSessions.value.filter(
     (s) =>
       s.type === 'work' &&
       s.completed &&
-      s.startedAt >= start &&
-      s.startedAt <= end + ' 23:59:59'
+      new Date(s.startedAt) >= startDate &&
+      new Date(s.startedAt) <= endDate
   )
 })
 
 /** 上一个周期的已完成工作会话 */
 const prevWorkSessions = computed(() => {
   const [start, end] = prevDateRange.value
+  const endDate = new Date(end + 'T23:59:59')
+  const startDate = new Date(start + 'T00:00:00')
   return allSessions.value.filter(
     (s) =>
       s.type === 'work' &&
       s.completed &&
-      s.startedAt >= start &&
-      s.startedAt <= end + ' 23:59:59'
+      new Date(s.startedAt) >= startDate &&
+      new Date(s.startedAt) <= endDate
   )
 })
 
@@ -146,8 +150,10 @@ const streakDays = computed(() => {
 /** 任务完成率 */
 const taskCompletionRate = computed(() => {
   const [start, end] = dateRange.value
+  const endDate = new Date(end + 'T23:59:59')
+  const startDate = new Date(start + 'T00:00:00')
   const relevantTasks = taskStore.tasks.filter(
-    (t) => t.createdAt >= start && t.createdAt <= end + ' 23:59:59'
+    (t) => new Date(t.createdAt) >= startDate && new Date(t.createdAt) <= endDate
   )
   if (relevantTasks.length === 0) return 0
   const done = relevantTasks.filter((t) => t.status === 'done').length
@@ -336,8 +342,10 @@ async function exportReport() {
   isExporting.value = true
   try {
     const [start, end] = dateRange.value
+    const endDate = new Date(end + 'T23:59:59')
+    const startDate = new Date(start + 'T00:00:00')
     const tasksInRange = taskStore.tasks.filter(
-      (t) => t.createdAt >= start && t.createdAt <= end + ' 23:59:59'
+      (t) => new Date(t.createdAt) >= startDate && new Date(t.createdAt) <= endDate
     )
     const reflectionsInRange = reflectionStore.reflections.filter(
       (r) => r.date >= start && r.date <= end
@@ -733,23 +741,77 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* ============================================
+   StatsView — Focus Flow Design System
+   Glassmorphism + Dynamic Orbs + CSS Variables
+   ============================================ */
+
+/* ---- Orb Keyframes ---- */
+@keyframes orb-drift-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, 40px) scale(1.05); }
+  66% { transform: translate(-20px, 20px) scale(0.95); }
+}
+
+@keyframes orb-drift-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-30px, -30px) scale(1.08); }
+  66% { transform: translate(20px, -10px) scale(0.92); }
+}
+
+/* ---- Root Layout ---- */
 .stats-view {
   display: flex;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+  position: relative;
 }
 
-/* ---- 顶部栏 ---- */
+/* Floating Orbs */
+.stats-view::before,
+.stats-view::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+  opacity: 0.35;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.stats-view::before {
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(88,166,255,0.12) 0%, transparent 70%);
+  top: -20%;
+  right: -10%;
+  animation: orb-drift-1 25s ease-in-out infinite;
+}
+
+.stats-view::after {
+  width: 450px;
+  height: 450px;
+  background: radial-gradient(circle, rgba(63,185,80,0.1) 0%, transparent 70%);
+  bottom: -10%;
+  left: -5%;
+  animation: orb-drift-2 30s ease-in-out infinite;
+}
+
+/* ---- Header ---- */
 .stats-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 16px 24px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
   flex-shrink: 0;
   gap: 16px;
+  position: relative;
+  z-index: 1;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid var(--glass-border);
 }
 
 .page-title {
@@ -767,30 +829,33 @@ onMounted(async () => {
 .date-range-selector {
   display: flex;
   gap: 4px;
-  background: var(--bg);
-  border-radius: 8px;
+  background: var(--bg-elevated);
+  border-radius: 10px;
   padding: 3px;
+  border: 1px solid var(--border);
 }
 
 .range-btn {
   padding: 6px 14px;
-  border-radius: 6px;
+  border-radius: 8px;
   border: none;
   background: transparent;
   color: var(--text-secondary);
   font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.25s ease;
 }
 
 .range-btn:hover {
   color: var(--text);
+  background: var(--hover-bg);
 }
 
 .range-btn.active {
   background: var(--accent);
   color: #fff;
+  box-shadow: 0 0 12px var(--accent-glow);
 }
 
 .custom-range {
@@ -802,10 +867,17 @@ onMounted(async () => {
 .date-input {
   padding: 6px 10px;
   font-size: 0.8rem;
-  background: var(--bg);
+  background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   color: var(--text);
+  transition: border-color 0.2s ease;
+}
+
+.date-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
 }
 
 .range-separator {
@@ -818,7 +890,7 @@ onMounted(async () => {
   color: var(--text-secondary);
 }
 
-/* ---- 主内容 ---- */
+/* ---- Body ---- */
 .stats-body {
   flex: 1;
   overflow-y: auto;
@@ -826,9 +898,11 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 24px;
+  position: relative;
+  z-index: 1;
 }
 
-/* ---- 统计卡片 ---- */
+/* ---- Stat Cards (Glassmorphism) ---- */
 .stats-cards {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -840,16 +914,19 @@ onMounted(async () => {
   align-items: center;
   gap: 14px;
   padding: 18px 20px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  transition: all 0.2s ease;
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  box-shadow: var(--glass-shadow);
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .stat-card:hover {
-  border-color: var(--accent);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border-color: var(--accent-glow);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), 0 0 20px rgba(88, 166, 255, 0.1);
 }
 
 .stat-card-icon {
@@ -858,8 +935,14 @@ onMounted(async () => {
   justify-content: center;
   width: 42px;
   height: 42px;
-  border-radius: 10px;
+  border-radius: 12px;
   flex-shrink: 0;
+  filter: drop-shadow(0 0 8px currentColor);
+  transition: filter 0.3s ease;
+}
+
+.stat-card:hover .stat-card-icon {
+  filter: drop-shadow(0 0 14px currentColor);
 }
 
 .stat-card-content {
@@ -881,43 +964,60 @@ onMounted(async () => {
   color: var(--text-secondary);
 }
 
+/* Trend badges with glass backgrounds */
 .stat-trend {
   display: flex;
   align-items: center;
   gap: 2px;
   font-size: 0.8rem;
   font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
 }
 
 .stat-trend.up {
-  color: #3FB950;
+  color: var(--success);
   background: rgba(63, 185, 80, 0.12);
+  border-color: rgba(63, 185, 80, 0.2);
 }
 
 .stat-trend.down {
-  color: #F85149;
+  color: var(--danger);
   background: rgba(248, 81, 73, 0.12);
+  border-color: rgba(248, 81, 73, 0.2);
 }
 
 .stat-trend.same {
   color: var(--text-tertiary);
-  background: var(--hover-bg);
+  background: var(--glass-bg);
+  border-color: var(--glass-border);
 }
 
-/* ---- 图表网格 ---- */
+/* ---- Chart Grid ---- */
 .charts-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 16px;
 }
 
+/* Chart Cards (Glassmorphism) */
 .chart-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
   overflow: hidden;
+  box-shadow: var(--glass-shadow);
+  transition: border-color 0.25s ease;
+}
+
+.chart-card:hover {
+  border-color: var(--accent-glow);
 }
 
 .chart-title {
@@ -925,7 +1025,7 @@ onMounted(async () => {
   font-size: 0.9rem;
   font-weight: 600;
   color: var(--text);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--glass-border);
 }
 
 .chart-body {
@@ -939,11 +1039,11 @@ onMounted(async () => {
   justify-content: center;
   height: 100%;
   min-height: 160px;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   font-size: 0.85rem;
 }
 
-/* ---- 柱状图 ---- */
+/* ---- Bar Chart ---- */
 .bar-chart-area {
   display: flex;
   height: 180px;
@@ -960,7 +1060,7 @@ onMounted(async () => {
 
 .y-label {
   font-size: 0.65rem;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   text-align: right;
   min-width: 20px;
 }
@@ -990,34 +1090,35 @@ onMounted(async () => {
   height: calc(100% - 20px);
   display: flex;
   align-items: flex-end;
-  border-radius: 4px 4px 0 0;
+  border-radius: 6px 6px 0 0;
   overflow: hidden;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-bottom: none;
 }
 
 .bar-fill {
   width: 100%;
-  background: var(--accent);
-  border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-dim) 100%);
+  border-radius: 6px 6px 0 0;
   min-height: 0;
-  transition: height 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.bar-fill.animated {
-  /* height transition applied via style */
+  transition: height 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+  box-shadow: 0 0 12px rgba(88, 166, 255, 0.25);
 }
 
 .bar-fill:hover {
-  opacity: 0.8;
+  opacity: 0.85;
+  box-shadow: 0 0 18px rgba(88, 166, 255, 0.4);
 }
 
 .bar-label {
   font-size: 0.6rem;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   margin-top: 6px;
   white-space: nowrap;
 }
 
-/* ---- 甜甜圈图 ---- */
+/* ---- Donut Chart ---- */
 .donut-chart {
   display: flex;
   flex-direction: column;
@@ -1038,7 +1139,9 @@ onMounted(async () => {
 }
 
 .donut-segment {
-  transition: stroke-dasharray 0.8s ease-out, stroke-dashoffset 0.8s ease-out;
+  transition: stroke-dasharray 1s cubic-bezier(0.34, 1.56, 0.64, 1),
+              stroke-dashoffset 1s cubic-bezier(0.34, 1.56, 0.64, 1);
+  filter: drop-shadow(0 0 3px currentColor);
 }
 
 .donut-center {
@@ -1078,8 +1181,9 @@ onMounted(async () => {
 .legend-dot {
   width: 8px;
   height: 8px;
-  border-radius: 2px;
+  border-radius: 3px;
   flex-shrink: 0;
+  box-shadow: 0 0 6px currentColor;
 }
 
 .legend-label {
@@ -1087,11 +1191,11 @@ onMounted(async () => {
 }
 
 .legend-value {
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   font-weight: 500;
 }
 
-/* ---- 折线图 ---- */
+/* ---- Line Chart ---- */
 .line-chart-area {
   display: flex;
   height: 180px;
@@ -1119,14 +1223,15 @@ onMounted(async () => {
 .mood-line {
   stroke-dasharray: 500;
   stroke-dashoffset: 500;
-  transition: stroke-dashoffset 1s ease-out;
+  transition: stroke-dashoffset 1.2s ease-out;
+  filter: drop-shadow(0 0 4px var(--accent-glow));
 }
 
 .mood-line.animated {
   stroke-dashoffset: 0;
 }
 
-/* ---- 水平柱状图 ---- */
+/* ---- Horizontal Bar Chart ---- */
 .h-bar-list {
   display: flex;
   flex-direction: column;
@@ -1150,38 +1255,47 @@ onMounted(async () => {
 .h-bar-track {
   flex: 1;
   height: 18px;
-  background: var(--bg);
-  border-radius: 4px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--glass-border);
+  border-radius: 6px;
   overflow: hidden;
 }
 
 .h-bar-fill {
   height: 100%;
-  background: var(--accent);
-  border-radius: 4px;
-  transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+  background: linear-gradient(90deg, var(--accent-dim) 0%, var(--accent) 100%);
+  border-radius: 6px;
+  transition: width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
   min-width: 0;
+  box-shadow: 0 0 10px rgba(88, 166, 255, 0.2);
 }
 
 .h-bar-value {
   font-size: 0.75rem;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   width: 24px;
   flex-shrink: 0;
+  font-weight: 500;
 }
 
-/* ---- 底部区域 ---- */
+/* ---- Bottom Section ---- */
 .bottom-section {
   display: flex;
   gap: 24px;
 }
 
+/* Recent Sessions (Glass panel) */
 .recent-sessions {
   flex: 1;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
   overflow: hidden;
+  box-shadow: var(--glass-shadow);
 }
 
 .section-title {
@@ -1189,7 +1303,7 @@ onMounted(async () => {
   font-size: 0.9rem;
   font-weight: 600;
   color: var(--text);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--glass-border);
 }
 
 .sessions-list {
@@ -1202,7 +1316,7 @@ onMounted(async () => {
   align-items: center;
   gap: 12px;
   padding: 10px 18px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--glass-border);
   transition: background 0.2s ease;
 }
 
@@ -1220,19 +1334,31 @@ onMounted(async () => {
   justify-content: center;
   width: 30px;
   height: 30px;
-  border-radius: 6px;
+  border-radius: 8px;
   flex-shrink: 0;
+  transition: filter 0.25s ease;
 }
 
 .session-icon.work {
   background: rgba(88, 166, 255, 0.15);
   color: #58A6FF;
+  filter: drop-shadow(0 0 4px rgba(88, 166, 255, 0.4));
 }
 
 .session-icon.short_break,
 .session-icon.long_break {
   background: rgba(63, 185, 80, 0.15);
   color: #3FB950;
+  filter: drop-shadow(0 0 4px rgba(63, 185, 80, 0.4));
+}
+
+.session-item:hover .session-icon.work {
+  filter: drop-shadow(0 0 8px rgba(88, 166, 255, 0.6));
+}
+
+.session-item:hover .session-icon.short_break,
+.session-item:hover .session-icon.long_break {
+  filter: drop-shadow(0 0 8px rgba(63, 185, 80, 0.6));
 }
 
 .session-info {
@@ -1253,7 +1379,7 @@ onMounted(async () => {
 
 .session-time {
   font-size: 0.75rem;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
 }
 
 .session-duration {
@@ -1263,7 +1389,7 @@ onMounted(async () => {
   flex-shrink: 0;
 }
 
-/* ---- 导出按钮 ---- */
+/* ---- Export Button (Glass) ---- */
 .export-section {
   display: flex;
   align-items: flex-start;
@@ -1274,20 +1400,26 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
   padding: 12px 24px;
-  border-radius: 10px;
-  border: 1px solid var(--accent);
-  background: transparent;
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
   color: var(--accent);
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
   white-space: nowrap;
+  box-shadow: var(--glass-shadow);
 }
 
 .btn-export:hover:not(:disabled) {
-  background: var(--active-bg);
+  border-color: var(--accent-glow);
+  box-shadow: 0 0 24px rgba(88, 166, 255, 0.2), var(--glass-shadow);
   transform: translateY(-1px);
+  color: var(--text);
+  background: var(--surface-hover);
 }
 
 .btn-export:disabled {
@@ -1295,7 +1427,7 @@ onMounted(async () => {
   cursor: not-allowed;
 }
 
-/* ---- 响应式 ---- */
+/* ---- Responsive ---- */
 @media (max-width: 1100px) {
   .stats-cards {
     grid-template-columns: repeat(2, 1fr);
