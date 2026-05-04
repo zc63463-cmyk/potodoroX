@@ -286,6 +286,13 @@ describe('session detail in reports', () => {
     expect(result).toContain('完成数据收集')
   })
 
+  it('日报明细应展示任务标签和优先级', () => {
+    const result = exportDailyReport('2026-05-03', mockTasks, [], mockSessions)
+    expect(result).toContain('优先级：高')
+    expect(result).toContain('标签：`工作` `报告`')
+    expect(result).toContain('结束：09:25')
+  })
+
   it('日报明细中空 plan/completion 不显示对应行', () => {
     const result = exportDailyReport('2026-05-03', mockTasks, [], mockSessions)
     // s2 (09:30) has plan but no completion — "总结：" should not appear in its section

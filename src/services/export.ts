@@ -49,8 +49,25 @@ function renderSessionDetails(
       : null
     const duration = formatMinutes(Math.round(session.duration / 60))
 
+    const task = session.taskId ? tasks.find((t) => t.id === session.taskId) : null
+    const tagStr = task?.tags?.length ? task.tags.map((t) => `\`${t}\``).join(' ') : ''
+    const priorityLabel = task
+      ? PRIORITIES.find((p) => p.value === task.priority)?.label || ''
+      : ''
+    const endTime = session.endedAt?.split(' ')[1] || ''
+
     lines.push(`### ${startTime}${taskTitle ? ` - ${taskTitle}` : ''} (${duration})`)
     lines.push('')
+
+    const metaParts: string[] = []
+    if (priorityLabel) metaParts.push(`优先级：${priorityLabel}`)
+    if (tagStr) metaParts.push(`标签：${tagStr}`)
+    if (endTime) metaParts.push(`结束：${endTime}`)
+    if (metaParts.length) {
+      lines.push(`*${metaParts.join(' | ')}*`)
+      lines.push('')
+    }
+
     if (session.plan) {
       lines.push(`**目标：** ${session.plan}`)
       lines.push('')
