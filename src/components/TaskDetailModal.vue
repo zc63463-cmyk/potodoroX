@@ -8,7 +8,7 @@ import { ref, computed, watch } from 'vue'
 import { useSessionStore } from '@/stores/session'
 import { PRIORITIES, STATUSES } from '@/utils/constants'
 import { formatRelativeTime, formatFriendlyDate } from '@/utils/format'
-import type { Task, UpdateTaskInput } from '@/types'
+import type { Task, UpdateTaskInput, Session } from '@/types'
 
 interface Props {
   task: Task | null
@@ -32,6 +32,12 @@ const planText = ref('')
 const completionText = ref('')
 const saving = ref(false)
 let saveTimeout: ReturnType<typeof setTimeout> | null = null
+
+// ---- Session 编辑状态 ----
+const expandedSessionId = ref<string | null>(null)
+const sessionEdits = ref<Map<string, { plan: string; completion: string }>>(new Map())
+const sessionSavingIds = ref<Set<string>>(new Set())
+const sessionSaveTimeouts = ref<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
 // ---- 计算属性 ----
 const taskSessions = computed(() => {
@@ -60,6 +66,12 @@ watch(() => props.task, (task) => {
     planText.value = task.plan
     completionText.value = task.completion
   }
+  // task 切换时清空 session 编辑状态
+  expandedSessionId.value = null
+  sessionEdits.value.clear()
+  sessionSavingIds.value.clear()
+  sessionSaveTimeouts.value.forEach((t) => clearTimeout(t))
+  sessionSaveTimeouts.value.clear()
 }, { immediate: true })
 
 watch(() => props.initialTab, (tab) => {
@@ -69,6 +81,9 @@ watch(() => props.initialTab, (tab) => {
 watch(() => props.visible, (visible) => {
   if (visible) {
     activeTab.value = props.initialTab || 'plan'
+  } else {
+    // Modal 关闭时折叠所有 session
+    expandedSessionId.value = null
   }
 })
 
@@ -96,8 +111,78 @@ function onCompletionInput() {
   scheduleSave()
 }
 
+// ---- Session 编辑方法 ----
+function toggleSessionExpand(sessionId: string) {
+  if (expandedSessionId.value === sessionId) {
+    expandedSessionId.value = null
+    return
+  }
+  // 初始化编辑缓存
+  if (!sessionEdits.value.has(sessionId)) {
+    const session = taskSessions.value.find((s) => s.id === sessionId)
+    if (session) {
+      sessionEdits.value.set(sessionId, {
+        plan: session.plan || '',
+        completion: session.completion || '',
+      })
+    }
+  }
+  expandedSessionId.value = sessionId
+}
+
+function getSessionEdit(sessionId: string): { plan: string; completion: string } {
+  if (!sessionEdits.value.has(sessionId)) {
+    const session = taskSessions.value.find((s) => s.id === sessionId)
+    if (session) {
+      sessionEdits.value.set(sessionId, {
+        plan: session.plan || '',
+        completion: session.completion || '',
+      })
+    }
+  }
+  return sessionEdits.value.get(sessionId) || { plan: '', completion: '' }
+}
+
+function scheduleSessionSave(sessionId: string) {
+  sessionSavingIds.value.add(sessionId)
+  const existing = sessionSaveTimeouts.value.get(sessionId)
+  if (existing) clearTimeout(existing)
+  const timeout = setTimeout(() => {
+    flushSessionSave(sessionId)
+  }, 800)
+  sessionSaveTimeouts.value.set(sessionId, timeout)
+}
+
+async function flushSessionSave(sessionId: string) {
+  const edit = sessionEdits.value.get(sessionId)
+  if (!edit) {
+    sessionSavingIds.value.delete(sessionId)
+    return
+  }
+  const session = taskSessions.value.find((s) => s.id === sessionId)
+  if (!session) {
+    sessionSavingIds.value.delete(sessionId)
+    return
+  }
+  const updates: Partial<Pick<Session, 'plan' | 'completion'>> = {}
+  if (edit.plan !== session.plan) updates.plan = edit.plan
+  if (edit.completion !== session.completion) updates.completion = edit.completion
+  if (Object.keys(updates).length > 0) {
+    await sessionStore.updateSession(sessionId, updates)
+  }
+  sessionSavingIds.value.delete(sessionId)
+}
+
+function onSessionPlanInput(sessionId: string) {
+  scheduleSessionSave(sessionId)
+}
+
+function onSessionCompletionInput(sessionId: string) {
+  scheduleSessionSave(sessionId)
+}
+
 function close() {
-  // 立即保存任何未保存的更改
+  // 立即保存 task 的未保存更改
   if (saveTimeout) {
     clearTimeout(saveTimeout)
     saveTimeout = null
@@ -110,7 +195,14 @@ function close() {
       }
     }
   }
+  // flush 所有 session 的 pending save
+  sessionSaveTimeouts.value.forEach((timeout, sessionId) => {
+    clearTimeout(timeout)
+    flushSessionSave(sessionId)
+  })
+  sessionSaveTimeouts.value.clear()
   saving.value = false
+  expandedSessionId.value = null
   emit('close')
 }
 </script>
@@ -251,20 +343,67 @@ function close() {
               <div
                 v-for="session in taskSessions"
                 :key="session.id"
-                class="session-item"
-                :class="{ completed: session.completed }"
+                class="session-item editable"
+                :class="{ completed: session.completed, expanded: expandedSessionId === session.id }"
               >
-                <div class="session-header">
+                <div class="session-header" @click="toggleSessionExpand(session.id)">
                   <span class="session-time">{{ session.startedAt.substring(5, 16).replace(' ', ' ') }}</span>
                   <span class="session-duration">{{ formatDuration(session.duration) }}</span>
                   <span v-if="session.completed" class="session-badge completed">已完成</span>
                   <span v-else class="session-badge skipped">已跳过</span>
+                  <svg
+                    class="expand-icon"
+                    :class="{ rotated: expandedSessionId === session.id }"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <polyline points="6 9 12 15 18 9"/>
+                  </svg>
                 </div>
-                <div v-if="session.plan" class="session-note">
-                  <span class="note-label">目标：</span>{{ session.plan }}
+
+                <!-- 展开编辑区 -->
+                <div v-if="expandedSessionId === session.id" class="session-body">
+                  <div class="edit-group">
+                    <label class="field-label">本次目标</label>
+                    <textarea
+                      :value="getSessionEdit(session.id).plan"
+                      class="detail-textarea compact"
+                      placeholder="本次专注的目标..."
+                      rows="3"
+                      @input="(e) => { getSessionEdit(session.id).plan = (e.target as HTMLTextAreaElement).value; onSessionPlanInput(session.id) }"
+                    />
+                  </div>
+                  <div class="edit-group">
+                    <label class="field-label">完成总结</label>
+                    <textarea
+                      :value="getSessionEdit(session.id).completion"
+                      class="detail-textarea compact"
+                      placeholder="完成后的总结..."
+                      rows="3"
+                      @input="(e) => { getSessionEdit(session.id).completion = (e.target as HTMLTextAreaElement).value; onSessionCompletionInput(session.id) }"
+                    />
+                  </div>
+                  <div class="save-hint session-hint">
+                    <span v-if="sessionSavingIds.has(session.id)">保存中...</span>
+                    <span v-else-if="getSessionEdit(session.id).plan !== session.plan || getSessionEdit(session.id).completion !== session.completion">有未保存的更改</span>
+                    <span v-else class="saved">已自动保存</span>
+                  </div>
                 </div>
-                <div v-if="session.completion" class="session-note">
-                  <span class="note-label">总结：</span>{{ session.completion }}
+
+                <!-- 折叠时仅展示已有内容（只读预览） -->
+                <div v-else class="session-preview">
+                  <div v-if="session.plan" class="session-note">
+                    <span class="note-label">目标：</span>{{ session.plan }}
+                  </div>
+                  <div v-if="session.completion" class="session-note">
+                    <span class="note-label">总结：</span>{{ session.completion }}
+                  </div>
                 </div>
               </div>
             </div>
@@ -553,12 +692,38 @@ function close() {
   border-color: var(--accent-dim);
 }
 
+.session-item.editable {
+  cursor: pointer;
+}
+
+.session-item.editable.expanded {
+  border-color: var(--accent-dim);
+  cursor: default;
+}
+
 .session-header {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
   margin-bottom: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.session-item.editable.expanded .session-header {
+  margin-bottom: 12px;
+}
+
+.expand-icon {
+  margin-left: 4px;
+  transition: transform 0.2s ease;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.expand-icon.rotated {
+  transform: rotate(180deg);
 }
 
 .session-time {
@@ -603,6 +768,41 @@ function close() {
 .note-label {
   font-weight: 600;
   color: var(--accent);
+}
+
+/* ---- Session 展开编辑体 ---- */
+.session-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: body-expand 0.2s ease;
+}
+
+@keyframes body-expand {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.edit-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.detail-textarea.compact {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.session-hint {
+  text-align: right;
+  height: 18px;
 }
 
 /* ---- 底部 ---- */
