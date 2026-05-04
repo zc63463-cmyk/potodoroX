@@ -18,6 +18,7 @@ import { generateId } from '@/utils/id'
 import { formatDateTime } from '@/utils/format'
 import { DB_FILENAME } from '@/utils/constants'
 import { isTauriAvailable } from '@/utils/tauri'
+import { get, set } from 'idb-keyval'
 
 // ---- Tauri SQL 插件类型 ----
 type SqlValue = string | number | null | Uint8Array
@@ -37,8 +38,76 @@ class MemoryStore {
   private sessions = new Map<string, Session>()
   private syncLog: { id: string; entityType: string; entityId: string; syncedAt: string }[] = []
 
+  /** IndexedDB Key 常量 */
+  private static readonly STORAGE_KEY = 'pomodorox-memorystore'
+
+  /** 自动保存标志 - init() 中根据环境设置 */
+  private autoSaveEnabled = false
+
+  /**
+   * 序列化所有数据到 IndexedDB
+   * 在每次创建/更新/删除操作后自动调用
+   * 使用 idb-keyval（异步、更大容量、不阻塞主线程）
+   */
+  private async saveToLocalStorage(): Promise<void> {
+    try {
+      const data = {
+        tasks: Array.from(this.tasks.entries()),
+        reflections: Array.from(this.reflections.entries()),
+        sessions: Array.from(this.sessions.entries()),
+        syncLog: this.syncLog,
+      }
+      await set(MemoryStore.STORAGE_KEY, data)
+    } catch (err) {
+      console.warn('[MemoryStore] IndexedDB 写入失败:', err)
+    }
+  }
+
+  /**
+   * 从 IndexedDB 恢复数据
+   * 在 init() 时调用
+   */
+  private async loadFromLocalStorage(): Promise<void> {
+    try {
+      const data = await get<{
+        tasks: [string, Task][]
+        reflections: [string, Reflection][]
+        sessions: [string, Session][]
+        syncLog: { id: string; entityType: string; entityId: string; syncedAt: string }[]
+      }>(MemoryStore.STORAGE_KEY)
+      if (!data) return
+      if (data.tasks) this.tasks = new Map(data.tasks)
+      if (data.reflections) this.reflections = new Map(data.reflections)
+      if (data.sessions) this.sessions = new Map(data.sessions)
+      if (data.syncLog) this.syncLog = data.syncLog
+      console.log('[MemoryStore] 已从 IndexedDB 恢复数据')
+    } catch (err) {
+      // 兼容旧版 localStorage 数据：尝试从 localStorage 迁移
+      try {
+        const raw = (typeof localStorage !== 'undefined') ? localStorage.getItem(MemoryStore.STORAGE_KEY) : null
+        if (raw) {
+          const data = JSON.parse(raw)
+          if (data.tasks) this.tasks = new Map(data.tasks)
+          if (data.reflections) this.reflections = new Map(data.reflections)
+          if (data.sessions) this.sessions = new Map(data.sessions)
+          if (data.syncLog) this.syncLog = data.syncLog
+          // 迁移到 IndexedDB 后删除旧数据
+          localStorage.removeItem(MemoryStore.STORAGE_KEY)
+          await this.saveToLocalStorage()
+          console.log('[MemoryStore] 已从 localStorage 迁移数据到 IndexedDB')
+        }
+      } catch {
+        console.warn('[MemoryStore] 数据恢复失败，使用空数据')
+      }
+    }
+  }
+
   async init(): Promise<void> {
-    // 内存存储无需初始化
+    await this.loadFromLocalStorage()
+    // 非 Tauri 环境下启用 autoSave（浏览器/移动端 Web）
+    if (!isTauriAvailable()) {
+      this.autoSaveEnabled = true
+    }
   }
 
   // ---- Tasks ----
@@ -54,6 +123,7 @@ class MemoryStore {
       synced: false,
     }
     this.tasks.set(task.id, task)
+    if (this.autoSaveEnabled) await this.saveToLocalStorage()
     return task
   }
 
@@ -77,11 +147,14 @@ class MemoryStore {
       updatedAt: formatDateTime(new Date()),
     }
     this.tasks.set(id, updated)
+    if (this.autoSaveEnabled) await this.saveToLocalStorage()
     return updated
   }
 
   async deleteTask(id: string): Promise<boolean> {
-    return this.tasks.delete(id)
+    const result = this.tasks.delete(id)
+    if (this.autoSaveEnabled) await this.saveToLocalStorage()
+    return result
   }
 
   async getTasksByDate(date: string): Promise<Task[]> {
@@ -104,6 +177,7 @@ class MemoryStore {
       task.synced = true
       this.tasks.set(id, task)
     }
+    if (this.autoSaveEnabled) await this.saveToLocalStorage()
   }
 
   // ---- Reflections ----
@@ -117,6 +191,7 @@ class MemoryStore {
       synced: false,
     }
     this.reflections.set(reflection.id, reflection)
+    if (this.autoSaveEnabled) await this.saveToLocalStorage()
     return reflection
   }
 
@@ -140,11 +215,14 @@ class MemoryStore {
       updatedAt: formatDateTime(new Date()),
     }
     this.reflections.set(id, updated)
+    if (this.autoSaveEnabled) await this.saveToLocalStorage()
     return updated
   }
 
   async deleteReflection(id: string): Promise<boolean> {
-    return this.reflections.delete(id)
+    const result = this.reflections.delete(id)
+    if (this.autoSaveEnabled) await this.saveToLocalStorage()
+    return result
   }
 
   async getReflectionsByDateRange(start: string, end: string): Promise<Reflection[]> {
@@ -163,6 +241,27 @@ class MemoryStore {
       r.synced = true
       this.reflections.set(id, r)
     }
+    if (this.autoSaveEnabled) await this.saveToLocalStorage()
+  }
+
+  // ---- Upsert（拉取合并用：保留原始 ID 和所有字段）----
+
+  async upsertTask(task: Task): Promise<Task> {
+    this.tasks.set(task.id, task)
+    if (this.autoSaveEnabled) await this.saveToLocalStorage()
+    return task
+  }
+
+  async upsertReflection(reflection: Reflection): Promise<Reflection> {
+    this.reflections.set(reflection.id, reflection)
+    if (this.autoSaveEnabled) await this.saveToLocalStorage()
+    return reflection
+  }
+
+  async upsertSession(session: Session): Promise<Session> {
+    this.sessions.set(session.id, session)
+    if (this.autoSaveEnabled) await this.saveToLocalStorage()
+    return session
   }
 
   // ---- Sessions ----
@@ -174,6 +273,7 @@ class MemoryStore {
       synced: false,
     }
     this.sessions.set(session.id, session)
+    if (this.autoSaveEnabled) await this.saveToLocalStorage()
     return session
   }
 
@@ -190,11 +290,14 @@ class MemoryStore {
     if (!existing) return null
     const updated: Session = { ...existing, ...input, id }
     this.sessions.set(id, updated)
+    if (this.autoSaveEnabled) await this.saveToLocalStorage()
     return updated
   }
 
   async deleteSession(id: string): Promise<boolean> {
-    return this.sessions.delete(id)
+    const result = this.sessions.delete(id)
+    if (this.autoSaveEnabled) await this.saveToLocalStorage()
+    return result
   }
 
   async getSessionsByDateRange(start: string, end: string): Promise<Session[]> {
@@ -222,6 +325,7 @@ class MemoryStore {
       s.synced = true
       this.sessions.set(id, s)
     }
+    if (this.autoSaveEnabled) await this.saveToLocalStorage()
   }
 
   // ---- Sync ----
@@ -246,6 +350,14 @@ class MemoryStore {
       entityId,
       syncedAt: formatDateTime(new Date()),
     })
+  }
+
+  async clearAll(): Promise<void> {
+    this.tasks.clear()
+    this.reflections.clear()
+    this.sessions.clear()
+    this.syncLog = []
+    if (this.autoSaveEnabled) await this.saveToLocalStorage()
   }
 }
 
@@ -567,6 +679,38 @@ class SqliteDatabase {
     await db.execute('UPDATE reflections SET synced = 1 WHERE id = ?', [id])
   }
 
+  // ---- Upsert（拉取合并用：INSERT OR REPLACE 保留原始数据）----
+
+  async upsertTask(task: Task): Promise<Task> {
+    const db = await this.getDb()
+    await db.execute(
+      `INSERT OR REPLACE INTO tasks (id, title, description, status, priority, estimated_pomodoros, actual_pomodoros, tags, due_date, created_at, updated_at, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [task.id, task.title, task.description, task.status, task.priority, task.estimatedPomodoros, task.actualPomodoros, JSON.stringify(task.tags), task.dueDate, task.createdAt, task.updatedAt, task.synced ? 1 : 0]
+    )
+    return task
+  }
+
+  async upsertReflection(reflection: Reflection): Promise<Reflection> {
+    const db = await this.getDb()
+    await db.execute(
+      `INSERT OR REPLACE INTO reflections (id, date, content, mood, related_task_ids, tags, created_at, updated_at, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [reflection.id, reflection.date, reflection.content, reflection.mood, JSON.stringify(reflection.relatedTaskIds), JSON.stringify(reflection.tags), reflection.createdAt, reflection.updatedAt, reflection.synced ? 1 : 0]
+    )
+    return reflection
+  }
+
+  async upsertSession(session: Session): Promise<Session> {
+    const db = await this.getDb()
+    await db.execute(
+      `INSERT OR REPLACE INTO sessions (id, task_id, type, duration, completed, started_at, ended_at, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [session.id, session.taskId, session.type, session.duration, session.completed ? 1 : 0, session.startedAt, session.endedAt, session.synced ? 1 : 0]
+    )
+    return session
+  }
+
   // ---- Sessions ----
   async createSession(input: CreateSessionInput): Promise<Session> {
     const db = await this.getDb()
@@ -672,6 +816,14 @@ class SqliteDatabase {
       [id, entityType, entityId, now]
     )
   }
+
+  async clearAll(): Promise<void> {
+    const db = await this.getDb()
+    await db.execute('DELETE FROM sessions')
+    await db.execute('DELETE FROM reflections')
+    await db.execute('DELETE FROM tasks')
+    await db.execute('DELETE FROM sync_log')
+  }
 }
 
 // ============================================================
@@ -697,6 +849,9 @@ interface DatabaseService {
   getReflectionsByDateRange(start: string, end: string): Promise<Reflection[]>
   getUnsyncedReflections(): Promise<Reflection[]>
   markReflectionSynced(id: string): Promise<void>
+  upsertTask(task: Task): Promise<Task>
+  upsertReflection(reflection: Reflection): Promise<Reflection>
+  upsertSession(session: Session): Promise<Session>
   createSession(input: CreateSessionInput): Promise<Session>
   getSession(id: string): Promise<Session | null>
   getAllSessions(): Promise<Session[]>
@@ -708,6 +863,7 @@ interface DatabaseService {
   markSessionSynced(id: string): Promise<void>
   getSyncStatus(): Promise<SyncStatus>
   recordSync(entityType: string, entityId: string): Promise<void>
+  clearAll(): Promise<void>
 }
 
 // ============================================================
@@ -768,6 +924,9 @@ export const db: DatabaseService = {
   getReflectionsByDateRange: (start, end) => ensureDb().then((d) => d.getReflectionsByDateRange(start, end)),
   getUnsyncedReflections: () => ensureDb().then((d) => d.getUnsyncedReflections()),
   markReflectionSynced: (id) => ensureDb().then((d) => d.markReflectionSynced(id)),
+  upsertTask: (task) => ensureDb().then((d) => d.upsertTask(task)),
+  upsertReflection: (reflection) => ensureDb().then((d) => d.upsertReflection(reflection)),
+  upsertSession: (session) => ensureDb().then((d) => d.upsertSession(session)),
   createSession: (input) => ensureDb().then((d) => d.createSession(input)),
   getSession: (id) => ensureDb().then((d) => d.getSession(id)),
   getAllSessions: () => ensureDb().then((d) => d.getAllSessions()),
@@ -779,6 +938,7 @@ export const db: DatabaseService = {
   markSessionSynced: (id) => ensureDb().then((d) => d.markSessionSynced(id)),
   getSyncStatus: () => ensureDb().then((d) => d.getSyncStatus()),
   recordSync: (entityType, entityId) => ensureDb().then((d) => d.recordSync(entityType, entityId)),
+  clearAll: () => ensureDb().then((d) => d.clearAll()),
 }
 
 /** 手动初始化数据库（可选，访问时会自动初始化） */

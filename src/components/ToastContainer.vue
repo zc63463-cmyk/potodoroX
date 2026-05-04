@@ -116,4 +116,22 @@ const appStore = useAppStore()
   opacity: 0;
   transform: translateX(30px);
 }
+
+/* ---- 移动端响应式 ---- */
+@media (max-width: 640px) {
+  .toast-container {
+    top: auto;
+    right: auto;
+    left: 0;
+    bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+    padding: 0 12px;
+    width: 100%;
+  }
+
+  .toast-item {
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+  }
+}
 </style>

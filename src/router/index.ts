@@ -2,7 +2,7 @@
 // PomodoroX - Vue Router 配置
 // ============================================================
 
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router'
 
 // 视图组件（懒加载）
 const TimerView = () => import('@/views/TimerView.vue')
@@ -12,7 +12,7 @@ const StatsView = () => import('@/views/StatsView.vue')
 const SettingsView = () => import('@/views/SettingsView.vue')
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHashHistory(),
   routes: [
     {
       path: '/',

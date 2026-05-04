@@ -5,6 +5,7 @@
 
 import { Octokit } from 'octokit'
 import type { Task, Reflection, Session } from '@/types'
+import type { OutboxEvent } from '@/services/outbox'
 import { GITHUB_SYNC_DIR } from '@/utils/constants'
 
 /** GitHub 服务配置 */
@@ -185,6 +186,86 @@ export async function pullTasks(month: string): Promise<SyncResult & { tasks?: T
     }
     console.error('[GitHub] 拉取任务失败:', message)
     return { success: false, message: `拉取任务失败: ${message}` }
+  }
+}
+
+/**
+ * 从 GitHub 拉取反思数据
+ * @param month 月份 (YYYY-MM)
+ */
+export async function pullReflections(month: string): Promise<SyncResult & { reflections?: Reflection[] }> {
+  if (!isOnline()) {
+    return { success: false, message: '当前离线，无法同步' }
+  }
+
+  try {
+    const client = ensureOctokit()
+    const path = `${GITHUB_SYNC_DIR}/${month}/reflections.json`
+
+    const response = await client.rest.repos.getContent({
+      owner: config.owner,
+      repo: config.repo,
+      path,
+    })
+
+    if (Array.isArray(response.data)) {
+      return { success: false, message: '路径是目录而非文件' }
+    }
+
+    if ('content' in response.data) {
+      const content = base64ToUtf8(response.data.content)
+      const reflections = JSON.parse(content) as Reflection[]
+      return { success: true, message: `成功拉取 ${reflections.length} 条反思`, reflections }
+    }
+
+    return { success: false, message: '无法解析响应数据' }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '未知错误'
+    if (message.includes('404') || message.includes('Not Found')) {
+      return { success: true, message: '远程无反思数据', reflections: [] }
+    }
+    console.error('[GitHub] 拉取反思失败:', message)
+    return { success: false, message: `拉取反思失败: ${message}` }
+  }
+}
+
+/**
+ * 从 GitHub 拉取会话数据
+ * @param month 月份 (YYYY-MM)
+ */
+export async function pullSessions(month: string): Promise<SyncResult & { sessions?: Session[] }> {
+  if (!isOnline()) {
+    return { success: false, message: '当前离线，无法同步' }
+  }
+
+  try {
+    const client = ensureOctokit()
+    const path = `${GITHUB_SYNC_DIR}/${month}/sessions.json`
+
+    const response = await client.rest.repos.getContent({
+      owner: config.owner,
+      repo: config.repo,
+      path,
+    })
+
+    if (Array.isArray(response.data)) {
+      return { success: false, message: '路径是目录而非文件' }
+    }
+
+    if ('content' in response.data) {
+      const content = base64ToUtf8(response.data.content)
+      const sessions = JSON.parse(content) as Session[]
+      return { success: true, message: `成功拉取 ${sessions.length} 条会话`, sessions }
+    }
+
+    return { success: false, message: '无法解析响应数据' }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '未知错误'
+    if (message.includes('404') || message.includes('Not Found')) {
+      return { success: true, message: '远程无会话数据', sessions: [] }
+    }
+    console.error('[GitHub] 拉取会话失败:', message)
+    return { success: false, message: `拉取会话失败: ${message}` }
   }
 }
 
@@ -385,4 +466,130 @@ export async function fullSync(
   }
 
   return results
+}
+
+/**
+ * 推送单个 outbox 事件到 GitHub
+ * Append-only：每个事件写入独立的 outbox/{eventId}.json 文件
+ * 永不覆盖已有文件（SHA 为空 = 新建）
+ */
+export async function pushEvent(event: OutboxEvent): Promise<SyncResult> {
+  if (!isOnline()) {
+    return { success: false, message: '当前离线，无法同步' }
+  }
+
+  try {
+    const client = ensureOctokit()
+    const path = `${GITHUB_SYNC_DIR}/outbox/${event.eventId}.json`
+    const content = JSON.stringify(event, null, 2)
+
+    // 不传入 SHA → 如果文件已存在则自动失败（GitHub API 返回 409）
+    await client.rest.repos.createOrUpdateFileContents({
+      owner: config.owner,
+      repo: config.repo,
+      path,
+      message: `event: ${event.type} (${event.entityId})`,
+      content: utf8ToBase64(content),
+    })
+
+    return { success: true, message: `事件 ${event.eventId} 推送成功` }
+  } catch (err) {
+    // 409 = 文件已存在（不同设备同时推送同一事件，或断网重试时远端已存在）
+    // 视为幂等成功——事件已在 GitHub 上，无需重推
+    if (err && typeof err === 'object' && 'status' in err && (err as any).status === 409) {
+      return { success: true, message: `事件 ${event.eventId} 已存在（幂等跳过）` }
+    }
+
+    const message = err instanceof Error ? err.message : '未知错误'
+    return { success: false, message: `事件推送失败: ${message}` }
+  }
+}
+
+/**
+ * 批量推送 outbox 事件
+ * 调用方应自行控制批次大小（建议 ≤ 10 个/批）以避免 API 限频
+ */
+export async function pushEvents(events: OutboxEvent[]): Promise<SyncResult[]> {
+  const results: SyncResult[] = []
+  for (const event of events) {
+    results.push(await pushEvent(event))
+  }
+
+  if (results.length === 0) {
+    results.push({ success: true, message: '没有事件需要推送' })
+  }
+
+  return results
+}
+
+/**
+ * 从 GitHub 拉取所有 outbox 事件
+ * 使用 GitHub Repo Contents API 列出 outbox/ 目录下的文件
+ * 然后逐个下载解析
+ *
+ * TODO: 添加 checkpoint 检查点，实现增量拉取
+ *       每次消费成功后记录最新事件时间戳，下次只拉取之后的事件
+ */
+export async function pullEvents(): Promise<OutboxEvent[]> {
+  if (!isOnline()) {
+    console.warn('[GitHub] 当前离线，无法拉取事件')
+    return []
+  }
+
+  try {
+    const client = ensureOctokit()
+    const dir = `${GITHUB_SYNC_DIR}/outbox`
+
+    // 列出 outbox/ 目录内容
+    let items: { name: string; path: string }[] = []
+    try {
+      const response = await client.rest.repos.getContent({
+        owner: config.owner,
+        repo: config.repo,
+        path: dir,
+      })
+
+      if (Array.isArray(response.data)) {
+        items = response.data
+          .filter((item) => item.name.endsWith('.json'))
+          .map((item) => ({ name: item.name, path: item.path }))
+      }
+    } catch {
+      // outbox/ 目录不存在（首次使用或没有事件）
+      return []
+    }
+
+    if (items.length === 0) return []
+
+    // 按文件名排序（eventId 包含时间戳，自然形成时间序）
+    items.sort((a, b) => a.name.localeCompare(b.name))
+
+    // 逐个下载事件文件
+    // 注：getContent 返回整个目录，无分页 API；
+    // 个人使用场景事件数量有限，全量拉取后由消费端按 eventId 去重
+    const events: OutboxEvent[] = []
+    for (const item of items) {
+      try {
+        const response = await client.rest.repos.getContent({
+          owner: config.owner,
+          repo: config.repo,
+          path: item.path,
+        })
+
+        if (!Array.isArray(response.data) && 'content' in response.data) {
+          const content = base64ToUtf8(response.data.content)
+          const event = JSON.parse(content) as OutboxEvent
+          events.push(event)
+        }
+      } catch {
+        // 单个事件文件拉取失败，跳过
+        console.warn(`[GitHub] 拉取事件 ${item.name} 失败，跳过`)
+      }
+    }
+
+    return events
+  } catch (err) {
+    console.error('[GitHub] 拉取事件列表失败:', err)
+    return []
+  }
 }

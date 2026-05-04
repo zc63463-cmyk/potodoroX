@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onMounted, computed, watch } from 'vue'
+import { onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore } from '@/stores/settings'
+import { useSyncStore } from '@/stores/sync'
 import { useKeyboard } from '@/composables/useKeyboard'
 import ToastContainer from '@/components/ToastContainer.vue'
 import GlobalSearch from '@/components/GlobalSearch.vue'
@@ -12,6 +13,7 @@ const router = useRouter()
 const route = useRoute()
 const appStore = useAppStore()
 const settingsStore = useSettingsStore()
+const syncStore = useSyncStore()
 
 // ---- 底部导航配置 ----
 const navItems = [
@@ -51,6 +53,15 @@ useKeyboard({
 // ---- 初始化 ----
 onMounted(async () => {
   await settingsStore.loadSettings()
+
+  // 如果已配置 GitHub，启动时自动拉取远程数据
+  const { githubToken, githubOwner, githubRepo } = settingsStore.settings
+  if (githubToken && githubOwner && githubRepo) {
+    syncStore.authenticate(githubToken)
+    syncStore.setRepo(githubOwner, githubRepo)
+    syncStore.backgroundPull() // 后台拉取 outbox 事件，不阻塞 UI
+  }
+
   const currentNav = navItems.find((item) => item.path === route.path)
   if (currentNav) {
     appStore.navigateTo(currentNav.name)
@@ -80,7 +91,7 @@ function renderIcon(name: string, active: boolean) {
 </script>
 
 <template>
-  <div class="app-container">
+  <div class="app-container" :class="{ 'immersive-mode': appStore.immersiveMode }">
     <!-- 顶部栏 -->
     <header class="top-bar">
       <div class="top-bar-left">
@@ -110,11 +121,13 @@ function renderIcon(name: string, active: boolean) {
 
     <!-- 主内容区 -->
     <main class="main-content">
-      <router-view v-slot="{ Component }">
-        <Transition name="page" mode="out-in">
-          <component :is="Component" />
-        </Transition>
-      </router-view>
+      <div class="router-wrapper">
+        <router-view v-slot="{ Component }">
+          <Transition name="page" mode="out-in">
+            <component :is="Component" />
+          </Transition>
+        </router-view>
+      </div>
     </main>
 
     <!-- 底部导航栏 -->
@@ -224,9 +237,21 @@ function renderIcon(name: string, active: boolean) {
 /* ---- 主内容区 ---- */
 .main-content {
   flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   position: relative;
+  min-height: 0;
+}
+
+/* router-view 高度传递：确保各 View 的 height:100% 能基于固定高度生效 */
+.router-wrapper {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.router-wrapper > * {
+  flex: 1;
+  min-height: 0;
 }
 
 /* ---- 底部导航栏 ---- */
@@ -313,6 +338,80 @@ function renderIcon(name: string, active: boolean) {
 }
 
 /* ---- 响应式 ---- */
+@media (max-width: 640px) {
+  .top-bar {
+    padding: 8px 12px;
+    height: var(--topbar-height-mobile, 44px);
+  }
+
+  .app-title {
+    font-size: 0.95rem;
+  }
+
+  .search-trigger {
+    padding: 4px 8px;
+    min-width: var(--touch-target-min, 44px);
+    min-height: var(--touch-target-min, 44px);
+    justify-content: center;
+  }
+
+  .search-hint {
+    display: none;
+  }
+
+  .bottom-nav {
+    padding: 4px 8px calc(4px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .nav-item {
+    padding: 4px 8px;
+    min-width: 48px;
+    min-height: var(--touch-target-min, 44px);
+  }
+
+  .nav-icon svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .nav-label {
+    font-size: 0.6rem;
+  }
+
+  .nav-indicator {
+    width: 16px;
+    height: 2px;
+  }
+
+  /* 页面过渡简化 - 移动端轻量化 */
+  .page-enter-active,
+  .page-leave-active {
+    transition: opacity 0.15s ease;
+    transform: none;
+  }
+
+  .page-enter-from {
+    opacity: 0;
+    transform: none;
+  }
+
+  .page-leave-to {
+    opacity: 0;
+    transform: none;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 1023px) {
+  .top-bar {
+    padding: 10px 16px;
+  }
+
+  .nav-item {
+    padding: 5px 12px;
+    min-width: 56px;
+  }
+}
+
 @media (min-width: 1024px) {
   .bottom-nav {
     padding: 10px 32px calc(10px + env(safe-area-inset-bottom, 0px));
@@ -323,4 +422,15 @@ function renderIcon(name: string, active: boolean) {
     min-width: 80px;
   }
 }
+
+/* ---- 沉浸模式（移动端全屏计时器） ---- */
+.immersive-mode .top-bar,
+.immersive-mode .bottom-nav {
+  display: none;
+}
+
+.immersive-mode .main-content {
+  height: 100vh;
+}
+
 </style>

@@ -4,20 +4,26 @@
 // 沉浸式番茄钟计时器，大气背景 + 环形进度 + 呼吸动画
 // ============================================================
 
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useTimerStore } from '@/stores/timer'
 import { useTaskStore } from '@/stores/task'
 import { useSettingsStore } from '@/stores/settings'
+import { useSessionStore } from '@/stores/session'
+import { useAppStore } from '@/stores/app'
 import { useNotification } from '@/composables/useNotification'
 import { playFocusStart, playBreakStart, playSessionComplete, playSuccess } from '@/composables/useAudio'
 import { TIMER_MODES } from '@/utils/constants'
 import { formatMinutes, getWeekdayName, formatDate } from '@/utils/format'
 import type { Task } from '@/types'
+import { animate, createSpring } from 'animejs'
+import MagicRings from '@/components/MagicRings.vue'
 
 // ---- Stores ----
 const timerStore = useTimerStore()
 const taskStore = useTaskStore()
 const settingsStore = useSettingsStore()
+const sessionStore = useSessionStore()
+const appStore = useAppStore()
 
 // ---- Composables ----
 const { sendNotification, requestPermission } = useNotification()
@@ -26,6 +32,14 @@ const { sendNotification, requestPermission } = useNotification()
 const showTaskSelector = ref(false)
 const showCelebration = ref(false)
 const celebrationParticles = ref<Array<{ id: number; x: number; y: number; size: number; delay: number; color: string }>>([])
+
+// ---- Anime.js 动效状态 ----
+/** 进度环 SVG 元素引用 */
+const ringCircleRef = ref<SVGCircleElement | null>(null)
+/** 主按钮元素引用 */
+const primaryBtnRef = ref<HTMLElement | null>(null)
+/** 是否已执行初始动画绑定 */
+const animeInit = ref(false)
 
 // ---- 计算属性 ----
 
@@ -47,6 +61,14 @@ const sessionLabel = computed(() => sessionConfig.value.labelZh)
 /** 会话类型颜色 */
 const sessionColor = computed(() => sessionConfig.value.color)
 
+/** 模式切换选项 */
+const modeOptions = computed(() => [
+  { value: 'work' as const, label: TIMER_MODES.work.labelZh, color: TIMER_MODES.work.color },
+  { value: 'short_break' as const, label: TIMER_MODES.short_break.labelZh, color: TIMER_MODES.short_break.color },
+  { value: 'long_break' as const, label: TIMER_MODES.long_break.labelZh, color: TIMER_MODES.long_break.color },
+  { value: 'free' as const, label: TIMER_MODES.free.labelZh, color: TIMER_MODES.free.color },
+])
+
 /** 格式化剩余时间 */
 const displayTime = computed(() => timerStore.formattedRemaining)
 
@@ -54,7 +76,7 @@ const displayTime = computed(() => timerStore.formattedRemaining)
 const progressPercent = computed(() => timerStore.progress)
 
 /** SVG 环形进度参数 */
-const RING_RADIUS = 140
+const RING_RADIUS = 120
 const RING_STROKE = 6
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS
 const ringDashoffset = computed(() => {
@@ -79,7 +101,7 @@ const todayDisplay = computed(() => {
 
 /** 今日专注总时长（秒） */
 const todayFocusSeconds = computed(() => {
-  return timerStore.todaySessions
+  return sessionStore.todaySessions
     .filter((s) => s.type === 'work' && s.completed)
     .reduce((sum, s) => sum + s.duration, 0)
 })
@@ -98,6 +120,23 @@ const longBreakInterval = computed(() => settingsStore.settings.longBreakInterva
 
 /** 可选任务列表（活跃任务） */
 const selectableTasks = computed(() => taskStore.activeTasks)
+
+/** 自由计时分钟输入 */
+const freeMinutes = ref(30)
+/** 自由计时秒数输入 */
+const freeSeconds = ref(0)
+
+// 切换到自由模式时，初始化输入值为当前 remaining
+watch(
+  () => timerStore.sessionType,
+  (type) => {
+    if (type === 'free' && !timerStore.isRunning) {
+      const totalSecs = Math.round(timerStore.remaining)
+      freeMinutes.value = Math.floor(totalSecs / 60)
+      freeSeconds.value = totalSecs % 60
+    }
+  }
+)
 
 /** 背景渐变样式 - 根据会话类型变化 */
 const backgroundStyle = computed(() => {
@@ -136,6 +175,18 @@ const backgroundStyle = computed(() => {
 /** 进度环颜色 */
 const ringColor = computed(() => sessionColor.value)
 
+/** 进度环第二颜色（MagicRings 使用） */
+const ringSecondaryColor = computed(() => {
+  const type = timerStore.sessionType
+  switch (type) {
+    case 'work': return '#58A6FF'
+    case 'short_break': return '#3FB950'
+    case 'long_break': return '#7C3AED'
+    case 'free': return '#FF6B35'
+    default: return '#58A6FF'
+  }
+})
+
 /** 进度环发光效果 */
 const ringGlow = computed(() => {
   const color = sessionColor.value
@@ -146,6 +197,9 @@ const ringGlow = computed(() => {
 
 /** 开始/暂停切换 */
 function toggleTimer() {
+  // 触发主按钮弹簧效果
+  animatePrimaryBtn()
+
   if (timerStore.isRunning && !timerStore.isPaused) {
     // 暂停
     timerStore.pause()
@@ -153,8 +207,14 @@ function toggleTimer() {
     // 恢复
     timerStore.resume()
   } else {
-    // 开始
-    timerStore.start()
+    // 开始 — 自由模式时传入自定义时长
+    if (timerStore.sessionType === 'free') {
+      const customDuration = freeMinutes.value * 60 + freeSeconds.value
+      if (customDuration <= 0) return // 防止零时长开始
+      timerStore.start(customDuration)
+    } else {
+      timerStore.start()
+    }
     // 播放音效
     if (timerStore.isWorkSession) {
       playFocusStart()
@@ -229,6 +289,112 @@ async function handleSessionComplete() {
 /** 点击计时器中心 */
 function onTimerCenterClick() {
   toggleTimer()
+  // 移动端沉浸模式：双击计时器区域切换全屏
+  if (window.innerWidth < 640 && !timerStore.isRunning && !timerStore.isPaused) {
+    appStore.toggleImmersiveMode()
+  }
+}
+
+// ---- Anime.js 动效 ----
+
+/** 数字翻动动画 */
+let lastDisplayTime = ''
+function animateDigitFlip(newTime: string) {
+  if (!animeInit.value || !newTime || newTime === lastDisplayTime) {
+    lastDisplayTime = newTime
+    return
+  }
+  const oldChars = lastDisplayTime.padEnd(5, ' ')
+  const newChars = newTime.padEnd(5, ' ')
+  const els = document.querySelectorAll('.timer-digits .digit-char')
+
+  for (let i = 0; i < Math.min(els.length, 5); i++) {
+    const el = els[i] as HTMLElement
+    if (!el) continue
+    if (el.classList.contains('digit-colon')) continue
+
+    const oldCh = oldChars[i]
+    const newCh = newChars[i]
+    if (oldCh === newCh) continue
+
+    const oldNum = parseInt(oldCh)
+    const newNum = parseInt(newCh)
+    if (isNaN(oldNum) || isNaN(newNum)) {
+      el.textContent = newCh
+      continue
+    }
+
+    // 使用 Anime.js 对数字对象插值
+    const obj = { v: oldNum }
+    animate(obj, {
+      v: [oldNum, newNum],
+      duration: 350,
+      ease: 'inOutBack',
+      onUpdate: () => {
+        el.textContent = Math.round(Math.abs(obj.v)).toString()
+        // 微小的位移 + 透明度变化
+        const t = Math.abs((obj.v - oldNum) / (newNum - oldNum || 1))
+        el.style.transform = `translateY(${(1 - t) * 5}px)`
+        el.style.opacity = String(0.55 + 0.45 * t)
+      },
+      onComplete: () => {
+        el.style.transform = ''
+        el.style.opacity = ''
+      },
+    })
+  }
+
+  lastDisplayTime = newTime
+}
+
+/** 进度环平滑动画 */
+let animatingRing = false
+let prevProgress = 0
+function animateRingProgress(progress: number) {
+  if (!ringCircleRef.value || animatingRing) {
+    prevProgress = progress
+    return
+  }
+  animatingRing = true
+  const from = prevProgress
+  const to = progress
+  const obj = { v: from }
+  const circumference = 2 * Math.PI * RING_RADIUS
+
+  animate(obj, {
+    v: [from, to],
+    duration: 600,
+    ease: 'inOutCubic',
+    onUpdate: () => {
+      const offset = circumference - (obj.v / 100) * circumference
+      ringCircleRef.value?.setAttribute('stroke-dashoffset', String(offset))
+    },
+    onComplete: () => {
+      prevProgress = to
+      animatingRing = false
+    },
+  })
+}
+
+/** 主按钮弹簧点击效果 */
+const btnSpringEase = createSpring({ stiffness: 220, damping: 14 })
+function animatePrimaryBtn() {
+  if (!primaryBtnRef.value) return
+  animate(primaryBtnRef.value, {
+    scale: [1, 0.92, 1],
+    duration: 500,
+    ease: btnSpringEase,
+  })
+}
+
+/** 模式切换时颜色过渡动画 */
+function animateModeColor(element: HTMLElement | null, color: string) {
+  if (!element) return
+  animate(element, {
+    color,
+    duration: 500,
+    ease: 'inOutQuad',
+  })
 }
 
 // ---- 监听器 ----
@@ -237,8 +403,8 @@ function onTimerCenterClick() {
 watch(
   () => timerStore.remaining,
   (newVal) => {
-    if (newVal <= 0 && timerStore.todaySessions.length > 0) {
-      const latestSession = timerStore.todaySessions[0]
+    if (newVal <= 0 && sessionStore.todaySessions.length > 0) {
+      const latestSession = sessionStore.todaySessions[0]
       if (latestSession.completed) {
         handleSessionComplete()
       }
@@ -254,6 +420,49 @@ watch(
     document.title = `${label} - PomodoroX`
   }
 )
+
+// ---- Anime.js 监听器 ----
+
+/** 监听数字变化 → 翻动动画 */
+watch(
+  () => timerStore.formattedRemaining,
+  (newTime) => {
+    animateDigitFlip(newTime)
+  }
+)
+
+/** 监听进度变化 → 环形动画 */
+watch(
+  () => timerStore.progress,
+  (newProgress) => {
+    animateRingProgress(newProgress)
+  }
+)
+
+/** 监听会话类型 → 颜色过渡 */
+watch(
+  () => timerStore.sessionType,
+  () => {
+    nextTick(() => {
+      // 模式切换时文字颜色过渡
+      const sessionCfg = TIMER_MODES[timerStore.sessionType]
+      if (sessionCfg) {
+        // 统计数字颜色动画
+        timerFooterStats()
+      }
+    })
+  }
+)
+
+/** 底部统计颜色跟随 */
+function timerFooterStats() {
+  const color = TIMER_MODES[timerStore.sessionType]?.color || ''
+  if (!color) return
+  const els = document.querySelectorAll('.timer-digits, .session-type-badge')
+  els.forEach((el) => {
+    animateModeColor(el as HTMLElement, color)
+  })
+}
 
 // 键盘快捷键 - Space 开始/暂停
 function handleKeyDown(e: KeyboardEvent) {
@@ -292,6 +501,21 @@ onMounted(async () => {
   // 注册键盘事件
   document.addEventListener('keydown', handleKeyDown)
   document.addEventListener('click', handleDocumentClick)
+
+  // ---- Anime.js 初始化 ----
+  await nextTick()
+  // 记录初始数字
+  lastDisplayTime = timerStore.formattedRemaining
+  // 记录初始进度
+  prevProgress = timerStore.progress
+  // 初始化环形位置
+  if (ringCircleRef.value) {
+    const circumference = 2 * Math.PI * RING_RADIUS
+    const offset = circumference - (timerStore.progress / 100) * circumference
+    ringCircleRef.value.setAttribute('stroke-dashoffset', String(offset))
+  }
+  footStatsInit = true
+  animeInit.value = true
 })
 
 onUnmounted(() => {
@@ -304,6 +528,9 @@ onUnmounted(() => {
   <div class="timer-view" :style="backgroundStyle">
     <!-- 动态背景层 -->
     <div class="timer-bg-layer" :class="`session-${timerStore.sessionType}`">
+      <!-- 各模式深色背景基底 -->
+      <div class="bg-deep" />
+      <!-- 装饰光晕 -->
       <div class="bg-orb bg-orb-1" />
       <div class="bg-orb bg-orb-2" />
       <div class="bg-orb bg-orb-3" />
@@ -395,6 +622,20 @@ onUnmounted(() => {
           <span class="session-type-badge" :style="{ color: sessionColor, borderColor: sessionColor + '40', background: sessionColor + '15' }">
             {{ sessionLabel }}
           </span>
+          <!-- 模式切换 -->
+          <div class="mode-switcher">
+            <button
+              v-for="mode in modeOptions"
+              :key="mode.value"
+              class="mode-chip"
+              :class="{ active: timerStore.sessionType === mode.value }"
+              :style="timerStore.sessionType === mode.value ? { color: mode.color, borderColor: mode.color + '40', background: mode.color + '12' } : {}"
+              :disabled="timerStore.isRunning"
+              @click="timerStore.setSessionType(mode.value)"
+            >
+              {{ mode.label }}
+            </button>
+          </div>
         </div>
 
         <!-- 环形进度 + 时间显示 -->
@@ -406,6 +647,34 @@ onUnmounted(() => {
           }"
           @click="onTimerCenterClick"
         >
+          <!-- MagicRings 对齐圆环 -->
+          <div class="magic-rings-wrap">
+            <MagicRings
+              :color="sessionColor"
+              :colorTwo="ringSecondaryColor"
+              :ringCount="6"
+              :speed="0.8"
+              :attenuation="8"
+              :lineThickness="2"
+              :baseRadius="0.35"
+              :radiusStep="0.1"
+              :scaleRate="0.08"
+              :opacity="0.8"
+              :blur="5"
+              :noiseAmount="0.05"
+              :rotation="0"
+              :ringGap="1.6"
+              :fadeIn="0.6"
+              :fadeOut="0.4"
+              :followMouse="true"
+              :mouseInfluence="0.15"
+              :hoverScale="1.1"
+              :parallax="0.03"
+              :clickBurst="false"
+              :isActive="isActive"
+            />
+          </div>
+
           <!-- 外发光环 -->
           <div class="ring-glow" :style="{ boxShadow: `0 0 60px ${sessionColor}20, 0 0 120px ${sessionColor}10` }" />
 
@@ -414,12 +683,12 @@ onUnmounted(() => {
             class="timer-ring-svg"
             :width="RING_RADIUS * 2 + RING_STROKE * 2 + 60"
             :height="RING_RADIUS * 2 + RING_STROKE * 2 + 60"
-            viewBox="0 0 380 380"
+            viewBox="0 0 340 340"
           >
             <!-- 外层装饰环 -->
             <circle
-              cx="190"
-              cy="190"
+              cx="170"
+              cy="170"
               :r="RING_RADIUS + 12"
               fill="none"
               :stroke="sessionColor"
@@ -429,8 +698,8 @@ onUnmounted(() => {
 
             <!-- 背景环 -->
             <circle
-              cx="190"
-              cy="190"
+              cx="170"
+              cy="170"
               :r="RING_RADIUS"
               fill="none"
               :stroke="sessionColor"
@@ -440,24 +709,25 @@ onUnmounted(() => {
 
             <!-- 进度环 -->
             <circle
-              cx="190"
-              cy="190"
+              ref="ringCircleRef"
+              cx="170"
+              cy="170"
               :r="RING_RADIUS"
               fill="none"
               :stroke="ringColor"
               :stroke-width="RING_STROKE + 2"
               stroke-linecap="round"
               :stroke-dasharray="RING_CIRCUMFERENCE"
-              :stroke-dashoffset="ringDashoffset"
+              :stroke-dashoffset="RING_CIRCUMFERENCE"
               class="progress-ring"
               :style="{ filter: isActive ? ringGlow : 'none' }"
-              transform="rotate(-90 190 190)"
+              transform="rotate(-90 170 170)"
             />
 
             <!-- 内层装饰环 -->
             <circle
-              cx="190"
-              cy="190"
+              cx="170"
+              cy="170"
               :r="RING_RADIUS - 16"
               fill="none"
               :stroke="sessionColor"
@@ -469,8 +739,8 @@ onUnmounted(() => {
             <!-- 刻度点（12个） -->
             <g v-for="i in 12" :key="'tick-' + i">
               <circle
-                :cx="190 + (RING_RADIUS + 20) * Math.cos(((i - 1) * 30 - 90) * Math.PI / 180)"
-                :cy="190 + (RING_RADIUS + 20) * Math.sin(((i - 1) * 30 - 90) * Math.PI / 180)"
+                :cx="170 + (RING_RADIUS + 20) * Math.cos(((i - 1) * 30 - 90) * Math.PI / 180)"
+                :cy="170 + (RING_RADIUS + 20) * Math.sin(((i - 1) * 30 - 90) * Math.PI / 180)"
                 r="2"
                 :fill="sessionColor"
                 :fill-opacity="i % 3 === 0 ? 0.5 : 0.15"
@@ -481,12 +751,46 @@ onUnmounted(() => {
           <!-- 中心内容 -->
           <div class="timer-center-content">
             <div class="timer-digits" :style="{ color: sessionColor }">
-              {{ displayTime }}
+              <span
+                v-for="(ch, i) in displayTime.split('')"
+                :key="i"
+                class="digit-char"
+                :class="{ 'digit-colon': ch === ':' }"
+              >{{ ch }}</span>
+            </div>
+            <!-- 自由计时输入（仅 idle + free 模式） -->
+            <div v-if="isIdle && timerStore.sessionType === 'free'" class="free-duration-input">
+              <div class="duration-field">
+                <input
+                  ref="minInputRef"
+                  v-model.number="freeMinutes"
+                  type="number"
+                  min="1"
+                  max="999"
+                  class="duration-input"
+                  :style="{ borderColor: sessionColor + '40', color: sessionColor }"
+                  @keydown.stop
+                />
+                <span class="duration-unit" :style="{ color: sessionColor }">分</span>
+              </div>
+              <span class="duration-sep">:</span>
+              <div class="duration-field">
+                <input
+                  v-model.number="freeSeconds"
+                  type="number"
+                  min="0"
+                  max="59"
+                  class="duration-input"
+                  :style="{ borderColor: sessionColor + '40', color: sessionColor }"
+                  @keydown.stop
+                />
+                <span class="duration-unit" :style="{ color: sessionColor }">秒</span>
+              </div>
             </div>
             <div v-if="isPausedState" class="timer-status-badge paused-badge">
               已暂停
             </div>
-            <div v-else-if="isIdle" class="timer-status-hint">
+            <div v-else-if="isIdle && timerStore.sessionType !== 'free'" class="timer-status-hint">
               按空格键开始
             </div>
           </div>
@@ -534,6 +838,7 @@ onUnmounted(() => {
 
         <!-- 开始/暂停 主按钮 -->
         <button
+          ref="primaryBtnRef"
           class="control-btn primary-btn"
           :class="{ 'is-running': isActive }"
           :style="{
@@ -630,9 +935,6 @@ onUnmounted(() => {
 }
 
 .bg-orb {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(100px);
   opacity: 0.4;
   transition: background 2s ease, opacity 2s ease;
 }
@@ -645,6 +947,28 @@ onUnmounted(() => {
     radial-gradient(ellipse at 80% 70%, rgba(136, 100, 255, 0.03) 0%, transparent 50%);
 }
 
+/* 各模式深色背景基底 */
+.bg-deep {
+  position: absolute;
+  inset: 0;
+  background-color: var(--bg);
+  z-index: -2;
+}
+
+/* MagicRings 对齐圆环 */
+.magic-rings-wrap {
+  position: absolute;
+  width: 320px;
+  height: 320px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
 /* 工作模式 - 蓝紫色调 */
 .session-work .bg-orb-1 {
   width: 600px;
@@ -652,7 +976,7 @@ onUnmounted(() => {
   background: radial-gradient(circle, rgba(88, 166, 255, 0.15) 0%, transparent 70%);
   top: -15%;
   left: -10%;
-  animation: orb-float-1 20s ease-in-out infinite;
+  animation: orb-float-timer-1 20s ease-in-out infinite;
 }
 
 .session-work .bg-orb-2 {
@@ -661,7 +985,7 @@ onUnmounted(() => {
   background: radial-gradient(circle, rgba(136, 100, 255, 0.12) 0%, transparent 70%);
   bottom: -10%;
   right: -10%;
-  animation: orb-float-2 25s ease-in-out infinite;
+  animation: orb-float-timer-2 25s ease-in-out infinite;
 }
 
 .session-work .bg-orb-3 {
@@ -671,7 +995,7 @@ onUnmounted(() => {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  animation: orb-float-3 18s ease-in-out infinite;
+  animation: orb-float-timer-3 18s ease-in-out infinite;
 }
 
 /* 短休息 - 青绿色调 */
@@ -681,7 +1005,7 @@ onUnmounted(() => {
   background: radial-gradient(circle, rgba(78, 205, 196, 0.15) 0%, transparent 70%);
   top: -15%;
   left: -10%;
-  animation: orb-float-1 22s ease-in-out infinite;
+  animation: orb-float-timer-1 22s ease-in-out infinite;
 }
 
 .session-short_break .bg-orb-2 {
@@ -690,7 +1014,7 @@ onUnmounted(() => {
   background: radial-gradient(circle, rgba(63, 185, 80, 0.12) 0%, transparent 70%);
   bottom: -10%;
   right: -10%;
-  animation: orb-float-2 20s ease-in-out infinite;
+  animation: orb-float-timer-2 20s ease-in-out infinite;
 }
 
 .session-short_break .bg-orb-3 {
@@ -700,7 +1024,7 @@ onUnmounted(() => {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  animation: orb-float-3 16s ease-in-out infinite;
+  animation: orb-float-timer-3 16s ease-in-out infinite;
 }
 
 /* 长休息 - 暖紫色调 */
@@ -710,7 +1034,7 @@ onUnmounted(() => {
   background: radial-gradient(circle, rgba(167, 139, 250, 0.15) 0%, transparent 70%);
   top: -15%;
   left: -10%;
-  animation: orb-float-1 24s ease-in-out infinite;
+  animation: orb-float-timer-1 24s ease-in-out infinite;
 }
 
 .session-long_break .bg-orb-2 {
@@ -719,7 +1043,7 @@ onUnmounted(() => {
   background: radial-gradient(circle, rgba(192, 132, 252, 0.12) 0%, transparent 70%);
   bottom: -10%;
   right: -10%;
-  animation: orb-float-2 22s ease-in-out infinite;
+  animation: orb-float-timer-2 22s ease-in-out infinite;
 }
 
 .session-long_break .bg-orb-3 {
@@ -729,7 +1053,7 @@ onUnmounted(() => {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  animation: orb-float-3 20s ease-in-out infinite;
+  animation: orb-float-timer-3 20s ease-in-out infinite;
 }
 
 /* 自由计时 - 橙红色调 */
@@ -739,7 +1063,7 @@ onUnmounted(() => {
   background: radial-gradient(circle, rgba(255, 107, 107, 0.15) 0%, transparent 70%);
   top: -15%;
   left: -10%;
-  animation: orb-float-1 20s ease-in-out infinite;
+  animation: orb-float-timer-1 20s ease-in-out infinite;
 }
 
 .session-free .bg-orb-2 {
@@ -748,7 +1072,7 @@ onUnmounted(() => {
   background: radial-gradient(circle, rgba(248, 81, 73, 0.12) 0%, transparent 70%);
   bottom: -10%;
   right: -10%;
-  animation: orb-float-2 25s ease-in-out infinite;
+  animation: orb-float-timer-2 25s ease-in-out infinite;
 }
 
 .session-free .bg-orb-3 {
@@ -758,22 +1082,22 @@ onUnmounted(() => {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  animation: orb-float-3 18s ease-in-out infinite;
+  animation: orb-float-timer-3 18s ease-in-out infinite;
 }
 
-@keyframes orb-float-1 {
+@keyframes orb-float-timer-1 {
   0%, 100% { transform: translate(0, 0) scale(1); }
   33% { transform: translate(50px, -40px) scale(1.1); }
   66% { transform: translate(-30px, 30px) scale(0.95); }
 }
 
-@keyframes orb-float-2 {
+@keyframes orb-float-timer-2 {
   0%, 100% { transform: translate(0, 0) scale(1); }
   33% { transform: translate(-40px, 50px) scale(1.05); }
   66% { transform: translate(40px, -30px) scale(0.9); }
 }
 
-@keyframes orb-float-3 {
+@keyframes orb-float-timer-3 {
   0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.4; }
   50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.7; }
 }
@@ -979,6 +1303,88 @@ onUnmounted(() => {
   transition: all var(--transition-slow);
 }
 
+/* 模式切换 */
+.mode-switcher {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.mode-chip {
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.mode-chip:hover:not(:disabled) {
+  border-color: var(--accent-dim);
+  color: var(--text);
+}
+
+.mode-chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 自由计时时长输入 */
+.free-duration-input {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.duration-field {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.duration-input {
+  width: 48px;
+  background: transparent;
+  border: 1px solid;
+  border-radius: var(--radius-sm);
+  padding: 4px 4px 4px 8px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  text-align: center;
+  outline: none;
+  -moz-appearance: textfield;
+}
+
+.duration-input::-webkit-outer-spin-button,
+.duration-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.duration-input:focus {
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.duration-sep {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0 2px;
+}
+
+.duration-unit {
+  font-size: 0.75rem;
+  font-weight: 500;
+  opacity: 0.7;
+}
+
 /* ---- 环形进度容器 ---- */
 .timer-ring-container {
   position: relative;
@@ -1001,8 +1407,8 @@ onUnmounted(() => {
 /* 外发光环 */
 .ring-glow {
   position: absolute;
-  width: 340px;
-  height: 340px;
+  width: 300px;
+  height: 300px;
   border-radius: 50%;
   transition: box-shadow var(--transition-slow);
   pointer-events: none;
@@ -1038,7 +1444,7 @@ onUnmounted(() => {
 }
 
 .progress-ring {
-  transition: stroke-dashoffset 0.3s linear, stroke var(--transition-slow), filter var(--transition-slow);
+  transition: stroke var(--transition-slow), filter var(--transition-slow);
 }
 
 /* 中心内容 */
@@ -1049,13 +1455,13 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  width: 280px;
-  height: 280px;
+  width: 250px;
+  height: 250px;
   justify-content: center;
 }
 
 .timer-digits {
-  font-size: 5rem;
+  font-size: 4.5rem;
   font-weight: 200;
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
@@ -1063,6 +1469,18 @@ onUnmounted(() => {
   transition: color var(--transition-slow);
   user-select: none;
   text-shadow: 0 0 40px var(--accent-dim);
+}
+
+.digit-char {
+  display: inline-block;
+  min-width: 0.55em;
+  text-align: center;
+  will-change: transform, opacity;
+}
+
+.digit-colon {
+  opacity: 0.4;
+  min-width: 0.3em;
 }
 
 .timer-status-badge {
@@ -1245,15 +1663,12 @@ onUnmounted(() => {
 
 /* ---- 底部统计 ---- */
 .timer-footer {
-  position: absolute;
-  bottom: 8px;
-  left: 0;
-  right: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 12px;
   padding: 12px 24px;
+  margin-top: 8px;
 }
 
 .stat-card {
@@ -1430,6 +1845,174 @@ onUnmounted(() => {
   .ring-glow {
     width: 260px;
     height: 260px;
+  }
+}
+
+/* 小高度窗口适配 */
+@media (max-height: 700px) {
+  .timer-digits {
+    font-size: 3.2rem;
+  }
+
+  .timer-center-content {
+    width: 200px;
+    height: 200px;
+  }
+
+  .ring-glow {
+    width: 260px;
+    height: 260px;
+  }
+
+  .timer-ring-svg {
+    transform: translate(-50%, -50%) scale(0.92);
+  }
+
+  .timer-center {
+    gap: 8px;
+  }
+
+  .timer-controls {
+    margin-top: 6px;
+    padding: 8px 16px;
+  }
+
+  .primary-btn {
+    width: 68px;
+    height: 68px;
+    border-radius: 22px;
+  }
+
+  .secondary-btn {
+    width: 48px;
+    height: 48px;
+  }
+
+  .control-label {
+    font-size: 0.6rem;
+  }
+
+  .timer-footer {
+    gap: 6px;
+    padding: 6px 12px;
+    margin-top: 2px;
+  }
+
+  .stat-card {
+    padding: 6px 10px;
+  }
+
+  .stat-value {
+    font-size: 0.85rem;
+  }
+
+  .stat-label {
+    font-size: 0.6rem;
+  }
+
+  .pomodoro-dot {
+    width: 26px;
+    height: 26px;
+  }
+}
+
+@media (max-height: 600px) {
+  .timer-digits {
+    font-size: 2.8rem;
+  }
+
+  .timer-center-content {
+    width: 170px;
+    height: 170px;
+  }
+
+  .ring-glow {
+    width: 220px;
+    height: 220px;
+  }
+
+  .timer-ring-svg {
+    transform: translate(-50%, -50%) scale(0.85);
+  }
+
+  .timer-header {
+    padding: 8px 12px;
+  }
+
+  .session-label-wrapper {
+    margin-bottom: 0;
+  }
+
+  .pomodoro-indicators {
+    margin-top: 4px;
+  }
+}
+
+/* ---- 移动端响应式 ---- */
+@media (max-width: 640px) {
+  .timer-digits {
+    font-size: 3rem;
+  }
+
+  .timer-ring-svg {
+    transform: translate(-50%, -50%) scale(0.75);
+  }
+
+  .timer-center-content {
+    width: 180px;
+    height: 180px;
+  }
+
+  .ring-glow {
+    width: 230px;
+    height: 230px;
+  }
+
+  .timer-main-btn {
+    min-height: 48px;
+    font-size: 1rem;
+    padding: 12px 32px;
+  }
+
+  .session-chips {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 6px;
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .session-chips::-webkit-scrollbar {
+    display: none;
+  }
+
+  .chip {
+    flex-shrink: 0;
+    padding: 8px 14px;
+    min-height: 36px;
+    font-size: 0.8rem;
+  }
+
+  .timer-header {
+    padding: 6px 12px;
+  }
+
+  .timer-footer {
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px 12px;
+  }
+
+  .stat-card {
+    flex: 1;
+    min-width: 60px;
+    padding: 6px 8px;
+  }
+
+  .dropdown-empty {
+    padding: 12px 8px;
+    font-size: 0.75rem;
   }
 }
 </style>

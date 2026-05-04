@@ -7,6 +7,19 @@ import { ref, computed } from 'vue'
 import type { Task, CreateTaskInput, UpdateTaskInput, TaskFilter, TaskStats, SortOption, SortField, SortOrder } from '@/types'
 import { db } from '@/services/database'
 import { PRIORITIES } from '@/utils/constants'
+import { useSyncStore } from '@/stores/sync'
+
+/** 记录 outbox 事件 */
+async function recordEvent(type: 'task.created' | 'task.updated' | 'task.deleted', id: string, payload: unknown) {
+  try {
+    const syncStore = useSyncStore()
+    await syncStore.recordEvent(type, id, payload)
+  } catch (err) {
+    // outbox 写入失败不影响业务操作返回值
+    // 本地数据已更新，事件可在下次写入时重新生成
+    console.error('[TaskStore] 同步事件写入失败（业务操作已成功）:', err)
+  }
+}
 
 export const useTaskStore = defineStore('task', () => {
   // ---- 状态 ----
@@ -141,6 +154,7 @@ export const useTaskStore = defineStore('task', () => {
     try {
       const task = await db.createTask(input)
       tasks.value.unshift(task)
+      await recordEvent('task.created', task.id, task)
       return task
     } catch (err) {
       console.error('[TaskStore] 创建任务失败:', err)
@@ -159,6 +173,7 @@ export const useTaskStore = defineStore('task', () => {
         if (index !== -1) {
           tasks.value[index] = updated
         }
+        await recordEvent('task.updated', id, updated)
       }
       return updated
     } catch (err) {
@@ -175,6 +190,7 @@ export const useTaskStore = defineStore('task', () => {
       const success = await db.deleteTask(id)
       if (success) {
         tasks.value = tasks.value.filter((t) => t.id !== id)
+        await recordEvent('task.deleted', id, { id })
       }
       return success
     } catch (err) {

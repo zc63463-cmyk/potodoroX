@@ -2,20 +2,21 @@
 // PomodoroX - 常量定义
 // ============================================================
 
-import type { AppConfig, Mood, Priority, SessionType, TaskStatus, ThemeName, ViewName } from '@/types'
+import type { AppConfig, Mood, Priority, SessionType, TaskStatus, ViewName } from '@/types'
 
 /** 默认应用配置 */
 export const DEFAULT_CONFIG: AppConfig = {
   workDuration: 25 * 60,        // 25分钟（秒）
   shortBreakDuration: 5 * 60,   // 5分钟
   longBreakDuration: 15 * 60,   // 15分钟
+  freeDuration: 30 * 60,        // 30分钟（自由计时默认）
   longBreakInterval: 4,          // 每4个番茄钟后长休息
   autoStartBreak: false,
   autoStartPomodoro: false,
   theme: 'dark-night',
   githubToken: '',
-  githubRepo: 'pomodorox-data',
-  githubOwner: '',
+  githubRepo: 'promoX-data',
+  githubOwner: 'zc63463-cmyk',
 }
 
 /** 计时器模式配置 */
@@ -60,46 +61,6 @@ export const VIEWS: { name: ViewName; label: string; icon: string; shortcut: str
   { name: 'settings', label: '设置', icon: '⚙️', shortcut: 'Ctrl+5' },
 ]
 
-/** 主题配置 */
-export const THEMES: { name: ThemeName; label: string; description: string }[] = [
-  { name: 'dark-night', label: '暗夜', description: '深色主题，适合夜间使用' },
-  { name: 'morning-mist', label: '晨雾', description: '紫蓝色调，柔和护眼' },
-  { name: 'daylight', label: '日光', description: '浅色主题，明亮清晰' },
-  { name: 'custom', label: '自定义', description: '自定义主题配色' },
-]
-
-/** 主题颜色变量 */
-export const THEME_COLORS: Record<ThemeName, { bg: string; accent: string; surface: string; text: string; border: string }> = {
-  'dark-night': {
-    bg: '#0D1117',
-    accent: '#58A6FF',
-    surface: '#161B22',
-    text: '#C9D1D9',
-    border: '#30363D',
-  },
-  'morning-mist': {
-    bg: '#1A1A2E',
-    accent: '#E94560',
-    surface: '#16213E',
-    text: '#E0E0E0',
-    border: '#2A2A4A',
-  },
-  daylight: {
-    bg: '#F8F9FA',
-    accent: '#FF6B35',
-    surface: '#FFFFFF',
-    text: '#24292F',
-    border: '#D0D7DE',
-  },
-  custom: {
-    bg: '#0D1117',
-    accent: '#58A6FF',
-    surface: '#161B22',
-    text: '#C9D1D9',
-    border: '#30363D',
-  },
-}
-
 /** 数据库文件名 */
 export const DB_FILENAME = 'pomodorox.db'
 
@@ -109,19 +70,8 @@ export const STORE_FILENAME = 'pomodorox-settings.json'
 /** GitHub 同步目录 */
 export const GITHUB_SYNC_DIR = 'pomodorox-sync'
 
-/** 日期格式 */
-export const DATE_FORMAT = {
-  date: 'YYYY-MM-DD',
-  datetime: 'YYYY-MM-DD HH:mm:ss',
-  time: 'HH:mm:ss',
-  month: 'YYYY-MM',
-} as const
-
 /** 计时器更新间隔（毫秒） */
 export const TIMER_INTERVAL_MS = 100
-
-/** 通知超时（毫秒） */
-export const NOTIFICATION_TIMEOUT_MS = 3000
 
 /** 常用标签 */
 export const DEFAULT_TAGS = [
@@ -134,9 +84,3 @@ export const DEFAULT_TAGS = [
   '个人',
   '健康',
 ]
-
-/** 一天的毫秒数 */
-export const DAY_MS = 24 * 60 * 60 * 1000
-
-/** 一周的毫秒数 */
-export const WEEK_MS = 7 * DAY_MS

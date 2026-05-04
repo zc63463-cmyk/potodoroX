@@ -1,14 +1,22 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useAppStore } from '@/stores/app'
-import { db } from '@/services/database'
-import { authenticate, setRepo, getSyncStatus, fullSync } from '@/services/github'
+import { useTaskStore } from '@/stores/task'
+import { useReflectionStore } from '@/stores/reflection'
+import { useTimerStore } from '@/stores/timer'
+import { useSyncStore } from '@/stores/sync'
+import { useSessionStore } from '@/stores/session'
 import type { ThemeName } from '@/types'
 
 // ---- Stores ----
 const settingsStore = useSettingsStore()
 const appStore = useAppStore()
+const taskStore = useTaskStore()
+const reflectionStore = useReflectionStore()
+const timerStore = useTimerStore()
+const syncStore = useSyncStore()
+const sessionStore = useSessionStore()
 
 // ---- 状态 ----
 const showToken = ref(false)
@@ -78,6 +86,24 @@ const longBreakInterval = computed({
   set: (v: number) => settingsStore.updateSetting('longBreakInterval', v),
 })
 
+/** 自由计时默认时长 */
+const freeDuration = computed({
+  get: () => Math.round(settingsStore.settings.freeDuration / 60),
+  set: (v: number) => settingsStore.updateSetting('freeDuration', v * 60),
+})
+
+// 滑块临时值（@input 更新显示，@change 才写入 store）
+const sliderWorkDuration = ref(workDuration.value)
+const sliderShortBreak = ref(shortBreakDuration.value)
+const sliderLongBreak = ref(longBreakDuration.value)
+const sliderFreeDuration = ref(freeDuration.value)
+
+// 同步 store -> slider（store 被其他地方更新时）
+watch(workDuration, (v) => { sliderWorkDuration.value = v })
+watch(shortBreakDuration, (v) => { sliderShortBreak.value = v })
+watch(longBreakDuration, (v) => { sliderLongBreak.value = v })
+watch(freeDuration, (v) => { sliderFreeDuration.value = v })
+
 const autoStartBreak = computed({
   get: () => settingsStore.settings.autoStartBreak,
   set: (v: boolean) => settingsStore.updateSetting('autoStartBreak', v),
@@ -114,11 +140,14 @@ async function testConnection() {
   testResult.value = null
 
   try {
-    authenticate(localSettings.value.githubToken)
-    setRepo(localSettings.value.githubOwner, localSettings.value.githubRepo)
+    syncStore.authenticate(localSettings.value.githubToken)
+    syncStore.setRepo(localSettings.value.githubOwner, localSettings.value.githubRepo)
 
-    const result = await getSyncStatus()
-    testResult.value = result
+    await syncStore.loadSyncStatus()
+    testResult.value = {
+      success: true,
+      message: `连接成功！待同步: ${syncStore.pendingCount} 条`,
+    }
   } catch (err) {
     testResult.value = {
       success: false,
@@ -135,32 +164,20 @@ async function syncNow() {
   syncResult.value = null
 
   try {
-    authenticate(localSettings.value.githubToken)
-    setRepo(localSettings.value.githubOwner, localSettings.value.githubRepo)
+    syncStore.authenticate(localSettings.value.githubToken)
+    syncStore.setRepo(localSettings.value.githubOwner, localSettings.value.githubRepo)
 
     appStore.setSyncStatus({ isSyncing: true })
 
-    // 获取未同步数据
-    const [unsyncedTasks, unsyncedReflections, unsyncedSessions] = await Promise.all([
-      db.getUnsyncedTasks(),
-      db.getUnsyncedReflections(),
-      db.getUnsyncedSessions(),
-    ])
-
-    const results = await fullSync(unsyncedTasks, unsyncedReflections, unsyncedSessions)
-
-    const allSuccess = results.every((r) => r.success)
-    syncResult.value = {
-      success: allSuccess,
-      message: results.map((r) => r.message).join('\n'),
-    }
+    const result = await syncStore.fullSyncAction()
+    syncResult.value = result
 
     // 更新同步状态
-    const syncStatus = await db.getSyncStatus()
+    await syncStore.loadSyncStatus()
     appStore.setSyncStatus({
       isSyncing: false,
       lastSyncAt: new Date().toISOString(),
-      pendingCount: syncStatus.pendingCount,
+      pendingCount: syncStore.pendingCount,
     })
   } catch (err) {
     syncResult.value = {
@@ -182,11 +199,7 @@ function selectTheme(theme: ThemeName) {
 async function exportData() {
   isExporting.value = true
   try {
-    const [tasks, reflections, sessions] = await Promise.all([
-      db.getAllTasks(),
-      db.getAllReflections(),
-      db.getAllSessions(),
-    ])
+    const { tasks, reflections, sessions } = await syncStore.exportAllData()
 
     const data = {
       version: '1.0.0',
@@ -227,46 +240,58 @@ async function importData() {
       const text = await file.text()
       const data = JSON.parse(text)
 
+      // 校验 schema
       if (!data.tasks || !data.reflections || !data.sessions) {
         appStore.showToast('无效的备份文件格式', 'error')
         return
       }
-
-      // 导入任务
-      for (const task of data.tasks) {
-        await db.createTask({
-          title: task.title,
-          description: task.description || '',
-          priority: task.priority,
-          estimatedPomodoros: task.estimatedPomodoros || 1,
-          tags: task.tags || [],
-          dueDate: task.dueDate || null,
-        })
+      if (!Array.isArray(data.tasks) || !Array.isArray(data.reflections) || !Array.isArray(data.sessions)) {
+        appStore.showToast('备份数据格式不正确', 'error')
+        return
       }
 
-      // 导入反思
-      for (const reflection of data.reflections) {
-        await db.createReflection({
-          date: reflection.date,
-          content: reflection.content,
-          mood: reflection.mood,
-          relatedTaskIds: reflection.relatedTaskIds || [],
-          tags: reflection.tags || [],
-        })
-      }
+      // 通过 SyncStore 批量导入
+      const validTasks = data.tasks
+        .filter((t: any) => t.title)
+        .map((t: any) => ({
+          title: t.title,
+          description: t.description || '',
+          priority: t.priority || 'medium',
+          estimatedPomodoros: t.estimatedPomodoros || 1,
+          tags: t.tags || [],
+          dueDate: t.dueDate || null,
+        }))
 
-      // 导入会话
-      for (const session of data.sessions) {
-        await db.createSession({
-          taskId: session.taskId,
-          type: session.type,
-          duration: session.duration,
-          completed: session.completed,
-          startedAt: session.startedAt,
-        })
-      }
+      const validReflections = data.reflections
+        .filter((r: any) => r.date)
+        .map((r: any) => ({
+          date: r.date,
+          content: r.content || '',
+          mood: r.mood || 'normal',
+          relatedTaskIds: r.relatedTaskIds || [],
+          tags: r.tags || [],
+        }))
 
-      appStore.showToast('数据导入成功！请刷新页面查看', 'success')
+      const validSessions = data.sessions
+        .filter((s: any) => s.type && s.duration)
+        .map((s: any) => ({
+          taskId: s.taskId,
+          type: s.type,
+          duration: s.duration,
+          completed: s.completed ?? false,
+          startedAt: s.startedAt,
+        }))
+
+      await syncStore.importRecords(validTasks, validReflections, validSessions)
+
+      // 刷新 store 内存状态
+      await Promise.all([
+        taskStore.loadTasks(),
+        reflectionStore.loadReflections(),
+        timerStore.loadTodaySessions(),
+      ])
+
+      appStore.showToast('数据导入成功！', 'success')
     } catch (err) {
       console.error('导入数据失败:', err)
       appStore.showToast('导入失败：文件格式不正确', 'error')
@@ -286,14 +311,25 @@ function requestClearData() {
 async function confirmClearData() {
   isClearing.value = true
   try {
+    // 通过 SyncStore 清除数据库
+    await syncStore.clearAllData()
+
     // 清除 localStorage
     localStorage.removeItem('pomodorox-settings')
 
-    // 提示用户需要手动清除 IndexedDB/SQLite
+    // 刷新 store 内存状态
+    await Promise.all([
+      taskStore.loadTasks(),
+      reflectionStore.loadReflections(),
+      timerStore.loadTodaySessions(),
+      sessionStore.loadAllSessions(),
+    ])
+
     appStore.showToast('数据已清除，页面即将刷新', 'success')
     setTimeout(() => window.location.reload(), 1500)
   } catch (err) {
     console.error('清除数据失败:', err)
+    appStore.showToast('清除数据失败', 'error')
   } finally {
     isClearing.value = false
     showClearConfirm.value = false
@@ -308,15 +344,11 @@ function cancelClear() {
 /** 加载数据库统计 */
 async function loadDbStats() {
   try {
-    const [tasks, sessions, reflections] = await Promise.all([
-      db.getAllTasks(),
-      db.getAllSessions(),
-      db.getAllReflections(),
-    ])
+    await syncStore.loadDbStats()
     dbStats.value = {
-      tasks: tasks.length,
-      sessions: sessions.length,
-      reflections: reflections.length,
+      tasks: syncStore.dbStats.taskCount,
+      sessions: syncStore.dbStats.sessionCount,
+      reflections: syncStore.dbStats.reflectionCount,
     }
   } catch (err) {
     console.error('加载数据库统计失败:', err)
@@ -409,7 +441,7 @@ onMounted(async () => {
               :value="localSettings.githubRepo"
               @input="updateGithubRepo(($event.target as HTMLInputElement).value)"
               class="form-input"
-              placeholder="pomodorox-data"
+              placeholder="promoX-data"
             />
           </div>
 
@@ -472,12 +504,12 @@ onMounted(async () => {
           <div class="form-group">
             <div class="slider-header">
               <label class="form-label">工作时长</label>
-              <span class="slider-value">{{ workDuration }} 分钟</span>
+              <span class="slider-value">{{ sliderWorkDuration }} 分钟</span>
             </div>
             <input
               type="range"
-              :value="workDuration"
-              @input="workDuration = Number(($event.target as HTMLInputElement).value)"
+              v-model.number="sliderWorkDuration"
+              @change="workDuration = sliderWorkDuration"
               min="15"
               max="60"
               step="5"
@@ -495,12 +527,12 @@ onMounted(async () => {
           <div class="form-group">
             <div class="slider-header">
               <label class="form-label">短休息时长</label>
-              <span class="slider-value">{{ shortBreakDuration }} 分钟</span>
+              <span class="slider-value">{{ sliderShortBreak }} 分钟</span>
             </div>
             <input
               type="range"
-              :value="shortBreakDuration"
-              @input="shortBreakDuration = Number(($event.target as HTMLInputElement).value)"
+              v-model.number="sliderShortBreak"
+              @change="shortBreakDuration = sliderShortBreak"
               min="3"
               max="15"
               step="1"
@@ -518,12 +550,12 @@ onMounted(async () => {
           <div class="form-group">
             <div class="slider-header">
               <label class="form-label">长休息时长</label>
-              <span class="slider-value">{{ longBreakDuration }} 分钟</span>
+              <span class="slider-value">{{ sliderLongBreak }} 分钟</span>
             </div>
             <input
               type="range"
-              :value="longBreakDuration"
-              @input="longBreakDuration = Number(($event.target as HTMLInputElement).value)"
+              v-model.number="sliderLongBreak"
+              @change="longBreakDuration = sliderLongBreak"
               min="10"
               max="30"
               step="5"
@@ -556,6 +588,29 @@ onMounted(async () => {
               >
                 +
               </button>
+            </div>
+          </div>
+
+          <!-- 自由计时默认时长 -->
+          <div class="form-group">
+            <div class="slider-header">
+              <label class="form-label">自由计时默认时长</label>
+              <span class="slider-value">{{ sliderFreeDuration }} 分钟</span>
+            </div>
+            <input
+              type="range"
+              v-model.number="sliderFreeDuration"
+              @change="freeDuration = sliderFreeDuration"
+              min="1"
+              max="180"
+              step="1"
+              class="form-slider"
+            />
+            <div class="slider-labels">
+              <span>1</span>
+              <span>45</span>
+              <span>90</span>
+              <span>180</span>
             </div>
           </div>
 
@@ -785,11 +840,7 @@ onMounted(async () => {
 
 /* ---- 动态背景 ---- */
 .bg-orb {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(100px);
   opacity: 0.3;
-  pointer-events: none;
 }
 
 .bg-orb-1 {
@@ -798,7 +849,7 @@ onMounted(async () => {
   background: radial-gradient(circle, rgba(88, 166, 255, 0.1) 0%, transparent 70%);
   top: -15%;
   right: -10%;
-  animation: orb-drift-1 25s ease-in-out infinite;
+  animation: orb-drift-settings-1 25s ease-in-out infinite;
 }
 
 .bg-orb-2 {
@@ -807,16 +858,16 @@ onMounted(async () => {
   background: radial-gradient(circle, rgba(136, 100, 255, 0.08) 0%, transparent 70%);
   bottom: -10%;
   left: -5%;
-  animation: orb-drift-2 30s ease-in-out infinite;
+  animation: orb-drift-settings-2 30s ease-in-out infinite;
 }
 
-@keyframes orb-drift-1 {
+@keyframes orb-drift-settings-1 {
   0%, 100% { transform: translate(0, 0); }
   33% { transform: translate(-30px, 20px); }
   66% { transform: translate(20px, -15px); }
 }
 
-@keyframes orb-drift-2 {
+@keyframes orb-drift-settings-2 {
   0%, 100% { transform: translate(0, 0); }
   33% { transform: translate(25px, -20px); }
   66% { transform: translate(-15px, 15px); }
@@ -862,6 +913,7 @@ onMounted(async () => {
   box-shadow: var(--glass-shadow);
   border-radius: 16px;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .section-title {
@@ -1478,72 +1530,7 @@ onMounted(async () => {
   box-shadow: 0 0 12px var(--accent-glow);
 }
 
-/* ---- 模态框 ---- */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(12px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal-content {
-  background: var(--glass-bg);
-  backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-shadow), 0 24px 48px rgba(0, 0, 0, 0.3);
-  border-radius: 16px;
-  padding: 24px;
-  width: 440px;
-  max-width: 90vw;
-  animation: bounce-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.modal-title {
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: var(--text);
-  margin-bottom: 12px;
-}
-
-.modal-message {
-  font-size: 0.9rem;
-  color: var(--text-secondary);
-  margin-bottom: 24px;
-  line-height: 1.6;
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-}
-
-.modal-btn {
-  padding: 8px 20px;
-  border-radius: 10px;
-  border: none;
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.modal-btn.cancel {
-  background: transparent;
-  border: 1px solid var(--glass-border);
-  color: var(--text-secondary);
-}
-
-.modal-btn.cancel:hover {
-  background: var(--hover-bg);
-  color: var(--text);
-  border-color: var(--accent);
-}
-
+/* ---- 模态框（本地覆盖） ---- */
 .modal-btn.danger {
   background: rgba(248, 81, 73, 0.15);
   color: var(--danger);
@@ -1612,4 +1599,95 @@ onMounted(async () => {
     justify-content: center;
   }
 }
+
+/* ---- 移动端响应式 ---- */
+@media (max-width: 640px) {
+  .settings-body {
+    max-width: 100%;
+    padding: 12px 16px;
+  }
+
+  .settings-section {
+    padding: 14px;
+  }
+
+  .settings-section-title {
+    font-size: 0.95rem;
+  }
+
+  .settings-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .settings-label {
+    min-width: 0;
+    font-size: 0.85rem;
+  }
+
+  .settings-input {
+    width: 100%;
+    font-size: 16px; /* 防 iOS 缩放 */
+  }
+
+  .settings-slider {
+    width: 100%;
+  }
+
+  .theme-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .theme-card {
+    min-height: 44px;
+    padding: 10px;
+    font-size: 0.8rem;
+  }
+
+  .data-actions {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .data-actions button {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  .form-actions {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .form-actions button {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  .github-section {
+    padding: 14px;
+  }
+
+  .config-row {
+    flex-direction: column;
+    gap: 6px;
+  }
+}
+
+/* ---- 平板端 ---- */
+@media (min-width: 641px) and (max-width: 1023px) {
+  .settings-body {
+    max-width: 100%;
+    padding: 16px 24px;
+  }
+
+  .theme-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
 </style>

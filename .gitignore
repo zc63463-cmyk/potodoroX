@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-web/
 dist-ssr/
 *.local
 .env
@@ -29,3 +30,10 @@ src-tauri/icons/*.svg
 
 # Build
 *.tgz
+
+# Test artifacts
+.playwright-cli/
+
+# Tauri generated schemas
+src-tauri/gen/
+.vercel

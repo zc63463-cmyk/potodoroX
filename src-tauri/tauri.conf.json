@@ -5,12 +5,11 @@
   "identifier": "com.pomodorox.app",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:5173",
+    "devUrl": "http://localhost:1420",
     "beforeDevCommand": "pnpm dev",
     "beforeBuildCommand": "pnpm build"
   },
   "app": {
-    "title": "PomodoroX",
     "windows": [
       {
         "title": "PomodoroX - 番茄时钟",
@@ -39,7 +38,6 @@
     ],
     "macOS": {
       "minimumSystemVersion": "10.15",
-      "title": "PomodoroX",
       "entitlements": null,
       "exceptionDomain": "",
       "frameworks": [],
@@ -58,7 +56,6 @@
     },
     "linux": {
       "appimage": {
-        "bundleMedia": false
       },
       "deb": {
         "depends": []

@@ -6,6 +6,17 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Reflection, CreateReflectionInput, UpdateReflectionInput, ReflectionFilter } from '@/types'
 import { db } from '@/services/database'
+import { formatDate } from '@/utils/format'
+import { useSyncStore } from '@/stores/sync'
+
+async function recordEvent(type: 'reflection.created' | 'reflection.updated' | 'reflection.deleted', id: string, payload: unknown) {
+  try {
+    const syncStore = useSyncStore()
+    await syncStore.recordEvent(type, id, payload)
+  } catch (err) {
+    console.error('[ReflectionStore] 同步事件写入失败（业务操作已成功）:', err)
+  }
+}
 
 export const useReflectionStore = defineStore('reflection', () => {
   // ---- 状态 ----
@@ -62,7 +73,7 @@ export const useReflectionStore = defineStore('reflection', () => {
   /** 今日反思 */
   const todayReflections = computed(() => {
     const today = new Date()
-    const dateStr = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getDate().toString().padStart(2, '0')}`
+    const dateStr = formatDate(today)
     return reflections.value.filter((r) => r.date === dateStr)
   })
 
@@ -89,6 +100,7 @@ export const useReflectionStore = defineStore('reflection', () => {
     try {
       const reflection = await db.createReflection(input)
       reflections.value.unshift(reflection)
+      await recordEvent('reflection.created', reflection.id, reflection)
       return reflection
     } catch (err) {
       console.error('[ReflectionStore] 创建反思失败:', err)
@@ -107,6 +119,7 @@ export const useReflectionStore = defineStore('reflection', () => {
         if (index !== -1) {
           reflections.value[index] = updated
         }
+        await recordEvent('reflection.updated', id, updated)
       }
       return updated
     } catch (err) {
@@ -123,6 +136,7 @@ export const useReflectionStore = defineStore('reflection', () => {
       const success = await db.deleteReflection(id)
       if (success) {
         reflections.value = reflections.value.filter((r) => r.id !== id)
+        await recordEvent('reflection.deleted', id, { id })
       }
       return success
     } catch (err) {

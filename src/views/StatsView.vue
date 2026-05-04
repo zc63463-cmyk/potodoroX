@@ -2,9 +2,9 @@
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useTaskStore } from '@/stores/task'
 import { useReflectionStore } from '@/stores/reflection'
-import { db } from '@/services/database'
+import { useSessionStore } from '@/stores/session'
 import { exportDailyReport, exportWeeklyReport } from '@/services/export'
-import type { Session, Mood } from '@/types'
+import type { Mood } from '@/types'
 import { MOODS } from '@/utils/constants'
 import {
   formatDate,
@@ -18,13 +18,13 @@ import {
 // ---- Stores ----
 const taskStore = useTaskStore()
 const reflectionStore = useReflectionStore()
+const sessionStore = useSessionStore()
 
 // ---- 状态 ----
 type DateRangeType = 'today' | 'week' | 'month' | 'custom'
 const dateRangeType = ref<DateRangeType>('week')
 const customStartDate = ref('')
 const customEndDate = ref('')
-const allSessions = ref<Session[]>([])
 const isExporting = ref(false)
 const chartsReady = ref(false)
 
@@ -76,7 +76,7 @@ const currentWorkSessions = computed(() => {
   const [start, end] = dateRange.value
   const endDate = new Date(end + 'T23:59:59')
   const startDate = new Date(start + 'T00:00:00')
-  return allSessions.value.filter(
+  return sessionStore.sessions.filter(
     (s) =>
       s.type === 'work' &&
       s.completed &&
@@ -90,7 +90,7 @@ const prevWorkSessions = computed(() => {
   const [start, end] = prevDateRange.value
   const endDate = new Date(end + 'T23:59:59')
   const startDate = new Date(start + 'T00:00:00')
-  return allSessions.value.filter(
+  return sessionStore.sessions.filter(
     (s) =>
       s.type === 'work' &&
       s.completed &&
@@ -131,7 +131,7 @@ const streakDays = computed(() => {
     const d = new Date(today)
     d.setDate(d.getDate() - i)
     const dateStr = formatDate(d)
-    const hasSession = allSessions.value.some(
+    const hasSession = sessionStore.sessions.some(
       (s) =>
         s.type === 'work' &&
         s.completed &&
@@ -171,7 +171,7 @@ const dailyPomodoroData = computed(() => {
 
   for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
     const dateStr = formatDate(d)
-    const count = allSessions.value.filter(
+    const count = sessionStore.sessions.filter(
       (s) =>
         s.type === 'work' &&
         s.completed &&
@@ -318,7 +318,7 @@ const focusHourMax = computed(() => {
 
 /** 最近完成的会话 */
 const recentSessions = computed(() => {
-  return allSessions.value
+  return sessionStore.sessions
     .filter((s) => s.completed)
     .slice(0, 15)
     .map((s) => {
@@ -409,8 +409,8 @@ onMounted(async () => {
   await Promise.all([
     taskStore.loadTasks(),
     reflectionStore.loadReflections(),
+    sessionStore.loadAllSessions(),
   ])
-  allSessions.value = await db.getAllSessions()
   triggerChartAnimation()
 })
 </script>
@@ -1456,4 +1456,80 @@ onMounted(async () => {
     flex-direction: column;
   }
 }
+
+/* ---- 移动端响应式 ---- */
+@media (max-width: 640px) {
+  .stats-cards {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .stat-card {
+    padding: 14px 12px;
+  }
+
+  .stat-value {
+    font-size: 1.4rem;
+  }
+
+  .stat-label {
+    font-size: 0.7rem;
+  }
+
+  .stats-header {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .stats-body {
+    padding: 12px;
+  }
+
+  .chart-container {
+    padding: 12px;
+    min-height: 200px;
+  }
+
+  .chart-container svg {
+    width: 100%;
+    height: auto;
+  }
+
+  .donut-chart {
+    max-width: 200px;
+    margin: 0 auto;
+  }
+
+  .date-range-selector {
+    min-height: 44px;
+  }
+
+  .date-range-selector button {
+    min-height: 36px;
+    padding: 6px 12px;
+    font-size: 0.8rem;
+  }
+
+  .bottom-section {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .export-section {
+    width: 100%;
+  }
+
+  .btn-export {
+    width: 100%;
+    justify-content: center;
+    min-height: 44px;
+  }
+
+  .chart-empty {
+    min-height: 100px;
+    font-size: 0.8rem;
+  }
+}
+
 </style>

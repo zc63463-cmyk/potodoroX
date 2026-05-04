@@ -11,6 +11,13 @@ export default defineConfig({
     tailwindcss(),
   ],
 
+  // Tauri 生产构建使用相对路径，开发时使用默认绝对路径
+  base: process.env.TAURI_ENV_PLATFORM
+    ? './'
+    : process.env.VITE_BUILD_WEB
+      ? '/'
+      : '/',
+
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
@@ -45,7 +52,11 @@ export default defineConfig({
   build: {
     // Tauri 使用 Chromium on Windows 和 WebKit on macOS/Linux
     // 使用现代浏览器目标以支持解构等语法
-    target: process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome105' : 'safari16',
+    target: process.env.TAURI_ENV_PLATFORM === 'windows'
+      ? 'chrome105'
+      : process.env.VITE_BUILD_WEB
+        ? 'es2015'
+        : 'safari16',
     // 开发构建时不要 minify，方便调试
     minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
     // 为 Tauri 产出 sourcemap

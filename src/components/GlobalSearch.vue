@@ -320,4 +320,45 @@ function handleGlobalKeydown(e: KeyboardEvent) {
 .search-leave-to .search-modal {
   transform: translateY(-10px) scale(0.98);
 }
+
+/* ---- 移动端响应式 ---- */
+@media (max-width: 640px) {
+  .search-backdrop {
+    padding-top: 0;
+    align-items: flex-start;
+  }
+
+  .search-modal {
+    width: 100%;
+    max-width: 100vw;
+    max-height: 100vh;
+    border-radius: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .search-input-wrapper {
+    padding: 12px 16px;
+  }
+
+  .search-input {
+    font-size: 16px; /* 防 iOS 缩放 */
+  }
+
+  .search-results {
+    flex: 1;
+    max-height: none;
+    overflow-y: auto;
+  }
+
+  .search-result-item {
+    padding: 14px 12px;
+    min-height: 44px;
+  }
+
+  .search-footer {
+    display: none;
+  }
+}
 </style>

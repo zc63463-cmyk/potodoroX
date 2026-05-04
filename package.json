@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:web": "cross-env VITE_BUILD_WEB=true tsc && vite build --outDir dist-web",
+    "dev:lan": "vite --host 0.0.0.0",
+    "dev:lan:qr": "node scripts/start-with-qr.cjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -13,8 +16,11 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.4",
+    "@vitejs/plugin-vue": "^6.0.6",
+    "cross-env": "^10.1.0",
     "esbuild": "^0.28.0",
     "happy-dom": "^17.0.0",
+    "qrcode-terminal": "^0.12.0",
     "tailwindcss": "^4.2.4",
     "typescript": "~6.0.2",
     "vite": "^8.0.10",
@@ -27,9 +33,12 @@
     "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-sql": "^2.4.0",
     "@tauri-apps/plugin-store": "^2.4.2",
-    "@vitejs/plugin-vue": "^6.0.6",
+    "animejs": "^4.4.1",
+    "idb-keyval": "^6.2.2",
     "octokit": "^5.0.5",
+    "ogl": "^1.0.11",
     "pinia": "^3.0.4",
+    "three": "^0.184.0",
     "vue": "^3.5.33",
     "vue-router": "^4.6.4"
   }

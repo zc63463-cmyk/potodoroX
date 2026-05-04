@@ -5,10 +5,10 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { SessionType, Session } from '@/types'
-import { db } from '@/services/database'
+import type { SessionType } from '@/types'
+import { useSessionStore } from '@/stores/session'
+import { useTaskStore } from '@/stores/task'
 import { formatDateTime } from '@/utils/format'
-import { generateId } from '@/utils/id'
 import { TIMER_INTERVAL_MS } from '@/utils/constants'
 import { useSettingsStore } from '@/stores/settings'
 
@@ -32,9 +32,6 @@ export const useTimerStore = defineStore('timer', () => {
   /** 今日已完成番茄钟数 */
   const completedPomodoros = ref(0)
 
-  /** 今日会话历史 */
-  const todaySessions = ref<Session[]>([])
-
   /** 连续番茄钟计数（用于判断长休息） */
   const pomodoroStreak = ref(0)
 
@@ -47,9 +44,6 @@ export const useTimerStore = defineStore('timer', () => {
 
   /** 当前会话开始时间 */
   let sessionStartTime = ''
-
-  /** 当前会话 ID */
-  let currentSessionId: string | null = null
 
   /** 是否正在完成会话（防止竞态） */
   let isCompleting = false
@@ -91,7 +85,7 @@ export const useTimerStore = defineStore('timer', () => {
       case 'long_break':
         return settings.longBreakDuration || 15 * 60
       case 'free':
-        return remaining.value // 自由计时器使用当前值
+        return settings.freeDuration || 30 * 60
       default:
         return 25 * 60
     }
@@ -119,7 +113,6 @@ export const useTimerStore = defineStore('timer', () => {
     }
 
     sessionStartTime = formatDateTime(new Date())
-    currentSessionId = generateId()
     targetEndTime = Date.now() + remaining.value * 1000
     isRunning.value = true
     isPaused.value = false
@@ -165,7 +158,6 @@ export const useTimerStore = defineStore('timer', () => {
     remaining.value = getTotalDuration()
     isRunning.value = false
     isPaused.value = false
-    currentSessionId = null
     sessionStartTime = ''
   }
 
@@ -185,45 +177,35 @@ export const useTimerStore = defineStore('timer', () => {
 
     stopTimer()
 
-    const session: Session = {
-      id: currentSessionId || generateId(),
+    const sessionInput = {
       taskId: currentTaskId.value,
       type: sessionType.value,
       duration: getTotalDuration(),
       completed,
       startedAt: sessionStartTime || formatDateTime(new Date()),
-      endedAt: formatDateTime(new Date()),
-      synced: false,
     }
 
-    // 保存会话到数据库
+    // 通过 SessionStore 保存会话
     try {
-      await db.createSession({
-        taskId: session.taskId,
-        type: session.type,
-        duration: session.duration,
-        completed: session.completed,
-        startedAt: session.startedAt,
-      })
+      const sessionStore = useSessionStore()
+      await sessionStore.addSession(sessionInput)
 
       // 如果是完成的工作会话，更新番茄钟计数
       if (completed && sessionType.value === 'work') {
         completedPomodoros.value++
         pomodoroStreak.value++
 
-        // 更新任务的 actualPomodoros
+        // 更新任务的 actualPomodoros（通过 taskStore 保持内存同步）
         if (currentTaskId.value) {
-          const task = await db.getTask(currentTaskId.value)
+          const taskStore = useTaskStore()
+          const task = taskStore.tasks.find(t => t.id === currentTaskId.value)
           if (task) {
-            await db.updateTask(currentTaskId.value, {
+            await taskStore.updateTask(currentTaskId.value, {
               actualPomodoros: task.actualPomodoros + 1,
             })
           }
         }
       }
-
-      // 添加到今日会话
-      todaySessions.value.unshift(session)
     } catch (err) {
       console.error('[Timer] 保存会话失败:', err)
     }
@@ -231,7 +213,6 @@ export const useTimerStore = defineStore('timer', () => {
     // 重置状态
     isRunning.value = false
     isPaused.value = false
-    currentSessionId = null
     sessionStartTime = ''
 
     // 自动切换到下一个会话类型
@@ -266,6 +247,9 @@ export const useTimerStore = defineStore('timer', () => {
       if (autoStartBreak) {
         start()
       }
+    } else if (sessionType.value === 'free') {
+      // 自由计时完成后不自动切换，重置到默认时长
+      remaining.value = getTotalDuration()
     } else {
       // 休息完成后切换到工作
       sessionType.value = 'work'
@@ -279,16 +263,13 @@ export const useTimerStore = defineStore('timer', () => {
 
   /**
    * 加载今日会话数据
+   * 委托给 SessionStore，同时更新本 store 的 completedPomodoros
    */
   async function loadTodaySessions(): Promise<void> {
     try {
-      const today = new Date()
-      const dateStr = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getDate().toString().padStart(2, '0')}`
-      const sessions = await db.getSessionsByDateRange(dateStr, dateStr)
-      todaySessions.value = sessions
-      completedPomodoros.value = sessions.filter(
-        (s) => s.type === 'work' && s.completed
-      ).length
+      const sessionStore = useSessionStore()
+      await sessionStore.loadAllSessions()
+      completedPomodoros.value = sessionStore.todayPomodoros
     } catch (err) {
       console.error('[Timer] 加载今日会话失败:', err)
     }
@@ -347,7 +328,6 @@ export const useTimerStore = defineStore('timer', () => {
     sessionType,
     currentTaskId,
     completedPomodoros,
-    todaySessions,
     pomodoroStreak,
     // 计算属性
     formattedRemaining,

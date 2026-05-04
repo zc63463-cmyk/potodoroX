@@ -76,20 +76,12 @@ export interface Session {
 /** 新建会话 */
 export type CreateSessionInput = Pick<Session, 'taskId' | 'type' | 'duration' | 'completed' | 'startedAt'>
 
-/** 计时器状态 */
-export interface TimerState {
-  remaining: number
-  isRunning: boolean
-  isPaused: boolean
-  sessionType: SessionType
-  currentTaskId: string | null
-}
-
 /** 应用配置 */
 export interface AppConfig {
   workDuration: number
   shortBreakDuration: number
   longBreakDuration: number
+  freeDuration: number
   longBreakInterval: number
   autoStartBreak: boolean
   autoStartPomodoro: boolean
@@ -133,15 +125,6 @@ export interface TaskStats {
   archived: number
   totalEstimated: number
   totalActual: number
-}
-
-/** 每日统计 */
-export interface DailyStats {
-  date: string
-  completedPomodoros: number
-  totalFocusMinutes: number
-  tasksCompleted: number
-  sessions: Session[]
 }
 
 /** 排序选项 */

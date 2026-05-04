@@ -4,14 +4,16 @@
 // 列表 / 看板 / 日历热力图 三种视图模式
 // ============================================================
 
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useTaskStore } from '@/stores/task'
+import { useSessionStore } from '@/stores/session'
 import { PRIORITIES, STATUSES, DEFAULT_TAGS } from '@/utils/constants'
 import { formatDate, formatRelativeTime, formatFriendlyDate } from '@/utils/format'
 import type { Task, TaskStatus, Priority, CreateTaskInput, UpdateTaskInput, SortField, SortOrder } from '@/types'
 
 // ---- Stores ----
 const taskStore = useTaskStore()
+const sessionStore = useSessionStore()
 
 // ---- 视图模式 ----
 type ViewMode = 'list' | 'kanban' | 'calendar'
@@ -69,77 +71,40 @@ const sortOptions: { field: SortField; label: string }[] = [
 
 // ---- 计算属性 ----
 
-/** 根据本地筛选条件过滤任务 */
-const displayTasks = computed(() => {
-  let result = [...taskStore.tasks]
+/** 委托给 taskStore 的筛选排序结果 */
+const displayTasks = computed(() => taskStore.filteredTasks)
 
-  // 状态筛选
-  if (statusFilter.value !== 'all') {
-    result = result.filter((t) => t.status === statusFilter.value)
-  }
-
-  // 优先级筛选
-  if (priorityFilter.value) {
-    result = result.filter((t) => t.priority === priorityFilter.value)
-  }
-
-  // 标签筛选
-  if (tagFilter.value) {
-    result = result.filter((t) => t.tags.includes(tagFilter.value))
-  }
-
-  // 搜索
-  if (searchQuery.value.trim()) {
-    const q = searchQuery.value.toLowerCase().trim()
-    result = result.filter(
-      (t) =>
-        t.title.toLowerCase().includes(q) ||
-        t.description.toLowerCase().includes(q)
-    )
-  }
-
-  // 排序
-  result.sort((a, b) => {
-    const field = sortField.value
-    const order = sortOrder.value === 'asc' ? 1 : -1
-
-    switch (field) {
-      case 'priority': {
-        const wA = PRIORITIES.find((p) => p.value === a.priority)?.weight ?? 0
-        const wB = PRIORITIES.find((p) => p.value === b.priority)?.weight ?? 0
-        return (wA - wB) * order
-      }
-      case 'dueDate': {
-        const dA = a.dueDate || '9999-12-31'
-        const dB = b.dueDate || '9999-12-31'
-        return dA.localeCompare(dB) * order
-      }
-      case 'title':
-        return a.title.localeCompare(b.title) * order
-      case 'updatedAt':
-        return a.updatedAt.localeCompare(b.updatedAt) * order
-      case 'createdAt':
-      default:
-        return a.createdAt.localeCompare(b.createdAt) * order
-    }
-  })
-
-  return result
-})
-
-/** 看板列任务 */
+/** 看板视图：按状态分组 */
 const kanbanTasks = computed(() => {
-  const map: Record<TaskStatus, Task[]> = {
+  const groups: Record<TaskStatus, Task[]> = {
     todo: [],
     in_progress: [],
     done: [],
     archived: [],
   }
-  taskStore.tasks.forEach((t) => {
-    map[t.status].push(t)
+  taskStore.filteredTasks.forEach((t) => {
+    if (groups[t.status]) {
+      groups[t.status].push(t)
+    }
   })
-  return map
+  return groups
 })
+
+/** 同步本地筛选状态到 taskStore */
+function syncFilterToStore() {
+  taskStore.setFilter({
+    status: statusFilter.value === 'all' ? undefined : statusFilter.value,
+    priority: priorityFilter.value || undefined,
+    tag: tagFilter.value || undefined,
+    search: searchQuery.value.trim() || undefined,
+  })
+  taskStore.setSort(sortField.value, sortOrder.value)
+}
+
+// 监听筛选条件变化，同步到 store
+watch([statusFilter, priorityFilter, tagFilter, searchQuery, sortField, sortOrder], () => {
+  syncFilterToStore()
+}, { immediate: true })
 
 /** 日历热力图数据 - 最近 12 周 */
 const heatmapData = computed(() => {
@@ -153,12 +118,12 @@ const heatmapData = computed(() => {
   const dayOfWeek = startDate.getDay()
   startDate.setDate(startDate.getDate() - dayOfWeek)
 
-  // 构建番茄钟完成数映射
+  // 使用 sessionStore 数据计算每日完成的番茄钟数
   const pomodoroMap = new Map<string, number>()
-  taskStore.tasks.forEach((t) => {
-    if (t.actualPomodoros > 0 && t.updatedAt) {
-      const dateKey = t.updatedAt.substring(0, 10)
-      pomodoroMap.set(dateKey, (pomodoroMap.get(dateKey) || 0) + t.actualPomodoros)
+  sessionStore.sessions.forEach((s) => {
+    if (s.completed && s.type === 'work' && s.startedAt) {
+      const dateKey = s.startedAt.substring(0, 10)
+      pomodoroMap.set(dateKey, (pomodoroMap.get(dateKey) || 0) + 1)
     }
   })
 
@@ -361,6 +326,11 @@ function toggleExpand(taskId: string) {
 function startInlineEdit(task: Task) {
   inlineEditingId.value = task.id
   inlineEditTitle.value = task.title
+  nextTick(() => {
+    const input = document.querySelector<HTMLInputElement>('.inline-edit-input')
+    input?.focus()
+    input?.select()
+  })
 }
 
 /** 保存内联编辑 */
@@ -449,7 +419,10 @@ function handleKeyDown(e: KeyboardEvent) {
 
 // ---- 生命周期 ----
 onMounted(async () => {
-  await taskStore.loadTasks()
+  await Promise.all([
+    taskStore.loadTasks(),
+    sessionStore.loadAllSessions(),
+  ])
   document.addEventListener('keydown', handleKeyDown)
 })
 
@@ -659,7 +632,6 @@ onUnmounted(() => {
                         @blur="saveInlineEdit(task)"
                         @keydown="onInlineEditKeydown($event, task)"
                         @click.stop
-                        ref="inlineEditInput"
                       />
                       <!-- 显示模式 -->
                       <span v-else class="task-title" :class="{ 'line-through opacity-50': task.status === 'done' }">
@@ -1140,11 +1112,7 @@ onUnmounted(() => {
 }
 
 .bg-orb {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(100px);
   opacity: 0.4;
-  pointer-events: none;
 }
 
 .bg-orb-1 {
@@ -1153,7 +1121,7 @@ onUnmounted(() => {
   background: radial-gradient(circle, rgba(88, 166, 255, 0.1) 0%, transparent 70%);
   top: -20%;
   right: -10%;
-  animation: orb-drift-1 25s ease-in-out infinite;
+  animation: orb-drift-tasks-1 25s ease-in-out infinite;
 }
 
 .bg-orb-2 {
@@ -1162,15 +1130,15 @@ onUnmounted(() => {
   background: radial-gradient(circle, rgba(136, 100, 255, 0.08) 0%, transparent 70%);
   bottom: -10%;
   left: -5%;
-  animation: orb-drift-2 30s ease-in-out infinite;
+  animation: orb-drift-tasks-2 30s ease-in-out infinite;
 }
 
-@keyframes orb-drift-1 {
+@keyframes orb-drift-tasks-1 {
   0%, 100% { transform: translate(0, 0); }
   50% { transform: translate(-40px, 30px); }
 }
 
-@keyframes orb-drift-2 {
+@keyframes orb-drift-tasks-2 {
   0%, 100% { transform: translate(0, 0); }
   50% { transform: translate(30px, -20px); }
 }
@@ -1465,7 +1433,7 @@ onUnmounted(() => {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 0 28px 28px;
+  padding: 0 28px 80px;
 }
 
 /* ==================== 列表视图 ==================== */
@@ -2694,4 +2662,103 @@ onUnmounted(() => {
     display: none;
   }
 }
+
+/* ---- 移动端响应式 ---- */
+@media (max-width: 640px) {
+  .tasks-container {
+    padding-bottom: 60px; /* 避免 FAB 遮挡 */
+  }
+
+  .board-columns {
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+  }
+
+  .board-column {
+    min-height: auto;
+  }
+
+  .fab-button {
+    display: flex;
+    position: fixed;
+    bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+    right: 20px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 20px var(--accent-glow);
+    z-index: 40;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .fab-button:active {
+    transform: scale(0.95);
+  }
+
+  .task-form-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .task-form-panel {
+    width: 100%;
+    max-width: 100vw;
+    border-radius: 16px 16px 0 0;
+    max-height: 85vh;
+    overflow-y: auto;
+    margin: 0;
+    padding: 20px;
+    padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .form-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .view-tab-label {
+    font-size: 0.75rem;
+  }
+
+  .calendar-grid {
+    gap: 2px;
+  }
+
+  .calendar-cell {
+    font-size: 0.7rem;
+    min-height: 32px;
+  }
+
+  .task-item {
+    min-height: 44px;
+    padding: 10px 12px;
+  }
+
+  .empty-state {
+    padding: 40px 16px;
+  }
+
+  .empty-title {
+    font-size: 0.95rem;
+  }
+
+  .empty-desc {
+    font-size: 0.8rem;
+  }
+
+  .empty-action {
+    width: 100%;
+    justify-content: center;
+    min-height: 44px;
+  }
+}
+
 </style>

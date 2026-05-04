@@ -3,32 +3,6 @@
 // ============================================================
 
 /**
- * 将秒数格式化为 MM:SS
- * @param seconds 总秒数
- * @returns 格式化后的时间字符串
- */
-export function formatTime(seconds: number): string {
-  const mins = Math.floor(seconds / 60)
-  const secs = Math.floor(seconds % 60)
-  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
-}
-
-/**
- * 将秒数格式化为 HH:MM:SS
- * @param seconds 总秒数
- * @returns 格式化后的时间字符串
- */
-export function formatTimeWithHours(seconds: number): string {
-  const hrs = Math.floor(seconds / 3600)
-  const mins = Math.floor((seconds % 3600) / 60)
-  const secs = Math.floor(seconds % 60)
-  if (hrs > 0) {
-    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
-  }
-  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
-}
-
-/**
  * 将分钟数格式化为可读字符串
  * @param minutes 分钟数
  * @returns 如 "1小时30分钟"
@@ -107,17 +81,6 @@ export function formatRelativeTime(date: Date | string): string {
 }
 
 /**
- * 格式化月份为 YYYY-MM
- * @param date Date 对象
- * @returns 格式化后的月份字符串
- */
-export function formatMonth(date: Date): string {
-  const year = date.getFullYear()
-  const month = (date.getMonth() + 1).toString().padStart(2, '0')
-  return `${year}-${month}`
-}
-
-/**
  * 获取友好日期显示
  * @param dateStr 日期字符串 (YYYY-MM-DD)
  * @returns 如 "今天"、"昨天"、"2024-01-15"
@@ -139,16 +102,6 @@ export function getWeekdayName(date: Date | string): string {
   const d = typeof date === 'string' ? new Date(date) : date
   const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
   return weekdays[d.getDay()]
-}
-
-/**
- * 获取日期范围的显示文本
- * @param start 开始日期
- * @param end 结束日期
- * @returns 如 "2024-01-01 ~ 2024-01-07"
- */
-export function formatDateRange(start: string, end: string): string {
-  return `${start} ~ ${end}`
 }
 
 /**

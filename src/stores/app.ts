@@ -33,6 +33,9 @@ export const useAppStore = defineStore('app', () => {
   /** Toast 通知列表 */
   const toasts = ref<Array<{ id: string; message: string; type: ToastType }>>([])
 
+  /** 计时器沉浸模式（移动端全屏） */
+  const immersiveMode = ref(false)
+
   /** Toast ID 计数器 */
   let toastIdCounter = 0
 
@@ -84,6 +87,16 @@ export const useAppStore = defineStore('app', () => {
     modalOpen.value = false
   }
 
+  /** 切换沉浸模式 */
+  function toggleImmersiveMode() {
+    immersiveMode.value = !immersiveMode.value
+  }
+
+  /** 退出沉浸模式 */
+  function exitImmersiveMode() {
+    immersiveMode.value = false
+  }
+
   /** 显示 Toast 通知 */
   function showToast(message: string, type: ToastType = 'info', duration = 3000) {
     const id = `toast-${++toastIdCounter}`
@@ -118,6 +131,7 @@ export const useAppStore = defineStore('app', () => {
     showGlobalSearch,
     modalOpen,
     toasts,
+    immersiveMode,
     // 计算属性
     sidebarWidth,
     hasPendingSync,
@@ -132,5 +146,7 @@ export const useAppStore = defineStore('app', () => {
     closeModal,
     showToast,
     removeToast,
+    toggleImmersiveMode,
+    exitImmersiveMode,
   }
 })
