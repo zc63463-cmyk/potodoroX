@@ -2,20 +2,37 @@
 import { ref, computed } from 'vue'
 import { formatDate } from '@/utils/format'
 import { useSessionStore } from '@/stores/session'
+import { useTaskStore } from '@/stores/task'
+import type { Session } from '@/types'
 
 const sessionStore = useSessionStore()
+const taskStore = useTaskStore()
+
+const CELL_SIZE = 11
+const CELL_GAP = 3
+const WEEKS_TO_SHOW = 53
 
 const heatmapTooltip = ref<{ date: string; count: number; x: number; y: number } | null>(null)
+const selectedDay = ref<{ date: string; count: number; sessions: Session[] } | null>(null)
 
-/** 日历热力图数据 - 最近 12 周 */
+/** 日历热力图数据 - 最近 53 周（GitHub 风格） */
 const heatmapData = computed(() => {
   const today = new Date()
   const days: { date: string; count: number; isFuture: boolean }[] = []
 
-  const startDate = new Date(today)
-  startDate.setDate(today.getDate() - 83)
+  const endDate = new Date(today)
+  endDate.setDate(today.getDate() + 1)
+
+  const totalDays = WEEKS_TO_SHOW * 7
+
+  const startDate = new Date(endDate)
+  startDate.setDate(endDate.getDate() - totalDays)
+
+  // 对齐到周日（GitHub 标准）
   const dayOfWeek = startDate.getDay()
   startDate.setDate(startDate.getDate() - dayOfWeek)
+
+  const renderDays = totalDays + dayOfWeek
 
   const pomodoroMap = new Map<string, number>()
   sessionStore.sessions.forEach((s) => {
@@ -25,7 +42,7 @@ const heatmapData = computed(() => {
     }
   })
 
-  for (let i = 0; i < 91; i++) {
+  for (let i = 0; i < renderDays; i++) {
     const d = new Date(startDate)
     d.setDate(startDate.getDate() + i)
     const dateStr = formatDate(d)
@@ -49,6 +66,36 @@ const heatmapWeeks = computed(() => {
   return weeks
 })
 
+/** 月份标签精确计算 */
+const monthLabels = computed(() => {
+  const labels: { label: string; colIndex: number }[] = []
+  heatmapWeeks.value.forEach((week, wi) => {
+    if (week.length === 0) return
+    const firstDay = week[0]
+    const d = new Date(firstDay.date + 'T00:00:00')
+    const month = d.getMonth()
+
+    if (wi === 0) {
+      labels.push({
+        label: d.toLocaleDateString('zh-CN', { month: 'short' }),
+        colIndex: wi,
+      })
+    } else {
+      const prevWeek = heatmapWeeks.value[wi - 1]
+      if (prevWeek.length > 0) {
+        const prevMonth = new Date(prevWeek[0].date + 'T00:00:00').getMonth()
+        if (month !== prevMonth) {
+          labels.push({
+            label: d.toLocaleDateString('zh-CN', { month: 'short' }),
+            colIndex: wi,
+          })
+        }
+      }
+    }
+  })
+  return labels
+})
+
 /** 热力图统计 */
 const heatmapStats = computed(() => {
   const total = heatmapData.value.reduce((s, d) => s + d.count, 0)
@@ -58,102 +105,118 @@ const heatmapStats = computed(() => {
   return { total, activeDays, maxDay, avgPerDay }
 })
 
-/** 热力图颜色等级 */
+/** 5 级颜色 */
 function getHeatColor(count: number): string {
   if (count === 0) return 'var(--border)'
-  if (count <= 2) return 'rgba(88, 166, 255, 0.3)'
-  if (count <= 4) return 'rgba(88, 166, 255, 0.55)'
-  return 'rgba(88, 166, 255, 0.85)'
+  if (count <= 2) return 'rgba(88, 166, 255, 0.35)'
+  if (count <= 5) return 'rgba(88, 166, 255, 0.55)'
+  if (count <= 8) return 'rgba(88, 166, 255, 0.75)'
+  return 'rgba(88, 166, 255, 0.95)'
 }
 
-/** 热力图鼠标事件 */
 function onHeatmapCellMouseEnter(e: MouseEvent, date: string, count: number) {
   const rect = (e.target as HTMLElement).getBoundingClientRect()
   heatmapTooltip.value = {
     date,
     count,
     x: rect.left + rect.width / 2,
-    y: rect.top - 8,
+    y: rect.top - 6,
   }
 }
 
 function onHeatmapCellMouseLeave() {
   heatmapTooltip.value = null
 }
+
+function onCellClick(date: string, count: number) {
+  const sessions = sessionStore.sessions.filter((s) => {
+    return s.completed && s.type === 'work' && s.startedAt && s.startedAt.startsWith(date)
+  })
+  selectedDay.value = { date, count, sessions }
+}
+
+function closeDetail() {
+  selectedDay.value = null
+}
+
+function formatTime(iso: string): string {
+  return iso.substring(11, 16)
+}
+
+function getTaskTitle(taskId: string | null | undefined): string {
+  if (!taskId) return '未关联任务'
+  return taskStore.getTaskById(taskId)?.title || '未知任务'
+}
 </script>
 
 <template>
   <div class="calendar-view">
-    <div class="heatmap-container">
-      <!-- 月份标签：仅在新月份首周显示，避免重叠 -->
-      <div class="heatmap-months">
-        <span
-          v-for="(week, wi) in heatmapWeeks"
-          :key="'month-' + wi"
-          class="heatmap-month-label"
-          :style="{ left: wi * 18 + 'px' }"
-        >
-          <template v-if="week.length > 0">
-            {{ (wi === 0 || new Date(week[0].date + 'T00:00:00').getMonth() !== new Date(heatmapWeeks[wi - 1][0].date + 'T00:00:00').getMonth()) ? new Date(week[0].date + 'T00:00:00').toLocaleDateString('zh-CN', { month: 'short' }) : '' }}
-          </template>
-        </span>
-      </div>
-
-      <!-- 热力图网格 -->
-      <div class="heatmap-grid">
-        <!-- 星期标签 -->
-        <div class="heatmap-day-labels">
-          <span class="day-label" style="line-height: 15px; height: 15px;" />
-          <span class="day-label">一</span>
-          <span class="day-label">三</span>
-          <span class="day-label">五</span>
+    <div class="heatmap-scroll-wrapper">
+      <div class="heatmap-inner">
+        <!-- 月份标签（精确对齐到列） -->
+        <div class="heatmap-months">
+          <span
+            v-for="m in monthLabels"
+            :key="m.label + m.colIndex"
+            class="heatmap-month-label"
+            :style="{ transform: `translateX(${m.colIndex * (CELL_SIZE + CELL_GAP)}px)` }"
+          >
+            {{ m.label }}
+          </span>
         </div>
 
-        <!-- 网格 -->
-        <div class="heatmap-cells">
-          <div
-            v-for="week in heatmapWeeks"
-            :key="'week-' + week[0]?.date"
-            class="heatmap-week"
-          >
+        <!-- 热力图网格 -->
+        <div class="heatmap-grid">
+          <!-- 星期标签 -->
+          <div class="heatmap-day-labels">
+            <span class="day-label-spacer" />
+            <span class="day-label">一</span>
+            <span class="day-label-spacer" />
+            <span class="day-label">三</span>
+            <span class="day-label-spacer" />
+            <span class="day-label">五</span>
+            <span class="day-label-spacer" />
+            <span class="day-label-spacer" />
+          </div>
+
+          <!-- 网格主体 -->
+          <div class="heatmap-weeks">
             <div
-              v-for="day in week"
-              :key="day.date"
-              class="heatmap-cell"
-              :class="{ future: day.isFuture }"
-              :style="{ backgroundColor: day.isFuture ? 'transparent' : getHeatColor(day.count) }"
-              @mouseenter="onHeatmapCellMouseEnter($event, day.date, day.count)"
-              @mouseleave="onHeatmapCellMouseLeave"
-            />
+              v-for="week in heatmapWeeks"
+              :key="'week-' + week[0]?.date"
+              class="heatmap-week"
+            >
+              <div
+                v-for="day in week"
+                :key="day.date"
+                class="heatmap-cell"
+                :class="{
+                  future: day.isFuture,
+                  active: !day.isFuture && day.count > 0,
+                  selected: selectedDay?.date === day.date,
+                }"
+                :style="{ backgroundColor: day.isFuture ? 'transparent' : getHeatColor(day.count) }"
+                @mouseenter="onHeatmapCellMouseEnter($event, day.date, day.count)"
+                @mouseleave="onHeatmapCellMouseLeave"
+                @click="!day.isFuture && onCellClick(day.date, day.count)"
+              />
+            </div>
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- 图例 -->
-      <div class="heatmap-legend">
-        <span class="legend-label">少</span>
-        <div class="legend-cells">
-          <div class="legend-cell" style="background-color: var(--border)" />
-          <div class="legend-cell" style="background-color: rgba(88, 166, 255, 0.3)" />
-          <div class="legend-cell" style="background-color: rgba(88, 166, 255, 0.55)" />
-          <div class="legend-cell" style="background-color: rgba(88, 166, 255, 0.85)" />
-        </div>
-        <span class="legend-label">多</span>
+    <!-- 图例 -->
+    <div class="heatmap-legend">
+      <span class="legend-label">少</span>
+      <div class="legend-cells">
+        <div class="legend-cell" style="background-color: var(--border)" />
+        <div class="legend-cell" style="background-color: rgba(88, 166, 255, 0.35)" />
+        <div class="legend-cell" style="background-color: rgba(88, 166, 255, 0.55)" />
+        <div class="legend-cell" style="background-color: rgba(88, 166, 255, 0.75)" />
+        <div class="legend-cell" style="background-color: rgba(88, 166, 255, 0.95)" />
       </div>
-
-      <!-- Tooltip -->
-      <Teleport to="body">
-        <Transition name="tooltip">
-          <div
-            v-if="heatmapTooltip"
-            class="heatmap-tooltip"
-            :style="{ left: heatmapTooltip.x + 'px', top: heatmapTooltip.y + 'px' }"
-          >
-            <strong>{{ heatmapTooltip.count }}</strong> 个番茄钟
-            <span class="tooltip-date">{{ heatmapTooltip.date }}</span>
-          </div>
-        </Transition>
-      </Teleport>
+      <span class="legend-label">多</span>
     </div>
 
     <!-- 统计摘要 -->
@@ -180,6 +243,55 @@ function onHeatmapCellMouseLeave() {
     <div v-if="heatmapStats.total === 0" class="empty-state small">
       <p class="empty-desc">完成番茄钟后，这里将展示你的专注热力图</p>
     </div>
+
+    <!-- Tooltip -->
+    <Teleport to="body">
+      <Transition name="tooltip">
+        <div
+          v-if="heatmapTooltip"
+          class="heatmap-tooltip"
+          :style="{ left: heatmapTooltip.x + 'px', top: heatmapTooltip.y + 'px' }"
+        >
+          <strong>{{ heatmapTooltip.count }}</strong> 个番茄钟
+          <span class="tooltip-date">{{ heatmapTooltip.date }}</span>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- 当日详情面板 -->
+    <Transition name="slide-up">
+      <div
+        v-if="selectedDay"
+        class="day-detail-overlay"
+        @click.self="closeDetail"
+      >
+        <div class="day-detail-panel">
+          <div class="detail-header">
+            <div class="detail-title">
+              <h4>{{ selectedDay.date }}</h4>
+              <span class="detail-badge">{{ selectedDay.count }} 个番茄钟</span>
+            </div>
+            <button class="detail-close" @click="closeDetail">×</button>
+          </div>
+          <div class="detail-body">
+            <div v-if="selectedDay.sessions.length === 0" class="detail-empty">
+              该日暂无专注记录
+            </div>
+            <div v-else class="detail-sessions">
+              <div
+                v-for="s in selectedDay.sessions"
+                :key="s.id"
+                class="session-item"
+              >
+                <span class="session-time">{{ formatTime(s.startedAt) }}</span>
+                <span class="session-task">{{ getTaskTitle(s.taskId) }}</span>
+                <span class="session-duration">{{ Math.round((s.duration || 0) / 60) }} 分钟</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -188,54 +300,79 @@ function onHeatmapCellMouseLeave() {
   min-height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
 }
 
-.heatmap-container {
+/* ---- 滚动容器 ---- */
+.heatmap-scroll-wrapper {
   background: var(--glass-bg);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--glass-shadow);
-  padding: 24px;
+  padding: 20px 16px;
   overflow-x: auto;
+  overflow-y: hidden;
 }
 
+.heatmap-inner {
+  min-width: max-content;
+}
+
+/* ---- 月份标签 ---- */
 .heatmap-months {
+  display: flex;
+  align-items: flex-end;
+  height: 18px;
+  margin-bottom: 6px;
+  margin-left: 32px;
   position: relative;
-  height: 20px;
-  margin-bottom: 8px;
 }
 
 .heatmap-month-label {
   position: absolute;
-  font-size: 0.7rem;
-  color: var(--text-tertiary);
+  left: 0;
+  top: 0;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+  white-space: nowrap;
+  transform-origin: left bottom;
 }
 
+/* ---- 热力图网格 ---- */
 .heatmap-grid {
   display: flex;
   gap: 0;
+  align-items: flex-start;
 }
 
+/* 星期标签 */
 .heatmap-day-labels {
   display: flex;
   flex-direction: column;
   gap: 3px;
   margin-right: 4px;
+  flex-shrink: 0;
 }
 
 .day-label {
-  font-size: 0.6rem;
+  font-size: 0.65rem;
   color: var(--text-tertiary);
-  height: 15px;
-  line-height: 15px;
+  height: 11px;
+  line-height: 11px;
   text-align: right;
-  width: 14px;
+  width: 28px;
 }
 
-.heatmap-cells {
+.day-label-spacer {
+  height: 11px;
+  width: 28px;
+}
+
+/* 周列 */
+.heatmap-weeks {
   display: flex;
   gap: 3px;
 }
@@ -246,18 +383,20 @@ function onHeatmapCellMouseLeave() {
   gap: 3px;
 }
 
+/* 单元格 */
 .heatmap-cell {
-  width: 15px;
-  height: 15px;
-  border-radius: 3px;
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.12s ease;
   outline: 1px solid rgba(255, 255, 255, 0.04);
 }
 
 .heatmap-cell:hover {
   outline: 2px solid var(--accent);
-  transform: scale(1.2);
+  transform: scale(1.25);
+  z-index: 1;
 }
 
 .heatmap-cell.future {
@@ -270,26 +409,30 @@ function onHeatmapCellMouseLeave() {
   transform: none;
 }
 
+.heatmap-cell.selected {
+  outline: 2px solid var(--accent);
+  transform: scale(1.15);
+}
+
 /* ---- 图例 ---- */
 .heatmap-legend {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
-  margin-top: 12px;
-  font-size: 0.7rem;
+  gap: 6px;
+  font-size: 0.75rem;
   color: var(--text-tertiary);
 }
 
 .legend-cells {
   display: flex;
-  gap: 2px;
+  gap: 3px;
 }
 
 .legend-cell {
-  width: 15px;
-  height: 15px;
-  border-radius: 3px;
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
 }
 
 /* ---- Tooltip ---- */
@@ -309,6 +452,7 @@ function onHeatmapCellMouseLeave() {
   flex-direction: column;
   align-items: center;
   gap: 2px;
+  pointer-events: none;
 }
 
 .tooltip-date {
@@ -316,7 +460,6 @@ function onHeatmapCellMouseLeave() {
   color: var(--text-tertiary);
 }
 
-/* Tooltip */
 .tooltip-enter-active {
   transition: opacity var(--transition-fast);
 }
@@ -380,9 +523,154 @@ function onHeatmapCellMouseLeave() {
   line-height: 1.5;
 }
 
+/* ---- 当日详情面板 ---- */
+.day-detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+}
+
+.day-detail-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.3);
+  width: 100%;
+  max-width: 560px;
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--glass-border);
+  flex-shrink: 0;
+}
+
+.detail-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.detail-title h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.detail-badge {
+  font-size: 0.75rem;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.detail-close {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 1.25rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.detail-close:hover {
+  background: var(--glass-border);
+  color: var(--text);
+}
+
+.detail-body {
+  padding: 12px 20px 20px;
+  overflow-y: auto;
+}
+
+.detail-empty {
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 0.85rem;
+  padding: 24px 0;
+}
+
+.detail-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+}
+
+.session-time {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  min-width: 44px;
+}
+
+.session-task {
+  flex: 1;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-duration {
+  color: var(--text-tertiary);
+  font-size: 0.8rem;
+}
+
+/* 滑入动画 */
+.slide-up-enter-active {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+}
+
+.slide-up-leave-active {
+  transition: transform 0.2s ease-in, opacity 0.15s ease;
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  transform: translateY(100%);
+  opacity: 0;
+}
+
+/* 响应式 */
 @media (max-width: 1024px) {
   .heatmap-stats {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .day-detail-panel {
+    max-width: 100%;
   }
 }
 </style>
