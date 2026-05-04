@@ -1,12 +1,16 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { formatDate } from '@/utils/format'
 import { useSessionStore } from '@/stores/session'
 import { useTaskStore } from '@/stores/task'
-import type { Session } from '@/types'
+import type { Session, Task } from '@/types'
 
 const sessionStore = useSessionStore()
 const taskStore = useTaskStore()
+
+const emit = defineEmits<{
+  (e: 'openTaskDetail', task: Task): void
+}>()
 
 const CELL_SIZE = 11
 const CELL_GAP = 3
@@ -148,6 +152,21 @@ function getTaskTitle(taskId: string | null | undefined): string {
   if (!taskId) return '未关联任务'
   return taskStore.getTaskById(taskId)?.title || '未知任务'
 }
+
+function handleSessionClick(session: Session) {
+  if (!session.taskId) return
+  const task = taskStore.getTaskById(session.taskId)
+  if (task) {
+    emit('openTaskDetail', task)
+  }
+}
+
+onMounted(() => {
+  const wrapper = document.querySelector('.heatmap-scroll-wrapper') as HTMLElement | null
+  if (wrapper) {
+    wrapper.scrollLeft = wrapper.scrollWidth
+  }
+})
 </script>
 
 <template>
@@ -259,7 +278,7 @@ function getTaskTitle(taskId: string | null | undefined): string {
     </Teleport>
 
     <!-- 当日详情面板 -->
-    <Transition name="slide-up">
+    <Transition name="modal">
       <div
         v-if="selectedDay"
         class="day-detail-overlay"
@@ -281,7 +300,8 @@ function getTaskTitle(taskId: string | null | undefined): string {
               <div
                 v-for="s in selectedDay.sessions"
                 :key="s.id"
-                class="session-item"
+                class="session-item clickable"
+                @click="handleSessionClick(s)"
               >
                 <span class="session-time">{{ formatTime(s.startedAt) }}</span>
                 <span class="session-task">{{ getTaskTitle(s.taskId) }}</span>
@@ -529,11 +549,12 @@ function getTaskTitle(taskId: string | null | undefined): string {
   position: fixed;
   inset: 0;
   z-index: 900;
-  background: rgba(0, 0, 0, 0.3);
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
-  backdrop-filter: blur(4px);
 }
 
 .day-detail-panel {
@@ -541,14 +562,15 @@ function getTaskTitle(taskId: string | null | undefined): string {
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid var(--glass-border);
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.3);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow), 0 20px 60px rgba(0, 0, 0, 0.3);
   width: 100%;
-  max-width: 560px;
-  max-height: 60vh;
+  max-width: 600px;
+  max-height: 85vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transition: transform 0.25s ease, opacity 0.25s ease;
 }
 
 .detail-header {
@@ -649,18 +671,32 @@ function getTaskTitle(taskId: string | null | undefined): string {
   font-size: 0.8rem;
 }
 
-/* 滑入动画 */
-.slide-up-enter-active {
-  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+.session-item.clickable {
+  cursor: pointer;
 }
 
-.slide-up-leave-active {
-  transition: transform 0.2s ease-in, opacity 0.15s ease;
+.session-item.clickable:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--accent-dim);
 }
 
-.slide-up-enter-from,
-.slide-up-leave-to {
-  transform: translateY(100%);
+/* 模态框动画 */
+.modal-enter-active {
+  transition: all 0.25s ease;
+}
+
+.modal-leave-active {
+  transition: all 0.2s ease;
+}
+
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+
+.modal-enter-from .day-detail-panel,
+.modal-leave-to .day-detail-panel {
+  transform: scale(0.96) translateY(10px);
   opacity: 0;
 }
 

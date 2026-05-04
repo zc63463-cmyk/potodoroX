@@ -364,6 +364,7 @@ onUnmounted(() => {
           <TaskCalendarPanel
             v-else-if="viewMode === 'calendar'"
             key="calendar"
+            @open-task-detail="(task: Task) => openTaskDetail(task, 'sessions')"
           />
         </Transition>
       </div>
