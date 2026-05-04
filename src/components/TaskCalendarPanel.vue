@@ -66,34 +66,42 @@ const heatmapWeeks = computed(() => {
   return weeks
 })
 
-/** 月份标签精确计算 */
+/** 月份标签精确计算 —— 基于每个月首日在网格中的精确列位置 */
 const monthLabels = computed(() => {
-  const labels: { label: string; colIndex: number }[] = []
-  heatmapWeeks.value.forEach((week, wi) => {
-    if (week.length === 0) return
-    const firstDay = week[0]
-    const d = new Date(firstDay.date + 'T00:00:00')
-    const month = d.getMonth()
+  const labels: { label: string; x: number }[] = []
+  const seen = new Set<number>()
 
-    if (wi === 0) {
+  heatmapData.value.forEach((day, dayIndex) => {
+    const d = new Date(day.date + 'T00:00:00')
+    const monthKey = d.getFullYear() * 12 + d.getMonth()
+
+    if (!seen.has(monthKey)) {
+      seen.add(monthKey)
+      const weekIndex = Math.floor(dayIndex / 7)
+      const x = weekIndex * (CELL_SIZE + CELL_GAP)
+
       labels.push({
         label: d.toLocaleDateString('zh-CN', { month: 'short' }),
-        colIndex: wi,
+        x,
       })
+    }
+  })
+
+  // 防重叠：若相邻标签间距不足 50px，则丢弃后一个
+  const MIN_GAP = 50
+  const result: typeof labels = []
+  labels.forEach((label) => {
+    if (result.length === 0) {
+      result.push(label)
     } else {
-      const prevWeek = heatmapWeeks.value[wi - 1]
-      if (prevWeek.length > 0) {
-        const prevMonth = new Date(prevWeek[0].date + 'T00:00:00').getMonth()
-        if (month !== prevMonth) {
-          labels.push({
-            label: d.toLocaleDateString('zh-CN', { month: 'short' }),
-            colIndex: wi,
-          })
-        }
+      const prev = result[result.length - 1]
+      if (label.x - prev.x >= MIN_GAP) {
+        result.push(label)
       }
     }
   })
-  return labels
+
+  return result
 })
 
 /** 热力图统计 */
@@ -157,9 +165,9 @@ function getTaskTitle(taskId: string | null | undefined): string {
         <div class="heatmap-months">
           <span
             v-for="m in monthLabels"
-            :key="m.label + m.colIndex"
+            :key="m.label + m.x"
             class="heatmap-month-label"
-            :style="{ transform: `translateX(${m.colIndex * (CELL_SIZE + CELL_GAP)}px)` }"
+            :style="{ transform: `translateX(${m.x}px)` }"
           >
             {{ m.label }}
           </span>
@@ -175,7 +183,6 @@ function getTaskTitle(taskId: string | null | undefined): string {
             <span class="day-label">三</span>
             <span class="day-label-spacer" />
             <span class="day-label">五</span>
-            <span class="day-label-spacer" />
             <span class="day-label-spacer" />
           </div>
 
@@ -322,23 +329,21 @@ function getTaskTitle(taskId: string | null | undefined): string {
 
 /* ---- 月份标签 ---- */
 .heatmap-months {
-  display: flex;
-  align-items: flex-end;
-  height: 18px;
-  margin-bottom: 6px;
-  margin-left: 32px;
   position: relative;
+  height: 20px;
+  margin-bottom: 8px;
+  margin-left: 36px;
 }
 
 .heatmap-month-label {
   position: absolute;
   left: 0;
   top: 0;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   color: var(--text-secondary);
   font-weight: 500;
   white-space: nowrap;
-  transform-origin: left bottom;
+  line-height: 20px;
 }
 
 /* ---- 热力图网格 ---- */
@@ -358,23 +363,26 @@ function getTaskTitle(taskId: string | null | undefined): string {
 }
 
 .day-label {
-  font-size: 0.65rem;
+  font-size: 0.6rem;
   color: var(--text-tertiary);
   height: 11px;
   line-height: 11px;
   text-align: right;
-  width: 28px;
+  width: 32px;
+  user-select: none;
 }
 
 .day-label-spacer {
   height: 11px;
-  width: 28px;
+  width: 32px;
+  flex-shrink: 0;
 }
 
 /* 周列 */
 .heatmap-weeks {
   display: flex;
   gap: 3px;
+  flex-shrink: 0;
 }
 
 .heatmap-week {
