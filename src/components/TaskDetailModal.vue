@@ -39,12 +39,33 @@ const sessionEdits = ref<Map<string, { plan: string; completion: string }>>(new 
 const sessionSavingIds = ref<Set<string>>(new Set())
 const sessionSaveTimeouts = ref<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
+// ---- Session 日期分组折叠状态 ----
+const expandedDateGroups = ref<Set<string>>(new Set())
+
 // ---- 计算属性 ----
 const taskSessions = computed(() => {
   if (!props.task) return []
   return sessionStore.getSessionsByTask(props.task.id).sort((a, b) =>
     b.startedAt.localeCompare(a.startedAt)
   )
+})
+
+/** 按日期分组的 session */
+const sessionGroups = computed(() => {
+  const groups = new Map<string, typeof taskSessions.value>()
+  for (const s of taskSessions.value) {
+    const date = s.startedAt.substring(0, 10)
+    if (!groups.has(date)) groups.set(date, [])
+    groups.get(date)!.push(s)
+  }
+  const arr = Array.from(groups.entries()).map(([date, sessions]) => ({
+    date,
+    sessions: sessions.sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
+    totalCount: sessions.length,
+    totalDuration: sessions.reduce((sum, s) => sum + (s.duration || 0), 0),
+  }))
+  arr.sort((a, b) => b.date.localeCompare(a.date))
+  return arr
 })
 
 function getPriorityInfo(priority: string) {
@@ -81,9 +102,13 @@ watch(() => props.initialTab, (tab) => {
 watch(() => props.visible, (visible) => {
   if (visible) {
     activeTab.value = props.initialTab || 'plan'
+    // 默认展开最近 3 个日期组
+    const groups = sessionGroups.value
+    expandedDateGroups.value = new Set(groups.slice(0, 3).map((g) => g.date))
   } else {
-    // Modal 关闭时折叠所有 session
+    // Modal 关闭时折叠所有 session 和日期组
     expandedSessionId.value = null
+    expandedDateGroups.value.clear()
   }
 })
 
@@ -179,6 +204,14 @@ function onSessionPlanInput(sessionId: string) {
 
 function onSessionCompletionInput(sessionId: string) {
   scheduleSessionSave(sessionId)
+}
+
+function toggleDateGroup(date: string) {
+  if (expandedDateGroups.value.has(date)) {
+    expandedDateGroups.value.delete(date)
+  } else {
+    expandedDateGroups.value.add(date)
+  }
 }
 
 function close() {
@@ -341,19 +374,21 @@ function close() {
             </div>
             <div v-else class="session-list">
               <div
-                v-for="session in taskSessions"
-                :key="session.id"
-                class="session-item editable"
-                :class="{ completed: session.completed, expanded: expandedSessionId === session.id }"
+                v-for="group in sessionGroups"
+                :key="group.date"
+                class="session-date-group"
               >
-                <div class="session-header" @click="toggleSessionExpand(session.id)">
-                  <span class="session-time">{{ session.startedAt.substring(5, 16).replace(' ', ' ') }}</span>
-                  <span class="session-duration">{{ formatDuration(session.duration) }}</span>
-                  <span v-if="session.completed" class="session-badge completed">已完成</span>
-                  <span v-else class="session-badge skipped">已跳过</span>
+                <!-- 日期分组头部 -->
+                <div
+                  class="date-group-header"
+                  :class="{ expanded: expandedDateGroups.has(group.date) }"
+                  @click="toggleDateGroup(group.date)"
+                >
+                  <span class="date-label">{{ group.date }}</span>
+                  <span class="date-meta">{{ group.totalCount }}次 · {{ formatDuration(group.totalDuration) }}</span>
                   <svg
-                    class="expand-icon"
-                    :class="{ rotated: expandedSessionId === session.id }"
+                    class="group-expand-icon"
+                    :class="{ rotated: expandedDateGroups.has(group.date) }"
                     width="14"
                     height="14"
                     viewBox="0 0 24 24"
@@ -367,42 +402,73 @@ function close() {
                   </svg>
                 </div>
 
-                <!-- 展开编辑区 -->
-                <div v-if="expandedSessionId === session.id" class="session-body">
-                  <div class="edit-group">
-                    <label class="field-label">本次目标</label>
-                    <textarea
-                      :value="getSessionEdit(session.id).plan"
-                      class="detail-textarea compact"
-                      placeholder="本次专注的目标..."
-                      rows="3"
-                      @input="(e) => { getSessionEdit(session.id).plan = (e.target as HTMLTextAreaElement).value; onSessionPlanInput(session.id) }"
-                    />
-                  </div>
-                  <div class="edit-group">
-                    <label class="field-label">完成总结</label>
-                    <textarea
-                      :value="getSessionEdit(session.id).completion"
-                      class="detail-textarea compact"
-                      placeholder="完成后的总结..."
-                      rows="3"
-                      @input="(e) => { getSessionEdit(session.id).completion = (e.target as HTMLTextAreaElement).value; onSessionCompletionInput(session.id) }"
-                    />
-                  </div>
-                  <div class="save-hint session-hint">
-                    <span v-if="sessionSavingIds.has(session.id)">保存中...</span>
-                    <span v-else-if="getSessionEdit(session.id).plan !== session.plan || getSessionEdit(session.id).completion !== session.completion">有未保存的更改</span>
-                    <span v-else class="saved">已自动保存</span>
-                  </div>
-                </div>
+                <!-- 日期分组内 session 列表 -->
+                <div v-if="expandedDateGroups.has(group.date)" class="date-group-body">
+                  <div
+                    v-for="session in group.sessions"
+                    :key="session.id"
+                    class="session-item editable"
+                    :class="{ completed: session.completed, expanded: expandedSessionId === session.id }"
+                  >
+                    <div class="session-header" @click="toggleSessionExpand(session.id)">
+                      <span class="session-time">{{ session.startedAt.substring(11, 16) }}</span>
+                      <span class="session-duration">{{ formatDuration(session.duration) }}</span>
+                      <span v-if="session.completed" class="session-badge completed">已完成</span>
+                      <span v-else class="session-badge skipped">已跳过</span>
+                      <svg
+                        class="expand-icon"
+                        :class="{ rotated: expandedSessionId === session.id }"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <polyline points="6 9 12 15 18 9"/>
+                      </svg>
+                    </div>
 
-                <!-- 折叠时仅展示已有内容（只读预览） -->
-                <div v-else class="session-preview">
-                  <div v-if="session.plan" class="session-note">
-                    <span class="note-label">目标：</span>{{ session.plan }}
-                  </div>
-                  <div v-if="session.completion" class="session-note">
-                    <span class="note-label">总结：</span>{{ session.completion }}
+                    <!-- 展开编辑区 -->
+                    <div v-if="expandedSessionId === session.id" class="session-body">
+                      <div class="edit-group">
+                        <label class="field-label">本次目标</label>
+                        <textarea
+                          :value="getSessionEdit(session.id).plan"
+                          class="detail-textarea compact"
+                          placeholder="本次专注的目标..."
+                          rows="3"
+                          @input="(e) => { getSessionEdit(session.id).plan = (e.target as HTMLTextAreaElement).value; onSessionPlanInput(session.id) }"
+                        />
+                      </div>
+                      <div class="edit-group">
+                        <label class="field-label">完成总结</label>
+                        <textarea
+                          :value="getSessionEdit(session.id).completion"
+                          class="detail-textarea compact"
+                          placeholder="完成后的总结..."
+                          rows="3"
+                          @input="(e) => { getSessionEdit(session.id).completion = (e.target as HTMLTextAreaElement).value; onSessionCompletionInput(session.id) }"
+                        />
+                      </div>
+                      <div class="save-hint session-hint">
+                        <span v-if="sessionSavingIds.has(session.id)">保存中...</span>
+                        <span v-else-if="getSessionEdit(session.id).plan !== session.plan || getSessionEdit(session.id).completion !== session.completion">有未保存的更改</span>
+                        <span v-else class="saved">已自动保存</span>
+                      </div>
+                    </div>
+
+                    <!-- 折叠时仅展示已有内容（只读预览） -->
+                    <div v-else class="session-preview">
+                      <div v-if="session.plan" class="session-note">
+                        <span class="note-label">目标：</span>{{ session.plan }}
+                      </div>
+                      <div v-if="session.completion" class="session-note">
+                        <span class="note-label">总结：</span>{{ session.completion }}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -675,7 +741,67 @@ function close() {
 .session-list {
   display: flex;
   flex-direction: column;
+  gap: 12px;
+}
+
+/* ---- Session 日期分组 ---- */
+.session-date-group {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+}
+
+.date-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(8px) saturate(140%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  user-select: none;
+  transition: all var(--transition-fast);
+}
+
+.date-group-header:hover {
+  border-color: var(--accent-dim);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.date-group-header.expanded {
+  border-color: var(--accent-dim);
+}
+
+.date-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.date-meta {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-left: auto;
+}
+
+.group-expand-icon {
+  transition: transform 0.2s ease;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.group-expand-icon.rotated {
+  transform: rotate(180deg);
+}
+
+.date-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 8px;
+  animation: body-expand 0.2s ease;
 }
 
 .session-item {

@@ -19,6 +19,27 @@ const WEEKS_TO_SHOW = 53
 const heatmapTooltip = ref<{ date: string; count: number; x: number; y: number } | null>(null)
 const selectedDay = ref<{ date: string; count: number; sessions: Session[] } | null>(null)
 
+/** 当日任务汇总 */
+const dayTaskSummaries = computed(() => {
+  if (!selectedDay.value) return []
+  const map = new Map<string | null, { taskId: string | null; taskTitle: string; count: number; totalDuration: number }>()
+  for (const s of selectedDay.value.sessions) {
+    const existing = map.get(s.taskId)
+    if (existing) {
+      existing.count++
+      existing.totalDuration += s.duration || 0
+    } else {
+      map.set(s.taskId, {
+        taskId: s.taskId,
+        taskTitle: getTaskTitle(s.taskId),
+        count: 1,
+        totalDuration: s.duration || 0,
+      })
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => b.totalDuration - a.totalDuration)
+})
+
 /** 日历热力图数据 - 最近 53 周（GitHub 风格） */
 const heatmapData = computed(() => {
   const today = new Date()
@@ -144,18 +165,14 @@ function closeDetail() {
   selectedDay.value = null
 }
 
-function formatTime(iso: string): string {
-  return iso.substring(11, 16)
-}
-
 function getTaskTitle(taskId: string | null | undefined): string {
   if (!taskId) return '未关联任务'
   return taskStore.getTaskById(taskId)?.title || '未知任务'
 }
 
-function handleSessionClick(session: Session) {
-  if (!session.taskId) return
-  const task = taskStore.getTaskById(session.taskId)
+function handleTaskSummaryClick(taskId: string | null) {
+  if (!taskId) return
+  const task = taskStore.getTaskById(taskId)
   if (task) {
     emit('openTaskDetail', task)
   }
@@ -298,14 +315,14 @@ onMounted(() => {
             </div>
             <div v-else class="detail-sessions">
               <div
-                v-for="s in selectedDay.sessions"
-                :key="s.id"
-                class="session-item clickable"
-                @click="handleSessionClick(s)"
+                v-for="summary in dayTaskSummaries"
+                :key="summary.taskId ?? 'free'"
+                class="task-summary-item"
+                :class="{ clickable: !!summary.taskId }"
+                @click="handleTaskSummaryClick(summary.taskId)"
               >
-                <span class="session-time">{{ formatTime(s.startedAt) }}</span>
-                <span class="session-task">{{ getTaskTitle(s.taskId) }}</span>
-                <span class="session-duration">{{ Math.round((s.duration || 0) / 60) }} 分钟</span>
+                <span class="task-summary-title">{{ summary.taskTitle }}</span>
+                <span class="task-summary-meta">{{ summary.count }}次 · {{ Math.round(summary.totalDuration / 60) }}分钟</span>
               </div>
             </div>
           </div>
@@ -678,6 +695,39 @@ onMounted(() => {
 .session-item.clickable:hover {
   background: rgba(255, 255, 255, 0.05);
   border-color: var(--accent-dim);
+}
+
+/* ---- 每日详情任务汇总 ---- */
+.task-summary-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(8px) saturate(140%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.task-summary-item.clickable {
+  cursor: pointer;
+}
+
+.task-summary-item.clickable:hover {
+  border-color: var(--accent-dim);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.task-summary-title {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.task-summary-meta {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
 }
 
 /* 模态框动画 */
