@@ -87,21 +87,7 @@ const monthLabels = computed(() => {
     }
   })
 
-  // 防重叠：若相邻标签间距不足 50px，则丢弃后一个
-  const MIN_GAP = 50
-  const result: typeof labels = []
-  labels.forEach((label) => {
-    if (result.length === 0) {
-      result.push(label)
-    } else {
-      const prev = result[result.length - 1]
-      if (label.x - prev.x >= MIN_GAP) {
-        result.push(label)
-      }
-    }
-  })
-
-  return result
+  return labels
 })
 
 /** 热力图统计 */
