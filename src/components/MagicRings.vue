@@ -111,13 +111,14 @@ const props = withDefaults(defineProps<{
   isActive: true,
 })
 
-/** 是否应跳过渲染（低端设备或移动端） */
+/** 是否应跳过渲染（仅限超低端设备或移动端） */
 const shouldSkipRender = computed(() => {
   if (typeof window === 'undefined') return true
   const dpr = window.devicePixelRatio || 1
-  const cores = navigator.hardwareConcurrency || 4
-  // 低 DPR (< 2) 或低核心数 (< 4) 的设备跳过 Three.js 渲染
-  return dpr < 2 || cores < 4
+  const cores = navigator.hardwareConcurrency || 2
+  // 仅跳过极低配置：非 Retina DPR (< 1) 或单核 CPU
+  // 普通显示器 DPR=1 和双核 CPU 都正常渲染
+  return dpr < 1 || cores < 2
 })
 
 const containerRef = ref<HTMLElement | null>(null)
