@@ -50,19 +50,25 @@ const createParticle = (
   }
 }
 
+const activeItemColor = computed(() => {
+  const item = props.items[activeIndex.value]
+  return item?.color || '#58A6FF'
+})
+
 const makeParticles = (element: HTMLElement) => {
-  const d: [number, number] = [90, 10]
-  const r = 100
-  const animationTime = 600
-  const timeVariance = 300
-  const particleCount = 15
-  const colors = [1, 2, 3, 1, 2, 3, 1, 4]
+  const d: [number, number] = [40, 5]
+  const r = 60
+  const animationTime = 500
+  const timeVariance = 200
+  const particleCount = 12
   const bubbleTime = animationTime * 2 + timeVariance
   element.style.setProperty('--time', `${bubbleTime}ms`)
 
+  const baseColor = activeItemColor.value
+
   for (let i = 0; i < particleCount; i++) {
     const t = animationTime * 2 + noise(timeVariance * 2)
-    const p = createParticle(i, t, d, r, particleCount, colors)
+    const p = createParticle(i, t, d, r, particleCount, [1])
     element.classList.remove('active')
 
     setTimeout(() => {
@@ -75,7 +81,7 @@ const makeParticles = (element: HTMLElement) => {
       particle.style.setProperty('--end-y', `${p.end[1]}px`)
       particle.style.setProperty('--time', `${p.time}ms`)
       particle.style.setProperty('--scale', `${p.scale}`)
-      particle.style.setProperty('--color', `var(--gooey-color-${p.color}, white)`)
+      particle.style.setProperty('--color', baseColor)
       particle.style.setProperty('--rotate', `${p.rotate}deg`)
 
       point.classList.add('point')
@@ -91,7 +97,7 @@ const makeParticles = (element: HTMLElement) => {
           // Do nothing
         }
       }, t)
-    }, 30)
+    }, 20)
   }
 }
 
@@ -241,14 +247,14 @@ watch(activeIndex, () => {
 
 .gooey-nav-container nav ul {
   display: flex;
-  gap: 0.5em;
+  gap: 0.35em;
   list-style: none;
   padding: 0;
   margin: 0;
   position: relative;
   z-index: 3;
   color: var(--text-secondary);
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   font-weight: 500;
 }
 
@@ -266,7 +272,7 @@ watch(activeIndex, () => {
 
 .gooey-nav-container nav ul li a {
   display: inline-block;
-  padding: 0.5em 1em;
+  padding: 0.35em 0.75em;
   text-decoration: none;
   color: inherit;
   outline: none;
@@ -315,7 +321,7 @@ watch(activeIndex, () => {
 .gooey-nav-container .effect.text {
   color: var(--text-secondary);
   transition: color 0.3s ease;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   font-weight: 500;
   display: flex;
   align-items: center;
@@ -329,14 +335,14 @@ watch(activeIndex, () => {
 }
 
 .gooey-nav-container .effect.filter {
-  filter: blur(5px) contrast(20) blur(0);
+  filter: blur(3px) contrast(15) blur(0);
   mix-blend-mode: lighten;
   border-radius: 100vw;
 }
 
 .gooey-nav-container .effect.filter .filter-bg {
   position: absolute;
-  inset: -50px;
+  inset: -20px;
   z-index: -2;
   background: var(--bg);
   border-radius: 100vw;
@@ -370,8 +376,8 @@ watch(activeIndex, () => {
 .point {
   display: block;
   opacity: 0;
-  width: 16px;
-  height: 16px;
+  width: 8px;
+  height: 8px;
   border-radius: 100%;
   transform-origin: center;
 }
@@ -379,8 +385,8 @@ watch(activeIndex, () => {
 .particle {
   --time: 5s;
   position: absolute;
-  top: calc(50% - 8px);
-  left: calc(50% - 8px);
+  top: calc(50% - 4px);
+  left: calc(50% - 4px);
   animation: particle calc(var(--time)) ease 1 -350ms;
 }
 
