@@ -85,15 +85,17 @@ function onHeatmapCellMouseLeave() {
 <template>
   <div class="calendar-view">
     <div class="heatmap-container">
-      <!-- 月份标签 -->
+      <!-- 月份标签：仅在新月份首周显示，避免重叠 -->
       <div class="heatmap-months">
         <span
           v-for="(week, wi) in heatmapWeeks"
           :key="'month-' + wi"
           class="heatmap-month-label"
-          :style="{ left: wi * 15 + 'px' }"
+          :style="{ left: wi * 18 + 'px' }"
         >
-          {{ week.length > 0 ? new Date(week[0].date + 'T00:00:00').toLocaleDateString('zh-CN', { month: 'short' }) : '' }}
+          <template v-if="week.length > 0">
+            {{ (wi === 0 || new Date(week[0].date + 'T00:00:00').getMonth() !== new Date(heatmapWeeks[wi - 1][0].date + 'T00:00:00').getMonth()) ? new Date(week[0].date + 'T00:00:00').toLocaleDateString('zh-CN', { month: 'short' }) : '' }}
+          </template>
         </span>
       </div>
 
