@@ -1,8 +1,11 @@
 # TaskCalendar 功能迭代笔记
 
-> **日期**: 2026-05-04 ~ 2026-05-05  
-> **组件**: `src/components/TaskCalendarPanel.vue`  
+> **日期**: 2026-05-04 ~ 2026-05-05
+> **组件**: `src/components/TaskCalendarPanel.vue`
 > **目标**: GitHub Contributions 风格热力图
+
+> **v2.0 更新**: 2026-05-05 — session 交互重构、TaskDetailModal 日期分组折叠编辑
+> **关联文档**: [Session List Grouping Design](../../specs/2026-05-05-session-list-grouping-design.md)
 
 ---
 
@@ -14,8 +17,11 @@
 | **横向滚动容器** | 热力图区域支持鼠标/触控板横向滑动浏览全年 |
 | **5 级颜色梯度** | 0 / 1-2 / 3-5 / 6-8 / 9+ 番茄钟密度等级 |
 | **月份标签精确对齐** | 月份标签落在该月首列；碰撞时右移一列避免重叠 |
-| **点击看当日详情** | 点击格子底部滑出面板，展示该日所有番茄钟记录 |
+| **点击看当日详情** | 点击格子弹出**居中 Modal**，展示该日任务汇总 |
 | **关联任务追溯** | 详情面板展示每个 session 对应任务标题 |
+| **自动滚动到最新** | 热力图加载后自动滚动到最右侧（最新数据） |
+| **任务日汇总** | 每日详情按任务聚合：次数 + 总时长，点击打开 TaskDetailModal |
+| **Session 编辑（TaskDetailModal）** | 专注记录 Tab 按日期分组折叠，单开模式下展开 session 编辑 plan/completion |
 
 ---
 
@@ -91,17 +97,22 @@ sequenceDiagram
     participant G as 格子
     participant S as selectedDay
     participant T as TaskStore
+    participant TV as TasksView
+    participant D as TaskDetailModal
 
     U->>G: 点击某日格子
     G->>S: 筛选当日 sessions
     G->>T: getTaskById(taskId) 获取任务名
-    S-->>U: slide-up 面板：日期、session时间、任务名、时长
+    G->>G: groupBy taskId → DayTaskSummary[]
+    S-->>U: **居中 modal**：日期、任务汇总（次数+总时长）
+    U->>S: 点击某任务汇总行
+    S->>TV: emit('openTaskDetail', task)
+    TV->>D: showTaskDetail = true
+    D-->>U: 弹出 TaskDetailModal（默认 sessions Tab）
     U->>U: 点击遮罩或 ×
     U-->>S: selectedDay = null
-    U-->>U: 面板收起
+    U-->>U: modal 收起
 ```
-
----
 
 ## 6. Commit 记录
 
@@ -112,3 +123,6 @@ sequenceDiagram
 | `51b841e` | fix: remove greedy collision filter on month labels to prevent missing months |
 | `487cbd7` | fix: shift month label right by one column when colliding with previous month label |
 | `8761750` | chore: trigger redeploy |
+| `a90e155` | feat(TaskCalendar): auto-scroll to latest, centered day-detail modal, clickable sessions to task detail |
+| `5cfc742` | feat(TaskDetailModal): expandable session cards with inline plan/completion editing in sessions tab |
+| `5aac4f4` | feat(TaskCalendar+TaskDetail): daily detail grouped by task, session list grouped by date with foldable groups |

@@ -22,7 +22,7 @@ graph TD
 
     B -->|Emits| A
     C -->|Emits| A
-    D -->|无Emits| A
+    D -->|Emits| A
     E -->|Emits| A
     F -->|Emits| A
     G -->|Emits| A
@@ -48,10 +48,10 @@ graph TD
 | **TasksView** | `src/views/TasksView.vue` | 视图模式切换、筛选/排序状态、模态框调度、快捷键 | 1083 |
 | **TaskListPanel** | `src/components/TaskListPanel.vue` | 列表渲染、行内编辑、展开详情、状态徽章 | 508 |
 | **TaskKanbanPanel** | `src/components/TaskKanbanPanel.vue` | 四列看板、状态流转按钮、优先级圆点 | ~450 |
-| **TaskCalendarPanel** | `src/components/TaskCalendarPanel.vue` | 热力图生成、周/月聚合、Tooltip、统计摘要 | ~350 |
+| **TaskCalendarPanel** | `src/components/TaskCalendarPanel.vue` | 热力图生成、周/月聚合、Tooltip、统计摘要、**每日任务汇总 Modal**、emit `openTaskDetail` | ~350 |
 | **TaskFormModal** | `src/components/TaskFormModal.vue` | 新建/编辑表单、校验、标签管理 | ~400 |
 | **TaskDeleteConfirm** | `src/components/TaskDeleteConfirm.vue` | 删除二次确认、动画反馈 | ~200 |
-| **TaskDetailModal** | `src/components/TaskDetailModal.vue` | 任务详情、Plan/Completion/Session 三栏 | ~200 |
+| **TaskDetailModal** | `src/components/TaskDetailModal.vue` | 任务详情、Plan/Completion/**Session 日期分组折叠编辑** 三栏 | ~200 |
 
 ---
 
@@ -111,7 +111,7 @@ classDiagram
 
 - **TaskListPanel**: `expandedTaskId`, `inlineEditingId`, `inlineEditTitle`
 - **TaskKanbanPanel**: `kanbanColumns`（常量列定义）
-- **TaskCalendarPanel**: `heatmapTooltip`（鼠标悬浮提示坐标）
+- **TaskCalendarPanel**: `heatmapTooltip`（鼠标悬浮提示坐标）、`selectedDay`（当日详情 Modal 状态）、`dayTaskSummaries`（按任务汇总的计算属性）
 
 ---
 
@@ -124,7 +124,7 @@ graph LR
     subgraph Props_Down
         A[TasksView] -->|tasks + searchQuery| B[TaskListPanel]
         A -->|tasks| C[TaskKanbanPanel]
-        A -->|无Props| D[TaskCalendarPanel]
+        A -->|无 Props| D[TaskCalendarPanel]
         A -->|visible + editingTask| E[TaskFormModal]
         A -->|visible + taskTitle| F[TaskDeleteConfirm]
         A -->|visible + task + tab| G[TaskDetailModal]
@@ -151,6 +151,7 @@ graph LR
         B -->|create| A
         C[TaskKanbanPanel] -->|openEdit| A
         C -->|openDetail| A
+        D[TaskCalendarPanel] -->|openTaskDetail| A
         E[TaskFormModal] -->|create/update/cancel| A
         F[TaskDeleteConfirm] -->|confirm/cancel| A
         G[TaskDetailModal] -->|update| A
@@ -190,7 +191,9 @@ openEdit(task: Task)
 openDetail(task: Task, tab: 'plan' | 'completion' | 'sessions')
 
 // TaskCalendarPanel
-// 零 Props / 零 Emits —— 内部直接读取 sessionStore
+// 零 Props —— 内部直接读取 sessionStore
+// Emits
+openTaskDetail(task: Task) // 点击日汇总中的任务条目，打开任务详情
 ```
 
 ---
@@ -318,3 +321,4 @@ graph TD
 | 版本 | 日期 | 变更内容 | 影响面 |
 |------|------|---------|--------|
 | v1.0 | 2026-05-04 | 完成 TaskListPanel / TaskKanbanPanel / TaskCalendarPanel 提取 | TasksView 2827 → 1083 行 |
+| v1.1 | 2026-05-05 | TaskCalendarPanel 交互升级（居中 modal、任务日汇总、自动滚动）+ TaskDetailModal sessions Tab 日期分组折叠与编辑 | 详见 [specs](../../specs/2026-05-05-session-list-grouping-design.md) |
