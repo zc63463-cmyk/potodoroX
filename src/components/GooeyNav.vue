@@ -193,7 +193,7 @@ watch(activeIndex, () => {
 </script>
 
 <template>
-  <div class="gooey-nav-container" :class="{ disabled: disabled }" ref="containerRef">
+  <div class="gooey-nav-container" :class="{ disabled: disabled }" :style="{ '--active-color': activeItemColor }" ref="containerRef">
     <nav>
       <ul ref="navRef">
         <li
@@ -247,14 +247,14 @@ watch(activeIndex, () => {
 
 .gooey-nav-container nav ul {
   display: flex;
-  gap: 0.35em;
+  gap: 0.25em;
   list-style: none;
   padding: 0;
   margin: 0;
   position: relative;
   z-index: 3;
   color: var(--text-secondary);
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   font-weight: 500;
 }
 
@@ -272,7 +272,7 @@ watch(activeIndex, () => {
 
 .gooey-nav-container nav ul li a {
   display: inline-block;
-  padding: 0.35em 0.75em;
+  padding: 0.25em 0.6em;
   text-decoration: none;
   color: inherit;
   outline: none;
@@ -296,7 +296,7 @@ watch(activeIndex, () => {
 }
 
 .gooey-nav-container nav ul li.active {
-  color: var(--text);
+  color: white;
   text-shadow: none;
 }
 
@@ -321,7 +321,7 @@ watch(activeIndex, () => {
 .gooey-nav-container .effect.text {
   color: var(--text-secondary);
   transition: color 0.3s ease;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   font-weight: 500;
   display: flex;
   align-items: center;
@@ -331,20 +331,19 @@ watch(activeIndex, () => {
 }
 
 .gooey-nav-container .effect.text.active {
-  color: var(--text);
+  color: white;
 }
 
 .gooey-nav-container .effect.filter {
-  filter: blur(3px) contrast(15) blur(0);
-  mix-blend-mode: lighten;
+  filter: blur(4px);
   border-radius: 100vw;
 }
 
 .gooey-nav-container .effect.filter .filter-bg {
   position: absolute;
-  inset: -20px;
+  inset: -10px;
   z-index: -2;
-  background: var(--bg);
+  background: transparent;
   border-radius: 100vw;
 }
 
@@ -352,13 +351,11 @@ watch(activeIndex, () => {
   content: '';
   position: absolute;
   inset: 0;
-  background: var(--glass-bg);
-  backdrop-filter: blur(8px);
+  background: var(--active-color);
   transform: scale(0);
-  opacity: 0;
+  opacity: 0.45;
   z-index: -1;
   border-radius: 100vw;
-  border: 1px solid var(--glass-border);
 }
 
 .gooey-nav-container .effect.active::after {
@@ -376,8 +373,8 @@ watch(activeIndex, () => {
 .point {
   display: block;
   opacity: 0;
-  width: 8px;
-  height: 8px;
+  width: 5px;
+  height: 5px;
   border-radius: 100%;
   transform-origin: center;
 }
@@ -385,8 +382,8 @@ watch(activeIndex, () => {
 .particle {
   --time: 5s;
   position: absolute;
-  top: calc(50% - 4px);
-  left: calc(50% - 4px);
+  top: calc(50% - 2.5px);
+  left: calc(50% - 2.5px);
   animation: particle calc(var(--time)) ease 1 -350ms;
 }
 
