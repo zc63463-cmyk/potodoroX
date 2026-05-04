@@ -27,6 +27,41 @@ export interface ExportOptions {
   includeFields?: ('plan' | 'completion')[]
 }
 
+/** 渲染番茄钟明细小节（复用于日报/周报） */
+function renderSessionDetails(
+  sessions: Session[],
+  tasks: Task[],
+  lines: string[]
+): void {
+  const workSessions = sessions
+    .filter((s) => s.type === 'work' && s.completed)
+    .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+
+  if (workSessions.length === 0) return
+
+  lines.push('## 番茄钟明细')
+  lines.push('')
+
+  workSessions.forEach((session) => {
+    const startTime = session.startedAt.split(' ')[1] || session.startedAt
+    const taskTitle = session.taskId
+      ? tasks.find((t) => t.id === session.taskId)?.title || '未知任务'
+      : null
+    const duration = formatMinutes(Math.round(session.duration / 60))
+
+    lines.push(`### ${startTime}${taskTitle ? ` - ${taskTitle}` : ''} (${duration})`)
+    lines.push('')
+    if (session.plan) {
+      lines.push(`**目标：** ${session.plan}`)
+      lines.push('')
+    }
+    if (session.completion) {
+      lines.push(`**总结：** ${session.completion}`)
+      lines.push('')
+    }
+  })
+}
+
 /**
  * 导出每日报告
  * @param date 日期字符串 (YYYY-MM-DD)
@@ -64,19 +99,8 @@ export function exportDailyReport(
   lines.push(`| 总任务数 | ${tasks.length} 个 |`)
   lines.push('')
 
-  // 番茄钟记录
-  if (workSessions.length > 0) {
-    lines.push('## 番茄钟记录')
-    lines.push('')
-    workSessions.forEach((session, i) => {
-      const startTime = session.startedAt.split(' ')[1] || session.startedAt
-      const taskInfo = session.taskId
-        ? ` - ${tasks.find((t) => t.id === session.taskId)?.title || '未知任务'}`
-        : ''
-      lines.push(`${i + 1}. ${startTime} (${formatMinutes(Math.round(session.duration / 60))})${taskInfo}`)
-    })
-    lines.push('')
-  }
+  // 番茄钟明细
+  renderSessionDetails(sessions, tasks, lines)
 
   // 任务列表
   if (tasks.length > 0) {
@@ -231,6 +255,9 @@ export function exportWeeklyReport(
     })
     lines.push('')
   }
+
+  // 番茄钟明细
+  renderSessionDetails(sessions, tasks, lines)
 
   // 已完成任务
   if (completedTasks.length > 0) {

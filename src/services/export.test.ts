@@ -62,8 +62,8 @@ const mockSessions: Session[] = [
     completed: true,
     startedAt: '2026-05-03 09:00:00',
     endedAt: '2026-05-03 09:25:00',
-    plan: '',
-    completion: '',
+    plan: '收集 Q2 数据',
+    completion: '完成数据收集',
     synced: false,
   },
   {
@@ -74,7 +74,7 @@ const mockSessions: Session[] = [
     completed: true,
     startedAt: '2026-05-03 09:30:00',
     endedAt: '2026-05-03 09:55:00',
-    plan: '',
+    plan: '撰写初稿',
     completion: '',
     synced: false,
   },
@@ -112,9 +112,9 @@ describe('exportDailyReport', () => {
     expect(result).toContain('1 个') // 1 个 done task
   })
 
-  it('应该包含番茄钟记录', () => {
+  it('应该包含番茄钟明细', () => {
     const result = exportDailyReport('2026-05-03', mockTasks, [], mockSessions)
-    expect(result).toContain('## 番茄钟记录')
+    expect(result).toContain('## 番茄钟明细')
   })
 
   it('应该包含反思内容', () => {
@@ -241,9 +241,10 @@ describe('exportDailyReport plan/completion', () => {
 
   it('空 plan/completion 时不显示对应小节', () => {
     const tasks = mockTasks.map((t) => ({ ...t, plan: '', completion: '' }))
-    const result = exportDailyReport('2026-05-03', tasks, [], mockSessions)
-    expect(result).not.toContain('**规划：**')
-    expect(result).not.toContain('**总结：**')
+    const sessions = mockSessions.map((s) => ({ ...s, plan: '', completion: '' }))
+    const result = exportDailyReport('2026-05-03', tasks, [], sessions)
+    expect(result).not.toContain('  **规划：**')
+    expect(result).not.toContain('  **总结：**')
   })
 })
 
@@ -258,6 +259,59 @@ describe('exportWeeklyReport plan/completion', () => {
     const result = exportWeeklyReport('2026-05-03', '2026-05-03', mockTasks, [], mockSessions)
     expect(result).toContain('**总结：**')
     expect(result).toContain('初稿完成度 80%')
+  })
+})
+
+describe('session detail in reports', () => {
+  it('日报应包含番茄钟明细小节', () => {
+    const result = exportDailyReport('2026-05-03', mockTasks, [], mockSessions)
+    expect(result).toContain('## 番茄钟明细')
+  })
+
+  it('日报明细应展示 session 时间和任务名', () => {
+    const result = exportDailyReport('2026-05-03', mockTasks, [], mockSessions)
+    expect(result).toContain('09:30')
+    expect(result).toContain('完成项目报告')
+  })
+
+  it('日报明细应展示 session plan', () => {
+    const result = exportDailyReport('2026-05-03', mockTasks, [], mockSessions)
+    expect(result).toContain('**目标：**')
+    expect(result).toContain('收集 Q2 数据')
+  })
+
+  it('日报明细应展示 session completion', () => {
+    const result = exportDailyReport('2026-05-03', mockTasks, [], mockSessions)
+    expect(result).toContain('**总结：**')
+    expect(result).toContain('完成数据收集')
+  })
+
+  it('日报明细中空 plan/completion 不显示对应行', () => {
+    const result = exportDailyReport('2026-05-03', mockTasks, [], mockSessions)
+    // s2 (09:30) has plan but no completion — "总结：" should not appear in its section
+    const sections = result.split('### ').slice(1)
+    const s2Section = sections.find((s) => s.includes('09:30'))
+    expect(s2Section).toBeDefined()
+    expect(s2Section).toContain('**目标：**')
+    expect(s2Section).not.toContain('**总结：**')
+  })
+
+  it('周报应包含番茄钟明细小节', () => {
+    const result = exportWeeklyReport('2026-05-03', '2026-05-03', mockTasks, [], mockSessions)
+    expect(result).toContain('## 番茄钟明细')
+  })
+
+  it('周报明细应按时间倒序排列', () => {
+    const result = exportWeeklyReport('2026-05-03', '2026-05-03', mockTasks, [], mockSessions)
+    const idx1 = result.indexOf('09:30')
+    const idx2 = result.indexOf('09:00')
+    expect(idx1).toBeLessThan(idx2)
+  })
+
+  it('休息 session 不应出现在明细中', () => {
+    const result = exportWeeklyReport('2026-05-03', '2026-05-03', mockTasks, [], mockSessions)
+    expect(result).not.toContain('short_break')
+    expect(result).not.toContain('休息')
   })
 })
 
