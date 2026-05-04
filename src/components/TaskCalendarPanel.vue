@@ -66,10 +66,11 @@ const heatmapWeeks = computed(() => {
   return weeks
 })
 
-/** 月份标签精确计算 —— 基于每个月首日在网格中的精确列位置 */
+/** 月份标签精确计算 —— 基于每个月首日在网格中的精确列位置，碰撞时向右偏移一列 */
 const monthLabels = computed(() => {
   const labels: { label: string; x: number }[] = []
   const seen = new Set<number>()
+  const COL_WIDTH = CELL_SIZE + CELL_GAP
 
   heatmapData.value.forEach((day, dayIndex) => {
     const d = new Date(day.date + 'T00:00:00')
@@ -78,7 +79,13 @@ const monthLabels = computed(() => {
     if (!seen.has(monthKey)) {
       seen.add(monthKey)
       const weekIndex = Math.floor(dayIndex / 7)
-      const x = weekIndex * (CELL_SIZE + CELL_GAP)
+      let x = weekIndex * COL_WIDTH
+
+      // 若与前一个标签同列，则右移一列避免重叠
+      const prev = labels[labels.length - 1]
+      if (prev && Math.abs(x - prev.x) < COL_WIDTH) {
+        x += COL_WIDTH
+      }
 
       labels.push({
         label: d.toLocaleDateString('zh-CN', { month: 'short' }),
