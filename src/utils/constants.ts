@@ -17,6 +17,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   githubToken: '',
   githubRepo: 'promoX-data',
   githubOwner: 'zc63463-cmyk',
+  weeklyFastForwardQuota: 10,
+  weeklyFastForwardUsed: 0,
+  weeklyFastForwardResetAt: '',
 }
 
 /** 计时器模式配置 */

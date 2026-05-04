@@ -99,6 +99,25 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
+  /**
+   * 更新会话（用于补充 plan/completion 等）
+   */
+  async function updateSession(id: string, input: Partial<Session>): Promise<Session | null> {
+    try {
+      const updated = await db.updateSession(id, input)
+      if (updated) {
+        const index = sessions.value.findIndex((s) => s.id === id)
+        if (index !== -1) {
+          sessions.value[index] = updated
+        }
+      }
+      return updated
+    } catch (err) {
+      console.error('[SessionStore] 更新会话失败:', err)
+      return null
+    }
+  }
+
   return {
     // 状态
     sessions,
@@ -109,6 +128,7 @@ export const useSessionStore = defineStore('session', () => {
     // 方法
     loadAllSessions,
     addSession,
+    updateSession,
     getSessionsByDateRange,
     getSessionsByTask,
     getUnsyncedSessions,

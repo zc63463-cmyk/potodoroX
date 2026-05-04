@@ -114,24 +114,44 @@ const autoStartPomodoro = computed({
   set: (v: boolean) => settingsStore.updateSetting('autoStartPomodoro', v),
 })
 
+// ---- Debounce 工具 ----
+function debounce<T extends (...args: any[]) => void>(fn: T, ms: number) {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  return (...args: Parameters<T>) => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => fn(...args), ms)
+  }
+}
+
+/** 延迟写入 store（防抖 500ms） */
+const debouncedUpdateToken = debounce((value: string) => {
+  settingsStore.updateSetting('githubToken', value)
+}, 500)
+const debouncedUpdateOwner = debounce((value: string) => {
+  settingsStore.updateSetting('githubOwner', value)
+}, 500)
+const debouncedUpdateRepo = debounce((value: string) => {
+  settingsStore.updateSetting('githubRepo', value)
+}, 500)
+
 // ---- 方法 ----
 
 /** 更新 GitHub Token */
 function updateGithubToken(value: string) {
   localSettings.value.githubToken = value
-  settingsStore.updateSetting('githubToken', value)
+  debouncedUpdateToken(value)
 }
 
 /** 更新 GitHub Owner */
 function updateGithubOwner(value: string) {
   localSettings.value.githubOwner = value
-  settingsStore.updateSetting('githubOwner', value)
+  debouncedUpdateOwner(value)
 }
 
 /** 更新 GitHub Repo */
 function updateGithubRepo(value: string) {
   localSettings.value.githubRepo = value
-  settingsStore.updateSetting('githubRepo', value)
+  debouncedUpdateRepo(value)
 }
 
 /** 测试 GitHub 连接 */

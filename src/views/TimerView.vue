@@ -33,6 +33,12 @@ const showTaskSelector = ref(false)
 const showCelebration = ref(false)
 const celebrationParticles = ref<Array<{ id: number; x: number; y: number; size: number; delay: number; color: string }>>([])
 
+// ---- Session 规划/总结提示 ----
+const showSessionPlanPrompt = ref(false)
+const sessionPlanInput = ref('')
+const showSessionCompletionPrompt = ref(false)
+const sessionCompletionInput = ref('')
+
 // ---- Anime.js 动效状态 ----
 /** 进度环 SVG 元素引用 */
 const ringCircleRef = ref<SVGCircleElement | null>(null)
@@ -72,17 +78,10 @@ const modeOptions = computed(() => [
 /** 格式化剩余时间 */
 const displayTime = computed(() => timerStore.formattedRemaining)
 
-/** 进度百分比 0~100 */
-const progressPercent = computed(() => timerStore.progress)
-
 /** SVG 环形进度参数 */
 const RING_RADIUS = 120
 const RING_STROKE = 6
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS
-const ringDashoffset = computed(() => {
-  const offset = RING_CIRCUMFERENCE - (progressPercent.value / 100) * RING_CIRCUMFERENCE
-  return offset
-})
 
 /** 是否正在计时 */
 const isActive = computed(() => timerStore.isRunning && !timerStore.isPaused)
@@ -207,21 +206,47 @@ function toggleTimer() {
     // 恢复
     timerStore.resume()
   } else {
+    // 开始 — 工作会话且有任务关联时，先显示规划提示
+    if (timerStore.sessionType === 'work' && timerStore.currentTaskId) {
+      showSessionPlanPrompt.value = true
+      return // 等待用户输入规划后再开始
+    }
+
     // 开始 — 自由模式时传入自定义时长
-    if (timerStore.sessionType === 'free') {
-      const customDuration = freeMinutes.value * 60 + freeSeconds.value
-      if (customDuration <= 0) return // 防止零时长开始
-      timerStore.start(customDuration)
-    } else {
-      timerStore.start()
-    }
-    // 播放音效
-    if (timerStore.isWorkSession) {
-      playFocusStart()
-    } else {
-      playBreakStart()
-    }
+    doStartTimer()
   }
+}
+
+/** 实际开始计时 */
+function doStartTimer(plan?: string) {
+  if (timerStore.sessionType === 'free') {
+    const customDuration = freeMinutes.value * 60 + freeSeconds.value
+    if (customDuration <= 0) return // 防止零时长开始
+    timerStore.start(customDuration)
+  } else {
+    timerStore.start(undefined, plan)
+  }
+  // 播放音效
+  if (timerStore.isWorkSession) {
+    playFocusStart()
+  } else {
+    playBreakStart()
+  }
+}
+
+/** 确认 Session 规划并开始 */
+function confirmSessionPlan() {
+  showSessionPlanPrompt.value = false
+  const plan = sessionPlanInput.value.trim()
+  doStartTimer(plan)
+  // 清空输入，为下次准备
+  setTimeout(() => { sessionPlanInput.value = '' }, 300)
+}
+
+/** 跳过 Session 规划 */
+function skipSessionPlan() {
+  sessionPlanInput.value = ''
+  confirmSessionPlan()
 }
 
 /** 重置计时器 */
@@ -229,14 +254,32 @@ function resetTimer() {
   timerStore.reset()
 }
 
-/** 跳过当前会话 */
-function skipSession() {
-  timerStore.skip()
+/** 处理快进请求 */
+const showFastForwardConfirm = ref(false)
+
+function handleFastForward() {
+  const result = timerStore.fastForward()
+  if (result.success) return
+  if (result.reason === 'quota_exhausted') {
+    showFastForwardConfirm.value = true
+  }
+  // 'idle' 按钮已禁用，理论上不会触发
+}
+
+/** 确认超额快进 */
+function confirmFastForward() {
+  showFastForwardConfirm.value = false
+  timerStore.fastForward(true)
+}
+
+/** 取消超额快进 */
+function cancelFastForward() {
+  showFastForwardConfirm.value = false
 }
 
 /** 选择任务 */
 function selectTask(taskId: string | null) {
-  timerStore.currentTaskId = taskId
+  timerStore.setCurrentTaskId(taskId)
   showTaskSelector.value = false
 }
 
@@ -284,6 +327,28 @@ async function handleSessionComplete() {
       window.focus()
     },
   })
+}
+
+/** 确认 Session 总结 */
+async function confirmSessionCompletion() {
+  const taskId = timerStore.pendingCompletionForTaskId
+  if (taskId && sessionCompletionInput.value.trim()) {
+    const sessions = sessionStore.getSessionsByTask(taskId)
+    const latest = sessions.sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0]
+    if (latest) {
+      await sessionStore.updateSession(latest.id, { completion: sessionCompletionInput.value.trim() })
+    }
+  }
+  showSessionCompletionPrompt.value = false
+  sessionCompletionInput.value = ''
+  timerStore.clearPendingCompletion()
+}
+
+/** 跳过 Session 总结 */
+function skipSessionCompletion() {
+  sessionCompletionInput.value = ''
+  showSessionCompletionPrompt.value = false
+  timerStore.clearPendingCompletion()
 }
 
 /** 点击计时器中心 */
@@ -399,15 +464,24 @@ function animateModeColor(element: HTMLElement | null, color: string) {
 
 // ---- 监听器 ----
 
-// 监听计时器完成
+// 监听今日番茄数变化 → 新完成的 work session 已持久化，触发庆祝
+let prevTodayPomodoros = sessionStore.todayPomodoros
 watch(
-  () => timerStore.remaining,
+  () => sessionStore.todayPomodoros,
   (newVal) => {
-    if (newVal <= 0 && sessionStore.todaySessions.length > 0) {
-      const latestSession = sessionStore.todaySessions[0]
-      if (latestSession.completed) {
-        handleSessionComplete()
-      }
+    if (newVal > prevTodayPomodoros) {
+      handleSessionComplete()
+    }
+    prevTodayPomodoros = newVal
+  }
+)
+
+// 监听 Session 完成 → 显示总结提示
+watch(
+  () => timerStore.pendingCompletionForTaskId,
+  (taskId) => {
+    if (taskId) {
+      showSessionCompletionPrompt.value = true
     }
   }
 )
@@ -491,9 +565,7 @@ onMounted(async () => {
   await taskStore.loadTasks()
 
   // 如果计时器未初始化（remaining 为 0），设置默认时长
-  if (timerStore.remaining <= 0 && !timerStore.isRunning) {
-    timerStore.remaining = timerStore.getTotalDuration()
-  }
+  timerStore.initRemainingIfZero()
 
   // 请求通知权限
   await requestPermission()
@@ -514,7 +586,6 @@ onMounted(async () => {
     const offset = circumference - (timerStore.progress / 100) * circumference
     ringCircleRef.value.setAttribute('stroke-dashoffset', String(offset))
   }
-  footStatsInit = true
   animeInit.value = true
 })
 
@@ -857,20 +928,78 @@ onUnmounted(() => {
           <span class="control-label">{{ isActive ? '暂停' : (isPausedState ? '继续' : '开始') }}</span>
         </button>
 
-        <!-- 跳过/提前结束按钮 -->
+        <!-- 快进 10′ 按钮 -->
         <button
-          class="control-btn secondary-btn"
+          class="control-btn secondary-btn ff-btn"
           :disabled="isIdle"
-          title="跳过当前会话"
-          @click="skipSession"
+          :title="`快进 10 分钟 (已用 ${timerStore.sessionFastForwardCount}/3)`"
+          @click="handleFastForward"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="5 4 15 12 5 20 5 4" fill="currentColor" stroke="none"/>
-            <line x1="19" y1="5" x2="19" y2="19"/>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="13 19 22 12 13 5 13 19"/>
+            <polygon points="2 19 11 12 2 5 2 19"/>
           </svg>
-          <span class="control-label">跳过</span>
+          <span class="control-label">快进 10′</span>
+          <span
+            v-if="timerStore.sessionFastForwardCount > 0"
+            class="ff-count"
+            :class="{ 'ff-count-over': timerStore.sessionFastForwardCount >= 3 }"
+          >
+            {{ timerStore.sessionFastForwardCount >= 3 ? timerStore.sessionFastForwardCount : timerStore.sessionFastForwardCount + '/3' }}
+          </span>
         </button>
       </div>
+
+      <!-- Session 规划提示（内联面板） -->
+      <Transition name="dropdown">
+        <div v-if="showSessionPlanPrompt" class="session-prompt glass">
+          <div class="prompt-label">本次专注目标（可选）</div>
+          <input
+            v-model="sessionPlanInput"
+            type="text"
+            class="prompt-input"
+            placeholder="例如：完成登录页面的 UI 设计..."
+            @keydown.enter="confirmSessionPlan"
+          />
+          <div class="prompt-actions">
+            <button class="btn btn-secondary btn-sm" @click="skipSessionPlan">跳过</button>
+            <button class="btn btn-primary btn-sm" @click="confirmSessionPlan">开始专注</button>
+          </div>
+        </div>
+      </Transition>
+
+      <!-- Session 总结提示（内联面板） -->
+      <Transition name="dropdown">
+        <div v-if="showSessionCompletionPrompt" class="session-prompt glass">
+          <div class="prompt-label">本次专注总结（可选）</div>
+          <input
+            v-model="sessionCompletionInput"
+            type="text"
+            class="prompt-input"
+            placeholder="例如：完成了登录页原型，遇到一个小兼容性问题..."
+            @keydown.enter="confirmSessionCompletion"
+          />
+          <div class="prompt-actions">
+            <button class="btn btn-secondary btn-sm" @click="skipSessionCompletion">跳过</button>
+            <button class="btn btn-primary btn-sm" @click="confirmSessionCompletion">保存总结</button>
+          </div>
+        </div>
+      </Transition>
+
+      <!-- 快进额度确认弹窗 -->
+      <Transition name="dropdown">
+        <div v-if="showFastForwardConfirm" class="session-prompt glass ff-confirm">
+          <div class="prompt-label">本周快进额度已用完</div>
+          <p class="prompt-desc">
+            当前 session 已快进 {{ timerStore.sessionFastForwardCount }} 次，本周额度（{{ settingsStore.settings.weeklyFastForwardQuota }} 次）也已用尽。<br>
+            确定继续快进？超额使用将在下周一自动恢复。
+          </p>
+          <div class="prompt-actions">
+            <button class="btn btn-secondary btn-sm" @click="cancelFastForward">取消</button>
+            <button class="btn btn-primary btn-sm" @click="confirmFastForward">继续快进</button>
+          </div>
+        </div>
+      </Transition>
 
       <!-- 底部统计信息栏 -->
       <footer class="timer-footer">
@@ -1661,6 +1790,68 @@ onUnmounted(() => {
   }
 }
 
+/* ---- Session 提示面板 ---- */
+.session-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 18px;
+  margin-top: 8px;
+  border-radius: var(--radius-lg);
+  max-width: 400px;
+  width: 90%;
+  animation: prompt-slide-in 0.25s ease-out;
+}
+
+@keyframes prompt-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.prompt-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.prompt-input {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  border: 1px solid var(--glass-border);
+  color: var(--text);
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.prompt-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--active-bg), 0 0 15px var(--accent-glow);
+}
+
+.prompt-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.btn-sm {
+  padding: 5px 12px;
+  font-size: 0.8rem;
+}
+
 /* ---- 底部统计 ---- */
 .timer-footer {
   display: flex;
@@ -2013,6 +2204,38 @@ onUnmounted(() => {
   .dropdown-empty {
     padding: 12px 8px;
     font-size: 0.75rem;
+  }
+
+  .ff-btn {
+    position: relative;
+  }
+
+  .ff-count {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    background: var(--accent);
+    color: white;
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 10px;
+    min-width: 18px;
+    text-align: center;
+    line-height: 1;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    pointer-events: none;
+  }
+
+  .ff-count-over {
+    background: var(--danger, #F85149);
+  }
+
+  .ff-confirm .prompt-desc {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin: 8px 0 16px;
+    line-height: 1.5;
   }
 }
 </style>

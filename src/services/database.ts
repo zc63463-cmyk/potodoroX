@@ -76,9 +76,23 @@ class MemoryStore {
         syncLog: { id: string; entityType: string; entityId: string; syncedAt: string }[]
       }>(MemoryStore.STORAGE_KEY)
       if (!data) return
-      if (data.tasks) this.tasks = new Map(data.tasks)
+      if (data.tasks) {
+        this.tasks = new Map(
+          data.tasks.map(([id, t]) => [
+            id,
+            { ...t, plan: t.plan ?? '', completion: t.completion ?? '' }
+          ])
+        )
+      }
       if (data.reflections) this.reflections = new Map(data.reflections)
-      if (data.sessions) this.sessions = new Map(data.sessions)
+      if (data.sessions) {
+        this.sessions = new Map(
+          data.sessions.map(([id, s]) => [
+            id,
+            { ...s, plan: s.plan ?? '', completion: s.completion ?? '' }
+          ])
+        )
+      }
       if (data.syncLog) this.syncLog = data.syncLog
       console.log('[MemoryStore] 已从 IndexedDB 恢复数据')
     } catch (err) {
@@ -87,9 +101,23 @@ class MemoryStore {
         const raw = (typeof localStorage !== 'undefined') ? localStorage.getItem(MemoryStore.STORAGE_KEY) : null
         if (raw) {
           const data = JSON.parse(raw)
-          if (data.tasks) this.tasks = new Map(data.tasks)
+          if (data.tasks) {
+            this.tasks = new Map(
+              data.tasks.map(([id, t]: [string, Task]) => [
+                id,
+                { ...t, plan: t.plan ?? '', completion: t.completion ?? '' }
+              ])
+            )
+          }
           if (data.reflections) this.reflections = new Map(data.reflections)
-          if (data.sessions) this.sessions = new Map(data.sessions)
+          if (data.sessions) {
+            this.sessions = new Map(
+              data.sessions.map(([id, s]: [string, Session]) => [
+                id,
+                { ...s, plan: s.plan ?? '', completion: s.completion ?? '' }
+              ])
+            )
+          }
           if (data.syncLog) this.syncLog = data.syncLog
           // 迁移到 IndexedDB 后删除旧数据
           localStorage.removeItem(MemoryStore.STORAGE_KEY)
@@ -118,6 +146,8 @@ class MemoryStore {
       ...input,
       status: 'todo',
       actualPomodoros: 0,
+      plan: input.plan ?? '',
+      completion: input.completion ?? '',
       createdAt: now,
       updatedAt: now,
       synced: false,
@@ -270,6 +300,8 @@ class MemoryStore {
       id: generateId(),
       ...input,
       endedAt: input.completed ? formatDateTime(new Date()) : null,
+      plan: input.plan ?? '',
+      completion: input.completion ?? '',
       synced: false,
     }
     this.sessions.set(session.id, session)
@@ -431,10 +463,39 @@ class SqliteDatabase {
           synced_at TEXT NOT NULL
         )
       `)
+      // 执行迁移（新增字段等）
+      await this.runMigrations()
+
       this.initialized = true
     } catch (err) {
       console.error('数据库初始化失败:', err)
       throw err
+    }
+  }
+
+  /**
+   * 运行数据库迁移
+   * 使用 PRAGMA table_info 检查列是否存在，避免重复添加
+   */
+  private async runMigrations(): Promise<void> {
+    const db = await this.getDb()
+
+    const columnExists = async (table: string, column: string): Promise<boolean> => {
+      const cols = await db.select(`PRAGMA table_info(${table})`) as Array<{ name: string }>
+      return cols.some((c) => c.name === column)
+    }
+
+    if (!(await columnExists('tasks', 'plan'))) {
+      await db.execute(`ALTER TABLE tasks ADD COLUMN plan TEXT DEFAULT ''`)
+    }
+    if (!(await columnExists('tasks', 'completion'))) {
+      await db.execute(`ALTER TABLE tasks ADD COLUMN completion TEXT DEFAULT ''`)
+    }
+    if (!(await columnExists('sessions', 'plan'))) {
+      await db.execute(`ALTER TABLE sessions ADD COLUMN plan TEXT DEFAULT ''`)
+    }
+    if (!(await columnExists('sessions', 'completion'))) {
+      await db.execute(`ALTER TABLE sessions ADD COLUMN completion TEXT DEFAULT ''`)
     }
   }
 
@@ -455,6 +516,8 @@ class SqliteDatabase {
       actualPomodoros: row.actual_pomodoros as number,
       tags: JSON.parse(row.tags as string),
       dueDate: row.due_date as string | null,
+      plan: (row.plan as string) ?? '',
+      completion: (row.completion as string) ?? '',
       createdAt: row.created_at as string,
       updatedAt: row.updated_at as string,
       synced: Boolean(row.synced),
@@ -484,6 +547,8 @@ class SqliteDatabase {
       completed: Boolean(row.completed),
       startedAt: row.started_at as string,
       endedAt: row.ended_at as string | null,
+      plan: (row.plan as string) ?? '',
+      completion: (row.completion as string) ?? '',
       synced: Boolean(row.synced),
     }
   }
@@ -493,10 +558,12 @@ class SqliteDatabase {
     const db = await this.getDb()
     const id = generateId()
     const now = formatDateTime(new Date())
+    const plan = input.plan ?? ''
+    const completion = input.completion ?? ''
     await db.execute(
-      `INSERT INTO tasks (id, title, description, status, priority, estimated_pomodoros, actual_pomodoros, tags, due_date, created_at, updated_at, synced)
-       VALUES (?, ?, ?, 'todo', ?, ?, 0, ?, ?, ?, ?, 0)`,
-      [id, input.title, input.description, input.priority, input.estimatedPomodoros, JSON.stringify(input.tags), input.dueDate, now, now]
+      `INSERT INTO tasks (id, title, description, status, priority, estimated_pomodoros, actual_pomodoros, tags, due_date, plan, completion, created_at, updated_at, synced)
+       VALUES (?, ?, ?, 'todo', ?, ?, 0, ?, ?, ?, ?, ?, ?, 0)`,
+      [id, input.title, input.description, input.priority, input.estimatedPomodoros, JSON.stringify(input.tags), input.dueDate, plan, completion, now, now]
     )
     return {
       id,
@@ -508,6 +575,8 @@ class SqliteDatabase {
       actualPomodoros: 0,
       tags: input.tags,
       dueDate: input.dueDate,
+      plan,
+      completion,
       createdAt: now,
       updatedAt: now,
       synced: false,
@@ -538,11 +607,13 @@ class SqliteDatabase {
     const actualPomodoros = input.actualPomodoros ?? existing.actualPomodoros
     const tags = input.tags ?? existing.tags
     const dueDate = input.dueDate !== undefined ? input.dueDate : existing.dueDate
+    const plan = input.plan !== undefined ? input.plan : existing.plan
+    const completion = input.completion !== undefined ? input.completion : existing.completion
 
     await db.execute(
-      `UPDATE tasks SET title=?, description=?, status=?, priority=?, estimated_pomodoros=?, actual_pomodoros=?, tags=?, due_date=?, updated_at=?, synced=0
+      `UPDATE tasks SET title=?, description=?, status=?, priority=?, estimated_pomodoros=?, actual_pomodoros=?, tags=?, due_date=?, plan=?, completion=?, updated_at=?, synced=0
        WHERE id=?`,
-      [title, description, status, priority, estimatedPomodoros, actualPomodoros, JSON.stringify(tags), dueDate, now, id]
+      [title, description, status, priority, estimatedPomodoros, actualPomodoros, JSON.stringify(tags), dueDate, plan, completion, now, id]
     )
 
     return {
@@ -555,6 +626,8 @@ class SqliteDatabase {
       actualPomodoros,
       tags,
       dueDate,
+      plan,
+      completion,
       updatedAt: now,
       synced: false,
     }
@@ -684,9 +757,9 @@ class SqliteDatabase {
   async upsertTask(task: Task): Promise<Task> {
     const db = await this.getDb()
     await db.execute(
-      `INSERT OR REPLACE INTO tasks (id, title, description, status, priority, estimated_pomodoros, actual_pomodoros, tags, due_date, created_at, updated_at, synced)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [task.id, task.title, task.description, task.status, task.priority, task.estimatedPomodoros, task.actualPomodoros, JSON.stringify(task.tags), task.dueDate, task.createdAt, task.updatedAt, task.synced ? 1 : 0]
+      `INSERT OR REPLACE INTO tasks (id, title, description, status, priority, estimated_pomodoros, actual_pomodoros, tags, due_date, plan, completion, created_at, updated_at, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [task.id, task.title, task.description, task.status, task.priority, task.estimatedPomodoros, task.actualPomodoros, JSON.stringify(task.tags), task.dueDate, task.plan, task.completion, task.createdAt, task.updatedAt, task.synced ? 1 : 0]
     )
     return task
   }
@@ -704,9 +777,9 @@ class SqliteDatabase {
   async upsertSession(session: Session): Promise<Session> {
     const db = await this.getDb()
     await db.execute(
-      `INSERT OR REPLACE INTO sessions (id, task_id, type, duration, completed, started_at, ended_at, synced)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [session.id, session.taskId, session.type, session.duration, session.completed ? 1 : 0, session.startedAt, session.endedAt, session.synced ? 1 : 0]
+      `INSERT OR REPLACE INTO sessions (id, task_id, type, duration, completed, started_at, ended_at, plan, completion, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [session.id, session.taskId, session.type, session.duration, session.completed ? 1 : 0, session.startedAt, session.endedAt, session.plan, session.completion, session.synced ? 1 : 0]
     )
     return session
   }
@@ -716,10 +789,12 @@ class SqliteDatabase {
     const db = await this.getDb()
     const id = generateId()
     const endedAt = input.completed ? formatDateTime(new Date()) : null
+    const plan = input.plan ?? ''
+    const completion = input.completion ?? ''
     await db.execute(
-      `INSERT INTO sessions (id, task_id, type, duration, completed, started_at, ended_at, synced)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
-      [id, input.taskId, input.type, input.duration, input.completed ? 1 : 0, input.startedAt, endedAt]
+      `INSERT INTO sessions (id, task_id, type, duration, completed, started_at, ended_at, plan, completion, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [id, input.taskId, input.type, input.duration, input.completed ? 1 : 0, input.startedAt, endedAt, plan, completion]
     )
     return {
       id,
@@ -729,6 +804,8 @@ class SqliteDatabase {
       completed: input.completed,
       startedAt: input.startedAt,
       endedAt,
+      plan,
+      completion,
       synced: false,
     }
   }
@@ -750,13 +827,15 @@ class SqliteDatabase {
     const db = await this.getDb()
     const completed = input.completed ?? existing.completed
     const endedAt = input.endedAt !== undefined ? input.endedAt : existing.endedAt
+    const plan = input.plan !== undefined ? input.plan : existing.plan
+    const completion = input.completion !== undefined ? input.completion : existing.completion
 
     await db.execute(
-      'UPDATE sessions SET completed=?, ended_at=? WHERE id=?',
-      [completed ? 1 : 0, endedAt, id]
+      'UPDATE sessions SET completed=?, ended_at=?, plan=?, completion=? WHERE id=?',
+      [completed ? 1 : 0, endedAt, plan, completion, id]
     )
 
-    return { ...existing, completed, endedAt }
+    return { ...existing, completed, endedAt, plan, completion }
   }
 
   async deleteSession(id: string): Promise<boolean> {

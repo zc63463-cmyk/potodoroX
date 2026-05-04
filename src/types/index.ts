@@ -31,13 +31,15 @@ export interface Task {
   actualPomodoros: number
   tags: string[]
   dueDate: string | null
+  plan: string
+  completion: string
   createdAt: string
   updatedAt: string
   synced: boolean
 }
 
 /** 新建任务（不含自动生成字段） */
-export type CreateTaskInput = Pick<Task, 'title' | 'description' | 'priority' | 'estimatedPomodoros' | 'tags' | 'dueDate'>
+export type CreateTaskInput = Pick<Task, 'title' | 'description' | 'priority' | 'estimatedPomodoros' | 'tags' | 'dueDate' | 'plan' | 'completion'>
 
 /** 更新任务（部分字段） */
 export type UpdateTaskInput = Partial<Omit<Task, 'id' | 'createdAt' | 'synced'>>
@@ -70,11 +72,13 @@ export interface Session {
   completed: boolean
   startedAt: string
   endedAt: string | null
+  plan: string
+  completion: string
   synced: boolean
 }
 
 /** 新建会话 */
-export type CreateSessionInput = Pick<Session, 'taskId' | 'type' | 'duration' | 'completed' | 'startedAt'>
+export type CreateSessionInput = Pick<Session, 'taskId' | 'type' | 'duration' | 'completed' | 'startedAt' | 'plan' | 'completion'>
 
 /** 应用配置 */
 export interface AppConfig {
@@ -89,6 +93,9 @@ export interface AppConfig {
   githubToken: string
   githubRepo: string
   githubOwner: string
+  weeklyFastForwardQuota: number
+  weeklyFastForwardUsed: number
+  weeklyFastForwardResetAt: string
 }
 
 /** 同步状态 */

@@ -8,6 +8,7 @@ import { ref, watch } from 'vue'
 import type { AppConfig, ThemeName } from '@/types'
 import { DEFAULT_CONFIG, STORE_FILENAME } from '@/utils/constants'
 import { isTauriAvailable } from '@/utils/tauri'
+import { formatDate } from '@/utils/format'
 
 export const useSettingsStore = defineStore('settings', () => {
   // ---- 状态 ----
@@ -107,6 +108,30 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   /**
+   * 获取本周起始日期（周一）YYYY-MM-DD
+   */
+  function getWeekStart(): string {
+    const d = new Date()
+    const day = d.getDay() || 7 // 周日=7
+    if (day !== 1) {
+      d.setDate(d.getDate() - (day - 1))
+    }
+    d.setHours(0, 0, 0, 0)
+    return formatDate(d)
+  }
+
+  /**
+   * 检查并重置每周快进额度（自然周重置）
+   */
+  function checkAndResetWeeklyQuota(): void {
+    const currentWeekStart = getWeekStart()
+    if (settings.value.weeklyFastForwardResetAt !== currentWeekStart) {
+      settings.value.weeklyFastForwardUsed = 0
+      settings.value.weeklyFastForwardResetAt = currentWeekStart
+    }
+  }
+
+  /**
    * 获取工作时长（秒）
    */
   function getWorkDuration(): number {
@@ -149,6 +174,8 @@ export const useSettingsStore = defineStore('settings', () => {
     updateSettings,
     resetSettings,
     applyTheme,
+    checkAndResetWeeklyQuota,
+    getWeekStart,
     getWorkDuration,
     getShortBreakDuration,
     getLongBreakDuration,

@@ -10,12 +10,14 @@
     "dev:lan": "vite --host 0.0.0.0",
     "dev:lan:qr": "node scripts/start-with-qr.cjs",
     "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.4",
+    "@types/three": "^0.184.0",
     "@vitejs/plugin-vue": "^6.0.6",
     "cross-env": "^10.1.0",
     "esbuild": "^0.28.0",
@@ -24,7 +26,8 @@
     "tailwindcss": "^4.2.4",
     "typescript": "~6.0.2",
     "vite": "^8.0.10",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "vue-tsc": "^3.2.8"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",

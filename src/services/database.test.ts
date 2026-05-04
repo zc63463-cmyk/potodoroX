@@ -43,6 +43,8 @@ describe('MemoryStore localStorage 序列化/反序列化', () => {
       actualPomodoros: 0,
       tags: ['测试'],
       dueDate: null,
+      plan: '',
+      completion: '',
       createdAt: '2026-05-03 10:00:00',
       updatedAt: '2026-05-03 10:00:00',
       synced: false,
@@ -74,6 +76,8 @@ describe('MemoryStore localStorage 序列化/反序列化', () => {
       completed: true,
       startedAt: '2026-05-03 10:00:00',
       endedAt: '2026-05-03 10:25:00',
+      plan: '',
+      completion: '',
       synced: false,
       ...overrides,
     }
