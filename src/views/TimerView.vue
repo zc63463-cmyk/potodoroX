@@ -14,9 +14,10 @@ import { useNotification } from '@/composables/useNotification'
 import { playFocusStart, playBreakStart, playSessionComplete, playSuccess } from '@/composables/useAudio'
 import { TIMER_MODES } from '@/utils/constants'
 import { formatMinutes, getWeekdayName, formatDate } from '@/utils/format'
-import type { Task } from '@/types'
+import type { Task, SessionType } from '@/types'
 import { animate, createSpring } from 'animejs'
 import MagicRings from '@/components/MagicRings.vue'
+import GooeyNav from '@/components/GooeyNav.vue'
 
 // ---- Stores ----
 const timerStore = useTimerStore()
@@ -67,13 +68,24 @@ const sessionLabel = computed(() => sessionConfig.value.labelZh)
 /** 会话类型颜色 */
 const sessionColor = computed(() => sessionConfig.value.color)
 
-/** 模式切换选项 */
-const modeOptions = computed(() => [
+/** GooeyNav 选项 */
+const gooeyItems = computed(() => [
   { value: 'work' as const, label: TIMER_MODES.work.labelZh, color: TIMER_MODES.work.color },
   { value: 'short_break' as const, label: TIMER_MODES.short_break.labelZh, color: TIMER_MODES.short_break.color },
   { value: 'long_break' as const, label: TIMER_MODES.long_break.labelZh, color: TIMER_MODES.long_break.color },
   { value: 'free' as const, label: TIMER_MODES.free.labelZh, color: TIMER_MODES.free.color },
 ])
+
+const gooeyActiveIndex = computed(() => {
+  return gooeyItems.value.findIndex((item) => item.value === timerStore.sessionType)
+})
+
+function onGooeySelect(index: number) {
+  const mode = gooeyItems.value[index]
+  if (mode && !timerStore.isRunning) {
+    timerStore.setSessionType(mode.value as SessionType)
+  }
+}
 
 /** 格式化剩余时间 */
 const displayTime = computed(() => timerStore.formattedRemaining)
@@ -693,20 +705,13 @@ onUnmounted(() => {
           <span class="session-type-badge" :style="{ color: sessionColor, borderColor: sessionColor + '40', background: sessionColor + '15' }">
             {{ sessionLabel }}
           </span>
-          <!-- 模式切换 -->
-          <div class="mode-switcher">
-            <button
-              v-for="mode in modeOptions"
-              :key="mode.value"
-              class="mode-chip"
-              :class="{ active: timerStore.sessionType === mode.value }"
-              :style="timerStore.sessionType === mode.value ? { color: mode.color, borderColor: mode.color + '40', background: mode.color + '12' } : {}"
-              :disabled="timerStore.isRunning"
-              @click="timerStore.setSessionType(mode.value)"
-            >
-              {{ mode.label }}
-            </button>
-          </div>
+          <!-- 模式切换（GooeyNav） -->
+          <GooeyNav
+            :items="gooeyItems"
+            :active-index="gooeyActiveIndex"
+            :disabled="timerStore.isRunning"
+            @select="onGooeySelect"
+          />
         </div>
 
         <!-- 环形进度 + 时间显示 -->
@@ -1432,37 +1437,6 @@ onUnmounted(() => {
   transition: all var(--transition-slow);
 }
 
-/* 模式切换 */
-.mode-switcher {
-  display: flex;
-  gap: 6px;
-  margin-top: 8px;
-  justify-content: center;
-  flex-wrap: wrap;
-}
-
-.mode-chip {
-  padding: 4px 12px;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 0.75rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.mode-chip:hover:not(:disabled) {
-  border-color: var(--accent-dim);
-  color: var(--text);
-}
-
-.mode-chip:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
 /* 自由计时时长输入 */
 .free-duration-input {
   display: flex;
@@ -2163,26 +2137,6 @@ onUnmounted(() => {
     min-height: 48px;
     font-size: 1rem;
     padding: 12px 32px;
-  }
-
-  .session-chips {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    gap: 6px;
-    width: 100%;
-    justify-content: flex-start;
-  }
-
-  .session-chips::-webkit-scrollbar {
-    display: none;
-  }
-
-  .chip {
-    flex-shrink: 0;
-    padding: 8px 14px;
-    min-height: 36px;
-    font-size: 0.8rem;
   }
 
   .timer-header {
