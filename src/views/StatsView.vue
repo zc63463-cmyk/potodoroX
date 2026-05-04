@@ -3,7 +3,7 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { useTaskStore } from '@/stores/task'
 import { useReflectionStore } from '@/stores/reflection'
 import { useSessionStore } from '@/stores/session'
-import { exportDailyReport, exportWeeklyReport } from '@/services/export'
+import { exportAdvancedReport, isTaskActiveInRange } from '@/services/export'
 import type { Mood } from '@/types'
 import { MOODS } from '@/utils/constants'
 import {
@@ -22,11 +22,13 @@ const sessionStore = useSessionStore()
 
 // ---- 状态 ----
 type DateRangeType = 'today' | 'week' | 'month' | 'custom'
+type ExportFormat = 'markdown' | 'csv' | 'json'
 const dateRangeType = ref<DateRangeType>('week')
 const customStartDate = ref('')
 const customEndDate = ref('')
 const isExporting = ref(false)
 const chartsReady = ref(false)
+const exportFormat = ref<ExportFormat>('markdown')
 
 // ---- 日期范围计算 ----
 
@@ -344,27 +346,42 @@ async function exportReport() {
     const [start, end] = dateRange.value
     const endDate = new Date(end + 'T23:59:59')
     const startDate = new Date(start + 'T00:00:00')
-    const tasksInRange = taskStore.tasks.filter(
-      (t) => new Date(t.createdAt) >= startDate && new Date(t.createdAt) <= endDate
+    const sessionsInRange = currentWorkSessions.value
+
+    // 升级：使用 isTaskActiveInRange 筛选区间内活跃的任务
+    const tasksInRange = taskStore.tasks.filter((t) =>
+      isTaskActiveInRange(t, sessionsInRange, startDate, endDate)
     )
     const reflectionsInRange = reflectionStore.reflections.filter(
       (r) => r.date >= start && r.date <= end
     )
-    const sessionsInRange = currentWorkSessions.value
 
-    let markdown: string
-    if (start === end) {
-      markdown = exportDailyReport(start, tasksInRange, reflectionsInRange, sessionsInRange)
-    } else {
-      markdown = exportWeeklyReport(start, end, tasksInRange, reflectionsInRange, sessionsInRange)
+    const type = start === end ? 'daily' : 'weekly'
+    const result = exportAdvancedReport({
+      type,
+      format: exportFormat.value,
+      tasks: tasksInRange,
+      sessions: sessionsInRange,
+      reflections: reflectionsInRange,
+      dateRange: { start, end },
+    })
+
+    const mimeMap: Record<ExportFormat, string> = {
+      markdown: 'text/markdown;charset=utf-8',
+      csv: 'text/csv;charset=utf-8',
+      json: 'application/json;charset=utf-8',
+    }
+    const extMap: Record<ExportFormat, string> = {
+      markdown: 'md',
+      csv: 'csv',
+      json: 'json',
     }
 
-    // 下载文件
-    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
+    const blob = new Blob([result], { type: mimeMap[exportFormat.value] })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `pomodorox-report-${start}${start !== end ? `-${end}` : ''}.md`
+    a.download = `pomodorox-report-${start}${start !== end ? `-${end}` : ''}.${extMap[exportFormat.value]}`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -722,6 +739,11 @@ onMounted(async () => {
 
         <!-- 导出 -->
         <div class="export-section">
+          <select v-model="exportFormat" class="format-select" :disabled="isExporting">
+            <option value="markdown">Markdown</option>
+            <option value="csv">CSV</option>
+            <option value="json">JSON</option>
+          </select>
           <button
             class="btn-export"
             :disabled="isExporting"

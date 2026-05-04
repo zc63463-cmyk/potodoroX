@@ -3,9 +3,29 @@
 // 生成美观的 Markdown 格式报告
 // ============================================================
 
-import type { Task, Reflection, Session } from '@/types'
+import type { Task, Reflection, Session, TaskStatus, Priority } from '@/types'
 import { formatMinutes, formatDate, getWeekdayName, formatFriendlyDate } from '@/utils/format'
 import { MOODS, PRIORITIES, STATUSES } from '@/utils/constants'
+
+// ============================================================
+// 通用高级导出器类型与基础设施
+// ============================================================
+
+export interface ExportOptions {
+  type: 'daily' | 'weekly' | 'task'
+  tasks: Task[]
+  sessions?: Session[]
+  reflections?: Reflection[]
+  dateRange?: { start: string; end: string }
+  filters?: {
+    status?: TaskStatus | 'all'
+    priority?: Priority | ''
+    tags?: string[]
+    search?: string
+  }
+  format: 'markdown' | 'csv' | 'json'
+  includeFields?: ('plan' | 'completion')[]
+}
 
 /**
  * 导出每日报告
@@ -75,6 +95,16 @@ export function exportDailyReport(
         if (task.tags.length > 0) {
           lines.push(`  标签: ${task.tags.map((t) => `\`${t}\``).join(' ')}`)
         }
+        if (task.plan) {
+          lines.push('')
+          lines.push('  **规划：**')
+          task.plan.split('\n').forEach((l) => lines.push(`  > ${l}`))
+        }
+        if (task.completion) {
+          lines.push('')
+          lines.push('  **总结：**')
+          task.completion.split('\n').forEach((l) => lines.push(`  > ${l}`))
+        }
       })
       lines.push('')
     }
@@ -85,6 +115,16 @@ export function exportDailyReport(
       inProgressTasks.forEach((task) => {
         const priorityLabel = PRIORITIES.find((p) => p.value === task.priority)?.label || ''
         lines.push(`- [ ] ${task.title} ${priorityLabel ? `(${priorityLabel})` : ''} (进行中)`)
+        if (task.plan) {
+          lines.push('')
+          lines.push('  **规划：**')
+          task.plan.split('\n').forEach((l) => lines.push(`  > ${l}`))
+        }
+        if (task.completion) {
+          lines.push('')
+          lines.push('  **总结：**')
+          task.completion.split('\n').forEach((l) => lines.push(`  > ${l}`))
+        }
       })
       lines.push('')
     }
@@ -97,6 +137,16 @@ export function exportDailyReport(
         lines.push(`- [ ] ${task.title} ${priorityLabel ? `(${priorityLabel})` : ''}`)
         if (task.dueDate) {
           lines.push(`  截止: ${task.dueDate}`)
+        }
+        if (task.plan) {
+          lines.push('')
+          lines.push('  **规划：**')
+          task.plan.split('\n').forEach((l) => lines.push(`  > ${l}`))
+        }
+        if (task.completion) {
+          lines.push('')
+          lines.push('  **总结：**')
+          task.completion.split('\n').forEach((l) => lines.push(`  > ${l}`))
         }
       })
       lines.push('')
@@ -189,6 +239,16 @@ export function exportWeeklyReport(
     completedTasks.forEach((task) => {
       const priorityLabel = PRIORITIES.find((p) => p.value === task.priority)?.label || ''
       lines.push(`- [x] ${task.title} ${priorityLabel ? `(${priorityLabel})` : ''}`)
+      if (task.plan) {
+        lines.push('')
+        lines.push('  **规划：**')
+        task.plan.split('\n').forEach((l) => lines.push(`  > ${l}`))
+      }
+      if (task.completion) {
+        lines.push('')
+        lines.push('  **总结：**')
+        task.completion.split('\n').forEach((l) => lines.push(`  > ${l}`))
+      }
     })
     lines.push('')
   }
@@ -201,6 +261,16 @@ export function exportWeeklyReport(
     incompleteTasks.forEach((task) => {
       const statusLabel = STATUSES.find((s) => s.value === task.status)?.label || ''
       lines.push(`- [ ] ${task.title} (${statusLabel})`)
+      if (task.plan) {
+        lines.push('')
+        lines.push('  **规划：**')
+        task.plan.split('\n').forEach((l) => lines.push(`  > ${l}`))
+      }
+      if (task.completion) {
+        lines.push('')
+        lines.push('  **总结：**')
+        task.completion.split('\n').forEach((l) => lines.push(`  > ${l}`))
+      }
     })
     lines.push('')
   }
@@ -381,4 +451,165 @@ export function exportReflectionReport(reflections: Reflection[]): string {
   lines.push('*由 PomodoroX 生成*')
 
   return lines.join('\n')
+}
+
+// ============================================================
+// 数据筛选引擎
+// ============================================================
+
+/**
+ * 判断任务在指定日期范围内是否有任何活动
+ * 活动 = 创建于区间内 | 更新于区间内 | 有番茄钟 session 在区间内
+ */
+export function isTaskActiveInRange(
+  task: Task,
+  sessions: Session[],
+  start: Date,
+  end: Date
+): boolean {
+  const created = new Date(task.createdAt)
+  const updated = new Date(task.updatedAt)
+
+  if (created >= start && created <= end) return true
+  if (updated >= start && updated <= end) return true
+
+  const hasSessionInRange = sessions.some(
+    (s) =>
+      s.taskId === task.id &&
+      new Date(s.startedAt) >= start &&
+      new Date(s.startedAt) <= end
+  )
+  return hasSessionInRange
+}
+
+/** 筛选任务的多维条件 */
+export function filterTasks(
+  tasks: Task[],
+  filters?: ExportOptions['filters'],
+  dateRange?: { start: string; end: string }
+): Task[] {
+  return tasks.filter((t) => {
+    // 状态
+    if (filters?.status && filters.status !== 'all' && t.status !== filters.status) return false
+    // 优先级
+    if (filters?.priority && t.priority !== filters.priority) return false
+    // 标签
+    if (filters?.tags && filters.tags.length > 0) {
+      if (!filters.tags.some((tag) => t.tags.includes(tag))) return false
+    }
+    // 搜索（匹配 title / description / plan / completion）
+    if (filters?.search) {
+      const q = filters.search.toLowerCase()
+      const match =
+        t.title.toLowerCase().includes(q) ||
+        t.description.toLowerCase().includes(q) ||
+        t.plan.toLowerCase().includes(q) ||
+        t.completion.toLowerCase().includes(q)
+      if (!match) return false
+    }
+    // 时间范围
+    if (dateRange) {
+      const start = new Date(dateRange.start + 'T00:00:00')
+      const end = new Date(dateRange.end + 'T23:59:59')
+      if (!isTaskActiveInRange(t, [], start, end)) return false
+    }
+    return true
+  })
+}
+
+// ============================================================
+// 通用高级导出器
+// ============================================================
+
+function renderToCsv(tasks: Task[]): string {
+  const headers = ['ID', 'Title', 'Status', 'Priority', 'Tags', 'DueDate', 'Estimated', 'Actual', 'Plan', 'Completion', 'CreatedAt', 'UpdatedAt']
+
+  function escapeCsv(value: string): string {
+    if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+      return `"${value.replace(/"/g, '""')}"`
+    }
+    return value
+  }
+
+  const rows = tasks.map((t) =>
+    [
+      t.id,
+      escapeCsv(t.title),
+      t.status,
+      t.priority,
+      escapeCsv(t.tags.join(',')),
+      t.dueDate || '',
+      String(t.estimatedPomodoros),
+      String(t.actualPomodoros),
+      escapeCsv(t.plan.replace(/\n/g, '\\n')),
+      escapeCsv(t.completion.replace(/\n/g, '\\n')),
+      t.createdAt,
+      t.updatedAt,
+    ].join(',')
+  )
+
+  return [headers.join(','), ...rows].join('\n')
+}
+
+function renderToJson(
+  type: string,
+  tasks: Task[],
+  sessions: Session[],
+  reflections: Reflection[],
+  dateRange?: { start: string; end: string }
+): string {
+  const workSessions = sessions.filter((s) => s.type === 'work' && s.completed)
+  const totalFocusMinutes = workSessions.reduce((sum, s) => sum + Math.round(s.duration / 60), 0)
+
+  return JSON.stringify(
+    {
+      meta: {
+        generatedAt: new Date().toISOString(),
+        type,
+        dateRange,
+      },
+      summary: {
+        totalSessions: workSessions.length,
+        totalFocusMinutes,
+        completedTasks: tasks.filter((t) => t.status === 'done').length,
+        totalTasks: tasks.length,
+        totalReflections: reflections.length,
+      },
+      tasks,
+      sessions,
+      reflections,
+    },
+    null,
+    2
+  )
+}
+
+export function exportAdvancedReport(options: ExportOptions): string {
+  const { type, format, tasks, sessions = [], reflections = [], dateRange, filters } = options
+
+  const filteredTasks = filters ? filterTasks(tasks, filters, dateRange) : tasks
+
+  switch (format) {
+    case 'markdown': {
+      if (type === 'daily') {
+        const date = dateRange?.start || formatDate(new Date())
+        return exportDailyReport(date, filteredTasks, reflections, sessions)
+      }
+      if (type === 'weekly') {
+        const start = dateRange?.start || formatDate(new Date())
+        const end = dateRange?.end || start
+        return exportWeeklyReport(start, end, filteredTasks, reflections, sessions)
+      }
+      if (type === 'task') {
+        return exportTaskReport(filteredTasks)
+      }
+      throw new Error(`Unsupported type: ${type} for markdown`)
+    }
+    case 'csv':
+      return renderToCsv(filteredTasks)
+    case 'json':
+      return renderToJson(type, filteredTasks, sessions, reflections, dateRange)
+    default:
+      throw new Error(`Unsupported format: ${format}`)
+  }
 }
