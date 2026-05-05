@@ -120,12 +120,24 @@ export default async function handler(request, response) {
   forwardHeaders['User-Agent'] =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
+  // 读取 request body（Node.js IncomingMessage 不能直接传给 fetch）
+  let bodyText = undefined
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
+    const chunks = []
+    for await (const chunk of request) {
+      chunks.push(chunk)
+    }
+    if (chunks.length > 0) {
+      bodyText = Buffer.concat(chunks).toString('utf-8')
+    }
+  }
+
   try {
     // Node.js 18+ 内置 fetch
     const proxyResponse = await fetch(targetUrl.toString(), {
       method: request.method,
       headers: forwardHeaders,
-      body: ['GET', 'HEAD', 'OPTIONS'].includes(request.method) ? undefined : request.body,
+      body: bodyText,
     })
 
     // 设置 CORS 响应头

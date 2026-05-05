@@ -180,6 +180,16 @@ export function useWebDavSync() {
     }
 
     try {
+      // 坚果云要求父目录必须已存在，先 MKCOL 创建目录（忽略已存在/冲突）
+      const parts = path.split('/')
+      if (parts.length > 1) {
+        const parentDir = parts.slice(0, -1).join('/') + '/'
+        try {
+          await webProxyRequest(config.value, 'MKCOL', parentDir)
+        } catch {
+          /* 目录已存在或冲突，忽略 */
+        }
+      }
       const res = await webProxyRequest(config.value, 'PUT', path, content)
       if (!res.ok) {
         console.error('[WebDAV] 代理上传失败:', res.status, await res.text())
@@ -215,7 +225,7 @@ export function useWebDavSync() {
 
     try {
       const res = await webProxyRequest(config.value, 'GET', path)
-      if (res.status === 404) return null
+      if (res.status === 404 || res.status === 409) return null
       if (!res.ok) {
         console.error('[WebDAV] 代理下载失败:', res.status)
         return null
