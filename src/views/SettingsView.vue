@@ -13,6 +13,7 @@ import { isTauri } from "@/utils/platform";
 import type { ImportReflection } from "@/utils/importReflection";
 import { parseImportFile } from "@/utils/importReflection";
 import type { ThemeName } from "@/types";
+import { db } from "@/services/database";
 
 // ---- Stores ----
 const settingsStore = useSettingsStore();
@@ -648,6 +649,53 @@ async function syncWebDav() {
       failures.push(r);
     }
   });
+
+  // 写回合并后的数据到本地数据库
+  for (const r of success) {
+    if (!r.value.merged) continue;
+
+    try {
+      if (r.value.type === "reflections") {
+        const reflectionStore = useReflectionStore();
+        // 直接操作数据库内部 Map
+        const memoryStore = (db as any).memoryStore;
+        if (memoryStore) {
+          memoryStore.reflections.clear();
+          for (const reflection of r.value.merged as any[]) {
+            memoryStore.reflections.set(reflection.id, reflection);
+          }
+          await memoryStore.saveToLocalStorage();
+        }
+        await reflectionStore.loadReflections();
+      } else if (r.value.type === "sessions") {
+        const sessionStore = useSessionStore();
+        // 直接操作数据库内部 Map
+        const memoryStore = (db as any).memoryStore;
+        if (memoryStore) {
+          memoryStore.sessions.clear();
+          for (const session of r.value.merged as any[]) {
+            memoryStore.sessions.set(session.id, session);
+          }
+          await memoryStore.saveToLocalStorage();
+        }
+        await sessionStore.loadAllSessions();
+      } else if (r.value.type === "tasks") {
+        const taskStore = useTaskStore();
+        // 直接操作数据库内部 Map
+        const memoryStore = (db as any).memoryStore;
+        if (memoryStore) {
+          memoryStore.tasks.clear();
+          for (const task of r.value.merged as any[]) {
+            memoryStore.tasks.set(task.id, task);
+          }
+          await memoryStore.saveToLocalStorage();
+        }
+        await taskStore.loadTasks();
+      }
+    } catch (err) {
+      console.error(`写回 ${r.value.type} 数据失败:`, err);
+    }
+  }
 
   if (failures.length === 0) {
     const parts = success

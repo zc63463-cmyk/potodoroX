@@ -18,10 +18,11 @@ interface WebDavConfig {
   proxyUrl?: string;
 }
 
-export interface SyncTypeResult {
+export interface SyncTypeResult<T = unknown> {
   type: "reflections" | "sessions" | "tasks";
   pushed: number;
   pulled: number;
+  merged?: T;
   error?: string;
 }
 
@@ -279,7 +280,9 @@ export function useWebDavSync() {
   }
 
   /** 同步反思 */
-  async function syncReflections(items: Reflection[]): Promise<SyncTypeResult> {
+  async function syncReflections(
+    items: Reflection[]
+  ): Promise<SyncTypeResult<Reflection[]>> {
     if (!config.value) {
       return {
         type: "reflections",
@@ -331,7 +334,7 @@ export function useWebDavSync() {
       }
 
       saveLastSync(new Date().toISOString());
-      return { type: "reflections", pushed, pulled };
+      return { type: "reflections", pushed, pulled, merged };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "同步失败";
       syncError.value = msg;
@@ -342,7 +345,9 @@ export function useWebDavSync() {
   }
 
   /** 同步会话 */
-  async function syncSessions(items: Session[]): Promise<SyncTypeResult> {
+  async function syncSessions(
+    items: Session[]
+  ): Promise<SyncTypeResult<Session[]>> {
     if (!config.value) {
       return { type: "sessions", pushed: 0, pulled: 0, error: "WebDAV 未配置" };
     }
@@ -389,7 +394,7 @@ export function useWebDavSync() {
       }
 
       saveLastSync(new Date().toISOString());
-      return { type: "sessions", pushed, pulled };
+      return { type: "sessions", pushed, pulled, merged };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "同步失败";
       syncError.value = msg;
@@ -400,7 +405,7 @@ export function useWebDavSync() {
   }
 
   /** 同步任务 */
-  async function syncTasks(items: Task[]): Promise<SyncTypeResult> {
+  async function syncTasks(items: Task[]): Promise<SyncTypeResult<Task[]>> {
     if (!config.value) {
       return { type: "tasks", pushed: 0, pulled: 0, error: "WebDAV 未配置" };
     }
@@ -447,7 +452,7 @@ export function useWebDavSync() {
       }
 
       saveLastSync(new Date().toISOString());
-      return { type: "tasks", pushed, pulled };
+      return { type: "tasks", pushed, pulled, merged };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "同步失败";
       syncError.value = msg;
