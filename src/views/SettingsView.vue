@@ -41,6 +41,7 @@ const webDav = useWebDavSync()
 const webDavUrl = ref('')
 const webDavUsername = ref('')
 const webDavPassword = ref('')
+const webDavProxyUrl = ref('')
 const isTestingWebDav = ref(false)
 const webDavTestResult = ref<{ success: boolean; message: string } | null>(null)
 
@@ -49,7 +50,16 @@ if (webDav.config.value) {
   webDavUrl.value = webDav.config.value.url
   webDavUsername.value = webDav.config.value.username
   webDavPassword.value = webDav.config.value.password
+  webDavProxyUrl.value = webDav.config.value.proxyUrl || ''
 }
+
+/** 是否具备测试连接的最小条件 */
+const canTestWebDav = computed(() => {
+  if (!webDavUrl.value || !webDavUsername.value) return false
+  // Web 端需要额外配置 Worker 代理 URL
+  if (!isTauri() && !webDavProxyUrl.value) return false
+  return true
+})
 
 // ---- 本地编辑副本（避免直接修改 store） ----
 const localSettings = ref({
@@ -493,6 +503,7 @@ function saveWebDavConfig() {
       url: webDavUrl.value,
       username: webDavUsername.value,
       password: webDavPassword.value,
+      proxyUrl: webDavProxyUrl.value || undefined,
     })
   }
 }
@@ -688,76 +699,86 @@ onMounted(async () => {
           WebDAV 同步
         </h2>
         <div class="section-content">
-          <div v-if="!isTauri()" class="webdav-not-available">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <div v-if="!isTauri()" class="webdav-info-tip">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"/>
-              <line x1="12" y1="8" x2="12" y2="12"/>
-              <line x1="12" y1="16" x2="12.01" y2="16"/>
+              <line x1="12" y1="16" x2="12" y2="12"/>
+              <line x1="12" y1="8" x2="12.01" y2="8"/>
             </svg>
-            <span>WebDAV 同步功能仅限桌面端使用</span>
+            <span>浏览器端需要自部署 Cloudflare Worker 代理以绕过 CORS 限制。<a href="https://github.com/zc63463-cmyk/potodoroX/tree/main/cloudflare-worker" target="_blank" rel="noopener">部署指南</a></span>
           </div>
 
-          <template v-else>
-            <div class="form-group">
-              <label class="form-label">服务器地址</label>
-              <input
-                v-model="webDavUrl"
-                type="text"
-                class="form-input"
-                placeholder="https://dav.jianguoyun.com/dav/"
-              />
-            </div>
-            <div class="form-group">
-              <label class="form-label">用户名</label>
-              <input
-                v-model="webDavUsername"
-                type="text"
-                class="form-input"
-                placeholder="your@email.com"
-              />
-            </div>
-            <div class="form-group">
-              <label class="form-label">密码</label>
-              <input
-                v-model="webDavPassword"
-                type="password"
-                class="form-input"
-                placeholder="应用专用密码"
-              />
-            </div>
+          <!-- Worker 代理 URL (仅 Web 端) -->
+          <div v-if="!isTauri()" class="form-group">
+            <label class="form-label">Worker 代理 URL</label>
+            <input
+              v-model="webDavProxyUrl"
+              type="text"
+              class="form-input"
+              placeholder="https://pomodorox-webdav-proxy.xxx.workers.dev"
+            />
+            <p class="form-hint">部署你自己的 Cloudflare Worker 后填入此处</p>
+          </div>
 
-            <div class="form-actions">
-              <button
-                class="btn-secondary"
-                :disabled="isTestingWebDav || !webDavUrl || !webDavUsername"
-                @click="testWebDavConnection"
-              >
-                <svg v-if="isTestingWebDav" class="spin-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21 12a9 9 0 11-6.219-8.56"/>
-                </svg>
-                <span>{{ isTestingWebDav ? '测试中...' : '测试连接' }}</span>
-              </button>
-              <button
-                class="btn-primary"
-                :disabled="webDav.isSyncing.value || !webDav.isConfigured.value"
-                @click="syncWebDav"
-              >
-                <svg v-if="webDav.isSyncing.value" class="spin-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21 12a9 9 0 11-6.219-8.56"/>
-                </svg>
-                <span>{{ webDav.isSyncing.value ? '同步中...' : '立即同步' }}</span>
-              </button>
-            </div>
+          <div class="form-group">
+            <label class="form-label">服务器地址</label>
+            <input
+              v-model="webDavUrl"
+              type="text"
+              class="form-input"
+              placeholder="https://dav.jianguoyun.com/dav/"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">用户名</label>
+            <input
+              v-model="webDavUsername"
+              type="text"
+              class="form-input"
+              placeholder="your@email.com"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">密码</label>
+            <input
+              v-model="webDavPassword"
+              type="password"
+              class="form-input"
+              placeholder="应用专用密码"
+            />
+          </div>
 
-            <div v-if="webDavTestResult" class="result-message" :class="{ success: webDavTestResult.success, error: !webDavTestResult.success }">
-              {{ webDavTestResult.message }}
-            </div>
+          <div class="form-actions">
+            <button
+              class="btn-secondary"
+              :disabled="isTestingWebDav || !canTestWebDav"
+              @click="testWebDavConnection"
+            >
+              <svg v-if="isTestingWebDav" class="spin-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 12a9 9 0 11-6.219-8.56"/>
+              </svg>
+              <span>{{ isTestingWebDav ? '测试中...' : '测试连接' }}</span>
+            </button>
+            <button
+              class="btn-primary"
+              :disabled="webDav.isSyncing.value || !canTestWebDav"
+              @click="syncWebDav"
+            >
+              <svg v-if="webDav.isSyncing.value" class="spin-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 12a9 9 0 11-6.219-8.56"/>
+              </svg>
+              <span>{{ webDav.isSyncing.value ? '同步中...' : '立即同步' }}</span>
+            </button>
+          </div>
 
-            <div class="sync-status">
-              <span class="sync-status-label">上次同步：</span>
-              <span class="sync-status-value">{{ webDav.lastSyncAt.value || '从未同步' }}</span>
-            </div>
-          </template>
+          <div v-if="webDavTestResult" class="result-message" :class="{ success: webDavTestResult.success, error: !webDavTestResult.success }">
+            {{ webDavTestResult.message }}
+          </div>
+
+          <div class="sync-status">
+            <span class="sync-status-label">上次同步：</span>
+            <span class="sync-status-value">{{ webDav.lastSyncAt.value || '从未同步' }}</span>
+          </div>
         </div>
       </section>
 
@@ -1654,6 +1675,38 @@ onMounted(async () => {
 .sync-pending {
   color: var(--accent);
   font-weight: 500;
+}
+
+/* ---- WebDAV 提示 ---- */
+.webdav-info-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
+.webdav-info-tip svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--accent);
+}
+
+.webdav-info-tip a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.form-hint {
+  margin: 4px 0 0 0;
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
 }
 
 /* ---- 主题选择 ---- */

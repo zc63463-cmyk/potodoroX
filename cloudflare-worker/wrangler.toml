@@ -1,0 +1,8 @@
+name = "pomodorox-webdav-proxy"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# 可选: 自定义路由
+# [routes]
+# pattern = "webdav.your-domain.com/*"
+# zone_name = "your-domain.com"

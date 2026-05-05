@@ -1,0 +1,16 @@
+{
+  "name": "pomodorox-webdav-proxy",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker proxy for WebDAV (allows browser to access WebDAV with CORS)",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250101.0",
+    "typescript": "^5.5.0",
+    "wrangler": "^3.99.0"
+  }
+}
