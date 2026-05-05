@@ -9,21 +9,32 @@ import { ref, computed } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "@/utils/platform";
 import type { Reflection, Session, Task } from "@/types";
+import { db } from "@/services/database";
 import {
   getAllTombstones,
   getUnpushedEvents,
+  getUnpushedCount,
   removePushedEvents,
   upsertTombstones,
   type OutboxEvent,
   type Tombstone,
 } from "@/services/outbox";
-import { consumeEventsFrom, parseTime } from "@/services/event-consumer";
+import {
+  consumeEventsFrom,
+  parseTime,
+  type ConsumeEventsResult,
+} from "@/services/event-consumer";
 
 /** 事件同步结果（Phase 2 / append-only 事件流） */
 export interface SyncEventsResult {
   pushed: number;
   pulled: number;
   processed: number;
+  applied?: number;
+  skipped?: number;
+  skippedLocalNewer?: number;
+  skippedTombstone?: number;
+  alreadyProcessed?: number;
   errors: number;
   error?: string;
 }
@@ -62,6 +73,14 @@ const REMOTE_PATHS = {
   tombstones: "pomodorox/tombstones.json",
   /** Phase 2: 事件流目录（append-only） */
   eventsDir: "pomodorox/events/",
+  readableDir: "pomodorox/readable/",
+  readableReportsDir: "pomodorox/readable/reports/",
+  readableSnapshotsDir: "pomodorox/readable/snapshots/",
+  readableStatus: "pomodorox/readable/status.md",
+  readableSummary: "pomodorox/readable/latest-summary.json",
+  readableTasks: "pomodorox/readable/snapshots/tasks.md",
+  readableReflections: "pomodorox/readable/snapshots/reflections.md",
+  readableSessions: "pomodorox/readable/snapshots/sessions.md",
 } as const;
 
 const config = ref<WebDavConfig | null>(loadConfig());
@@ -361,6 +380,163 @@ export function isValidOutboxEvent(raw: unknown): raw is OutboxEvent {
   if (prefix !== e.entityType) return false;
 
   return true;
+}
+
+function safeText(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "-";
+  return String(value).replace(/\r?\n/g, " ").trim() || "-";
+}
+
+function formatReadableDate(value: string | null | undefined): string {
+  if (!value) return "-";
+  const ms = parseTime(value);
+  if (!ms) return value;
+  return new Date(ms).toLocaleString();
+}
+
+function slugTimestamp(value: string): string {
+  return value.replace(/[:.]/g, "-");
+}
+
+function renderTasksSnapshot(tasks: Task[], generatedAt: string): string {
+  const lines = [
+    "# PomodoroX Tasks Snapshot",
+    "",
+    `Generated at: ${formatReadableDate(generatedAt)}`,
+    `Total tasks: ${tasks.length}`,
+    "",
+    "| Title | Status | Priority | Updated | Due |",
+    "| --- | --- | --- | --- | --- |",
+  ];
+  for (const task of tasks) {
+    lines.push(
+      `| ${safeText(task.title)} | ${safeText(task.status)} | ${safeText(
+        task.priority
+      )} | ${formatReadableDate(task.updatedAt)} | ${safeText(task.dueDate)} |`
+    );
+  }
+  return lines.join("\n") + "\n";
+}
+
+function renderReflectionsSnapshot(
+  reflections: Reflection[],
+  generatedAt: string
+): string {
+  const lines = [
+    "# PomodoroX Reflections Snapshot",
+    "",
+    `Generated at: ${formatReadableDate(generatedAt)}`,
+    `Total reflections: ${reflections.length}`,
+    "",
+    "| Date | Mood | Updated | Content |",
+    "| --- | --- | --- | --- |",
+  ];
+  for (const reflection of reflections) {
+    lines.push(
+      `| ${safeText(reflection.date)} | ${safeText(
+        reflection.mood
+      )} | ${formatReadableDate(reflection.updatedAt)} | ${safeText(
+        reflection.content
+      ).slice(0, 120)} |`
+    );
+  }
+  return lines.join("\n") + "\n";
+}
+
+function renderSessionsSnapshot(
+  sessions: Session[],
+  generatedAt: string
+): string {
+  const lines = [
+    "# PomodoroX Sessions Snapshot",
+    "",
+    `Generated at: ${formatReadableDate(generatedAt)}`,
+    `Total sessions: ${sessions.length}`,
+    "",
+    "| Started | Type | Duration(min) | Completed | Updated |",
+    "| --- | --- | ---: | --- | --- |",
+  ];
+  for (const session of sessions) {
+    lines.push(
+      `| ${formatReadableDate(session.startedAt)} | ${safeText(
+        session.type
+      )} | ${Math.round(session.duration / 60)} | ${
+        session.completed ? "yes" : "no"
+      } | ${formatReadableDate(session.updatedAt)} |`
+    );
+  }
+  return lines.join("\n") + "\n";
+}
+
+export interface ReadableSyncSummary {
+  generatedAt: string;
+  device: string;
+  pushed: number;
+  pulled: number;
+  processed: number;
+  applied: number;
+  skipped: number;
+  skippedLocalNewer: number;
+  skippedTombstone: number;
+  alreadyProcessed: number;
+  pushErrors: number;
+  fetchErrors: number;
+  parseErrors: number;
+  consumeErrors: number;
+  errors: number;
+  pendingOutbox: number;
+  totalTasks: number;
+  totalReflections: number;
+  totalSessions: number;
+}
+
+export function renderReadableStatus(summary: ReadableSyncSummary): string {
+  const health =
+    summary.errors === 0
+      ? "Healthy"
+      : "Warning - some sync items need attention";
+  return [
+    "# PomodoroX Sync Status",
+    "",
+    `Last generated: ${formatReadableDate(summary.generatedAt)}`,
+    `Device: ${summary.device}`,
+    `Health: ${health}`,
+    "",
+    "## Result",
+    "",
+    `Pushed: ${summary.pushed}`,
+    `Pulled: ${summary.pulled}`,
+    `Processed: ${summary.processed}`,
+    `Applied: ${summary.applied}`,
+    `Skipped: ${summary.skipped}`,
+    `Errors: ${summary.errors}`,
+    `Pending local outbox: ${summary.pendingOutbox}`,
+    "",
+    "## Skip Reasons",
+    "",
+    `Local newer: ${summary.skippedLocalNewer}`,
+    `Tombstone newer: ${summary.skippedTombstone}`,
+    `Already processed: ${summary.alreadyProcessed}`,
+    "",
+    "## Error Sources",
+    "",
+    `Push errors: ${summary.pushErrors}`,
+    `Remote fetch errors: ${summary.fetchErrors}`,
+    `Remote parse errors: ${summary.parseErrors}`,
+    `Consume errors: ${summary.consumeErrors}`,
+    "",
+    "## Local Snapshot Counts",
+    "",
+    `Tasks: ${summary.totalTasks}`,
+    `Reflections: ${summary.totalReflections}`,
+    `Sessions: ${summary.totalSessions}`,
+    "",
+    "## Notes",
+    "",
+    "Skipped events are normal when local data is newer or a tombstone prevents old data from returning.",
+    "The canonical sync source remains pomodorox/events/*.json; readable files are diagnostics only.",
+    "",
+  ].join("\n");
 }
 
 export function useWebDavSync() {
@@ -712,6 +888,110 @@ export function useWebDavSync() {
     return { pushed, failed };
   }
 
+  async function ensureRemoteDirs(paths: string[]): Promise<void> {
+    for (const path of paths) {
+      if (isTauri() && config.value) {
+        try {
+          await invoke("webdav_mkcol", {
+            url: config.value.url,
+            username: config.value.username,
+            password: config.value.password,
+            path,
+          });
+        } catch {
+          /* directory may already exist */
+        }
+      } else if (config.value) {
+        try {
+          await webProxyRequest(config.value, "MKCOL", path);
+        } catch {
+          /* directory may already exist */
+        }
+      }
+    }
+  }
+
+  async function publishReadableSyncFiles(params: {
+    generatedAt: string;
+    pushed: number;
+    pushErrors: number;
+    fetchErrors: number;
+    parseErrors: number;
+    consumed: ConsumeEventsResult;
+    totalErrors: number;
+  }): Promise<void> {
+    try {
+      await ensureRemoteDirs([
+        REMOTE_PATHS.readableDir,
+        REMOTE_PATHS.readableReportsDir,
+        REMOTE_PATHS.readableSnapshotsDir,
+      ]);
+
+      const [tasks, reflections, sessions, pendingOutbox] = await Promise.all([
+        db.getAllTasks(),
+        db.getAllReflections(),
+        db.getAllSessions(),
+        getUnpushedCount(),
+      ]);
+      const summary: ReadableSyncSummary = {
+        generatedAt: params.generatedAt,
+        device:
+          typeof navigator !== "undefined" && navigator.userAgent
+            ? navigator.userAgent
+            : isTauri()
+              ? "tauri"
+              : "web",
+        pushed: params.pushed,
+        pulled: params.consumed.pulled,
+        processed: params.consumed.processed,
+        applied: params.consumed.applied,
+        skipped: params.consumed.skipped,
+        skippedLocalNewer: params.consumed.skippedLocalNewer,
+        skippedTombstone: params.consumed.skippedTombstone,
+        alreadyProcessed: params.consumed.alreadyProcessed,
+        pushErrors: params.pushErrors,
+        fetchErrors: params.fetchErrors,
+        parseErrors: params.parseErrors,
+        consumeErrors: params.consumed.errors,
+        errors: params.totalErrors,
+        pendingOutbox,
+        totalTasks: tasks.length,
+        totalReflections: reflections.length,
+        totalSessions: sessions.length,
+      };
+      const status = renderReadableStatus(summary);
+      const reportPath = `${REMOTE_PATHS.readableReportsDir}${slugTimestamp(
+        params.generatedAt
+      )}.md`;
+
+      const writes = await Promise.all([
+        pushFile(REMOTE_PATHS.readableStatus, status),
+        pushFile(
+          REMOTE_PATHS.readableSummary,
+          JSON.stringify(summary, null, 2)
+        ),
+        pushFile(reportPath, status),
+        pushFile(
+          REMOTE_PATHS.readableTasks,
+          renderTasksSnapshot(tasks, params.generatedAt)
+        ),
+        pushFile(
+          REMOTE_PATHS.readableReflections,
+          renderReflectionsSnapshot(reflections, params.generatedAt)
+        ),
+        pushFile(
+          REMOTE_PATHS.readableSessions,
+          renderSessionsSnapshot(sessions, params.generatedAt)
+        ),
+      ]);
+      if (writes.some((ok) => !ok)) {
+        console.warn("[WebDAV] 部分可读同步报告写入失败（不影响主同步）");
+      }
+    } catch (err) {
+      console.warn("[WebDAV] 写入可读同步报告失败（不影响主同步）:", err);
+    }
+  }
+
   /**
    * 从 WebDAV 拉取所有远程事件（PROPFIND + GET 每个文件）
    * 返回解析后的事件数组、读失败数和损坏数；调用方应把这些累加到 errors。
@@ -811,13 +1091,30 @@ export function useWebDavSync() {
       // Step 3: 消费事件（幂等 + 版本保护）
       const consumed = await consumeEventsFrom(pullRes.events);
 
-      saveLastSync(new Date().toISOString());
+      const generatedAt = new Date().toISOString();
+      const totalErrors =
+        failed + consumed.errors + pullRes.fetchErrors + pullRes.parseErrors;
+
+      saveLastSync(generatedAt);
+      await publishReadableSyncFiles({
+        generatedAt,
+        pushed,
+        pushErrors: failed,
+        fetchErrors: pullRes.fetchErrors,
+        parseErrors: pullRes.parseErrors,
+        consumed,
+        totalErrors,
+      });
       return {
         pushed,
         pulled: consumed.pulled,
         processed: consumed.processed,
-        errors:
-          failed + consumed.errors + pullRes.fetchErrors + pullRes.parseErrors,
+        applied: consumed.applied,
+        skipped: consumed.skipped,
+        skippedLocalNewer: consumed.skippedLocalNewer,
+        skippedTombstone: consumed.skippedTombstone,
+        alreadyProcessed: consumed.alreadyProcessed,
+        errors: totalErrors,
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "事件同步失败";

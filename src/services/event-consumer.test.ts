@@ -122,13 +122,13 @@ describe("consumeEvents", () => {
   it("GitHub 未配置时跳过", async () => {
     mockGithub.isConfigured.mockReturnValue(false);
     const r = await consumeEvents();
-    expect(r).toEqual({ pulled: 0, processed: 0, errors: 0 });
+    expect(r).toMatchObject({ pulled: 0, processed: 0, errors: 0 });
   });
 
   it("无远程事件时返回空", async () => {
     mockGithub.pullEvents.mockResolvedValue([]);
     const r = await consumeEvents();
-    expect(r).toEqual({ pulled: 0, processed: 0, errors: 0 });
+    expect(r).toMatchObject({ pulled: 0, processed: 0, errors: 0 });
   });
 
   it("正常消费 task.created", async () => {
@@ -142,6 +142,8 @@ describe("consumeEvents", () => {
     mockGithub.pullEvents.mockResolvedValue([e]);
     const r = await consumeEvents();
     expect(r.processed).toBe(1);
+    expect(r.applied).toBe(1);
+    expect(r.skipped).toBe(0);
     expect(mockDb.upsertTask).toHaveBeenCalledWith(e.payload);
     expect(mockOutbox.markProcessed).toHaveBeenCalledWith(e.eventId);
   });
@@ -151,6 +153,7 @@ describe("consumeEvents", () => {
     mockOutbox.filterUnprocessed.mockResolvedValue([]);
     const r = await consumeEvents();
     expect(r.processed).toBe(0);
+    expect(r.alreadyProcessed).toBe(1);
     expect(mockDb.upsertTask).not.toHaveBeenCalled();
   });
 
@@ -175,6 +178,9 @@ describe("consumeEvents", () => {
     mockGithub.pullEvents.mockResolvedValue([old]);
     const r = await consumeEvents();
     expect(r.processed).toBe(1); // 事件被消费(标记 processed)，但未被 upsert
+    expect(r.applied).toBe(0);
+    expect(r.skipped).toBe(1);
+    expect(r.skippedLocalNewer).toBe(1);
     expect(mockDb.upsertTask).not.toHaveBeenCalled();
   });
 
@@ -208,6 +214,9 @@ describe("consumeEvents", () => {
     const r = await consumeEvents();
     expect(r.pulled).toBe(2);
     expect(r.processed).toBe(2); // 都被消费：del 被应用，oldCreate 被版本保护跳过
+    expect(r.applied).toBe(1);
+    expect(r.skipped).toBe(1);
+    expect(r.skippedTombstone).toBe(1);
     expect(mockDb.deleteTask).toHaveBeenCalledWith("task-1");
     expect(mockOutbox.markTombstone).toHaveBeenCalledWith(
       "task",
@@ -294,7 +303,7 @@ describe("consumeEventsFrom", () => {
 
   it("空数组直接返回", async () => {
     const r = await consumeEventsFrom([]);
-    expect(r).toEqual({ pulled: 0, processed: 0, errors: 0 });
+    expect(r).toMatchObject({ pulled: 0, processed: 0, errors: 0 });
     expect(mockOutbox.filterUnprocessed).not.toHaveBeenCalled();
   });
 

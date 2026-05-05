@@ -17,6 +17,8 @@ import {
   parsePropfindHrefs,
   extractFileNamesFromHrefs,
   isValidOutboxEvent,
+  renderReadableStatus,
+  type ReadableSyncSummary,
   __webdavSerialized,
 } from "./useWebDavSync";
 import type { Tombstone } from "@/services/outbox";
@@ -411,5 +413,41 @@ describe("isValidOutboxEvent", () => {
     // 防止 upsertTask([]) 产出 undefined id 的脏记录
     expect(isValidOutboxEvent({ ...good, payload: [] })).toBe(false);
     expect(isValidOutboxEvent({ ...good, payload: [{ id: "x" }] })).toBe(false);
+  });
+});
+
+describe("renderReadableStatus", () => {
+  it("renders human-readable sync counters and skip reasons", () => {
+    const summary: ReadableSyncSummary = {
+      generatedAt: "2026-05-05T12:00:00.000Z",
+      device: "test-device",
+      pushed: 1,
+      pulled: 24,
+      processed: 20,
+      applied: 3,
+      skipped: 17,
+      skippedLocalNewer: 15,
+      skippedTombstone: 2,
+      alreadyProcessed: 4,
+      pushErrors: 0,
+      fetchErrors: 0,
+      parseErrors: 1,
+      consumeErrors: 0,
+      errors: 1,
+      pendingOutbox: 0,
+      totalTasks: 8,
+      totalReflections: 2,
+      totalSessions: 5,
+    };
+
+    const md = renderReadableStatus(summary);
+    expect(md).toContain("# PomodoroX Sync Status");
+    expect(md).toContain("Pushed: 1");
+    expect(md).toContain("Applied: 3");
+    expect(md).toContain("Skipped: 17");
+    expect(md).toContain("Local newer: 15");
+    expect(md).toContain("Tombstone newer: 2");
+    expect(md).toContain("Remote parse errors: 1");
+    expect(md).toContain("readable files are diagnostics only");
   });
 });
