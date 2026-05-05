@@ -50,7 +50,6 @@ const webDav = useWebDavSync();
 const webDavUrl = ref("");
 const webDavUsername = ref("");
 const webDavPassword = ref("");
-const webDavProxyUrl = ref("");
 const isTestingWebDav = ref(false);
 const webDavTestResult = ref<{ success: boolean; message: string } | null>(
   null
@@ -69,7 +68,6 @@ if (webDav.config.value) {
   webDavUrl.value = webDav.config.value.url;
   webDavUsername.value = webDav.config.value.username;
   webDavPassword.value = webDav.config.value.password;
-  webDavProxyUrl.value = webDav.config.value.proxyUrl ?? "";
 }
 
 /** 是否具备测试连接的最小条件 */
@@ -580,7 +578,6 @@ function saveWebDavConfig() {
       url: webDavUrl.value,
       username: webDavUsername.value,
       password: webDavPassword.value,
-      proxyUrl: webDavProxyUrl.value.trim() || undefined,
     });
   }
 }
@@ -883,13 +880,9 @@ onMounted(async () => {
               <line x1="12" y1="16" x2="12" y2="12" />
               <line x1="12" y1="8" x2="12.01" y2="8" />
             </svg>
-            <span>
-              浏览器端默认走 Vercel 边缘代理，但 Vercel 会拦截
-              WebDAV（PROPFIND/MKCOL）请求并返回安全验证页。
-              <strong>建议自部署 Cloudflare Worker</strong>（仓库
-              <code>cloudflare-worker/</code>），并把 Worker URL 填到下方"代理
-              URL"中。
-            </span>
+            <span
+              >浏览器端通过 Vercel 边缘代理访问 WebDAV，无需额外配置代理。</span
+            >
           </div>
 
           <div class="form-group">
@@ -918,21 +911,6 @@ onMounted(async () => {
               class="form-input"
               placeholder="应用专用密码"
             />
-          </div>
-
-          <div v-if="!isTauri()" class="form-group">
-            <label class="form-label">
-              代理 URL（Cloudflare Worker，可选）
-            </label>
-            <input
-              v-model="webDavProxyUrl"
-              type="text"
-              class="form-input"
-              placeholder="https://your-worker.workers.dev"
-            />
-            <p class="form-hint">
-              留空则使用 Vercel 默认代理（可能被安全验证拦截）。
-            </p>
           </div>
 
           <!-- 同步类型选择 -->
