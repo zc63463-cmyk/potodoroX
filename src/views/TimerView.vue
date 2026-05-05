@@ -4,155 +4,193 @@
 // 沉浸式番茄钟计时器，大气背景 + 环形进度 + 呼吸动画
 // ============================================================
 
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { useTimerStore } from '@/stores/timer'
-import { useTaskStore } from '@/stores/task'
-import { useSettingsStore } from '@/stores/settings'
-import { useSessionStore } from '@/stores/session'
-import { useAppStore } from '@/stores/app'
-import { useNotification } from '@/composables/useNotification'
-import { playFocusStart, playBreakStart, playSessionComplete, playSuccess } from '@/composables/useAudio'
-import { TIMER_MODES } from '@/utils/constants'
-import { formatMinutes, getWeekdayName, formatDate } from '@/utils/format'
-import type { Task, SessionType } from '@/types'
-import { animate, createSpring } from 'animejs'
-import MagicRings from '@/components/MagicRings.vue'
-import GooeyNav from '@/components/GooeyNav.vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
+import { useTimerStore } from "@/stores/timer";
+import { useTaskStore } from "@/stores/task";
+import { useSettingsStore } from "@/stores/settings";
+import { useSessionStore } from "@/stores/session";
+import { useAppStore } from "@/stores/app";
+import { useNotification } from "@/composables/useNotification";
+import {
+  playFocusStart,
+  playBreakStart,
+  playSessionComplete,
+  playSuccess,
+} from "@/composables/useAudio";
+import { TIMER_MODES } from "@/utils/constants";
+import { formatMinutes, getWeekdayName, formatDate } from "@/utils/format";
+import type { Task, SessionType } from "@/types";
+import { animate, spring } from "animejs";
+import MagicRings from "@/components/MagicRings.vue";
+import GooeyNav from "@/components/GooeyNav.vue";
 
 // ---- Stores ----
-const timerStore = useTimerStore()
-const taskStore = useTaskStore()
-const settingsStore = useSettingsStore()
-const sessionStore = useSessionStore()
-const appStore = useAppStore()
+const timerStore = useTimerStore();
+const taskStore = useTaskStore();
+const settingsStore = useSettingsStore();
+const sessionStore = useSessionStore();
+const appStore = useAppStore();
 
 // ---- Composables ----
-const { sendNotification, requestPermission } = useNotification()
+const { sendNotification, requestPermission } = useNotification();
 
 // ---- 本地状态 ----
-const showTaskSelector = ref(false)
-const showCelebration = ref(false)
-const celebrationParticles = ref<Array<{ id: number; x: number; y: number; size: number; delay: number; color: string }>>([])
+const showTaskSelector = ref(false);
+const showCelebration = ref(false);
+const celebrationParticles = ref<
+  Array<{
+    id: number;
+    x: number;
+    y: number;
+    size: number;
+    delay: number;
+    color: string;
+  }>
+>([]);
 
 // ---- Session 规划/总结提示 ----
-const showSessionPlanPrompt = ref(false)
-const sessionPlanInput = ref('')
-const showSessionCompletionPrompt = ref(false)
-const sessionCompletionInput = ref('')
+const showSessionPlanPrompt = ref(false);
+const sessionPlanInput = ref("");
+const showSessionCompletionPrompt = ref(false);
+const sessionCompletionInput = ref("");
 
 // ---- Anime.js 动效状态 ----
 /** 进度环 SVG 元素引用 */
-const ringCircleRef = ref<SVGCircleElement | null>(null)
+const ringCircleRef = ref<SVGCircleElement | null>(null);
 /** 主按钮元素引用 */
-const primaryBtnRef = ref<HTMLElement | null>(null)
+const primaryBtnRef = ref<HTMLElement | null>(null);
 /** 是否已执行初始动画绑定 */
-const animeInit = ref(false)
+const animeInit = ref(false);
 
 // ---- 计算属性 ----
 
 /** 当前任务 */
 const currentTask = computed<Task | undefined>(() => {
-  if (!timerStore.currentTaskId) return undefined
-  return taskStore.getTaskById(timerStore.currentTaskId)
-})
+  if (!timerStore.currentTaskId) return undefined;
+  return taskStore.getTaskById(timerStore.currentTaskId);
+});
 
 /** 当前任务名称 */
-const currentTaskName = computed(() => currentTask.value?.title || '未选择任务')
+const currentTaskName = computed(
+  () => currentTask.value?.title || "未选择任务"
+);
 
 /** 会话类型配置 */
-const sessionConfig = computed(() => TIMER_MODES[timerStore.sessionType])
+const sessionConfig = computed(() => TIMER_MODES[timerStore.sessionType]);
 
 /** 会话类型中文标签 */
-const sessionLabel = computed(() => sessionConfig.value.labelZh)
+const sessionLabel = computed(() => sessionConfig.value.labelZh);
 
 /** 会话类型颜色 */
-const sessionColor = computed(() => sessionConfig.value.color)
+const sessionColor = computed(() => sessionConfig.value.color);
 
 /** GooeyNav 选项 */
 const gooeyItems = computed(() => [
-  { value: 'work' as const, label: TIMER_MODES.work.labelZh, color: TIMER_MODES.work.color },
-  { value: 'short_break' as const, label: TIMER_MODES.short_break.labelZh, color: TIMER_MODES.short_break.color },
-  { value: 'long_break' as const, label: TIMER_MODES.long_break.labelZh, color: TIMER_MODES.long_break.color },
-  { value: 'free' as const, label: TIMER_MODES.free.labelZh, color: TIMER_MODES.free.color },
-])
+  {
+    value: "work" as const,
+    label: TIMER_MODES.work.labelZh,
+    color: TIMER_MODES.work.color,
+  },
+  {
+    value: "short_break" as const,
+    label: TIMER_MODES.short_break.labelZh,
+    color: TIMER_MODES.short_break.color,
+  },
+  {
+    value: "long_break" as const,
+    label: TIMER_MODES.long_break.labelZh,
+    color: TIMER_MODES.long_break.color,
+  },
+  {
+    value: "free" as const,
+    label: TIMER_MODES.free.labelZh,
+    color: TIMER_MODES.free.color,
+  },
+]);
 
 const gooeyActiveIndex = computed(() => {
-  return gooeyItems.value.findIndex((item) => item.value === timerStore.sessionType)
-})
+  return gooeyItems.value.findIndex(
+    (item) => item.value === timerStore.sessionType
+  );
+});
 
 function onGooeySelect(index: number) {
-  const mode = gooeyItems.value[index]
+  const mode = gooeyItems.value[index];
   if (mode && !timerStore.isRunning) {
-    timerStore.setSessionType(mode.value as SessionType)
+    timerStore.setSessionType(mode.value as SessionType);
   }
 }
 
 /** 格式化剩余时间 */
-const displayTime = computed(() => timerStore.formattedRemaining)
+const displayTime = computed(() => timerStore.formattedRemaining);
 
 /** SVG 环形进度参数 */
-const RING_RADIUS = 120
-const RING_STROKE = 6
-const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS
+const RING_RADIUS = 120;
+const RING_STROKE = 6;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 /** 是否正在计时 */
-const isActive = computed(() => timerStore.isRunning && !timerStore.isPaused)
+const isActive = computed(() => timerStore.isRunning && !timerStore.isPaused);
 
 /** 是否暂停 */
-const isPausedState = computed(() => timerStore.isPaused)
+const isPausedState = computed(() => timerStore.isPaused);
 
 /** 是否空闲（未开始/已重置） */
-const isIdle = computed(() => !timerStore.isRunning && !timerStore.isPaused)
+const isIdle = computed(() => !timerStore.isRunning && !timerStore.isPaused);
 
 /** 今日日期 */
 const todayDisplay = computed(() => {
-  const now = new Date()
-  return `${getWeekdayName(now)} ${formatDate(now)}`
-})
+  const now = new Date();
+  return `${getWeekdayName(now)} ${formatDate(now)}`;
+});
 
 /** 今日专注总时长（秒） */
 const todayFocusSeconds = computed(() => {
   return sessionStore.todaySessions
-    .filter((s) => s.type === 'work' && s.completed)
-    .reduce((sum, s) => sum + s.duration, 0)
-})
+    .filter((s) => s.type === "work" && s.completed)
+    .reduce((sum, s) => sum + s.duration, 0);
+});
 
 /** 今日专注总时长（格式化） */
-const todayFocusDisplay = computed(() => formatMinutes(Math.round(todayFocusSeconds.value / 60)))
+const todayFocusDisplay = computed(() =>
+  formatMinutes(Math.round(todayFocusSeconds.value / 60))
+);
 
 /** 已完成番茄钟数 */
-const completedCount = computed(() => timerStore.completedPomodoros)
+const completedCount = computed(() => timerStore.completedPomodoros);
 
 /** 连续番茄钟计数 */
-const streakCount = computed(() => timerStore.pomodoroStreak)
+const streakCount = computed(() => timerStore.pomodoroStreak);
 
 /** 长休息间隔 */
-const longBreakInterval = computed(() => settingsStore.settings.longBreakInterval)
+const longBreakInterval = computed(
+  () => settingsStore.settings.longBreakInterval
+);
 
 /** 可选任务列表（活跃任务） */
-const selectableTasks = computed(() => taskStore.activeTasks)
+const selectableTasks = computed(() => taskStore.activeTasks);
 
 /** 自由计时分钟输入 */
-const freeMinutes = ref(30)
+const freeMinutes = ref(30);
 /** 自由计时秒数输入 */
-const freeSeconds = ref(0)
+const freeSeconds = ref(0);
 
 // 切换到自由模式时，初始化输入值为当前 remaining
 watch(
   () => timerStore.sessionType,
   (type) => {
-    if (type === 'free' && !timerStore.isRunning) {
-      const totalSecs = Math.round(timerStore.remaining)
-      freeMinutes.value = Math.floor(totalSecs / 60)
-      freeSeconds.value = totalSecs % 60
+    if (type === "free" && !timerStore.isRunning) {
+      const totalSecs = Math.round(timerStore.remaining);
+      freeMinutes.value = Math.floor(totalSecs / 60);
+      freeSeconds.value = totalSecs % 60;
     }
   }
-)
+);
 
 /** 背景渐变样式 - 根据会话类型变化 */
 const backgroundStyle = computed(() => {
-  const type = timerStore.sessionType
-  if (type === 'work') {
+  const type = timerStore.sessionType;
+  if (type === "work") {
     return {
       background: `
         radial-gradient(ellipse at 20% 50%, rgba(88, 166, 255, 0.08) 0%, transparent 50%),
@@ -160,8 +198,8 @@ const backgroundStyle = computed(() => {
         radial-gradient(ellipse at 50% 80%, rgba(88, 166, 255, 0.04) 0%, transparent 50%),
         var(--bg)
       `,
-    }
-  } else if (type === 'short_break') {
+    };
+  } else if (type === "short_break") {
     return {
       background: `
         radial-gradient(ellipse at 30% 40%, rgba(63, 185, 80, 0.08) 0%, transparent 50%),
@@ -169,8 +207,8 @@ const backgroundStyle = computed(() => {
         radial-gradient(ellipse at 50% 90%, rgba(63, 185, 80, 0.04) 0%, transparent 50%),
         var(--bg)
       `,
-    }
-  } else if (type === 'long_break') {
+    };
+  } else if (type === "long_break") {
     return {
       background: `
         radial-gradient(ellipse at 25% 50%, rgba(240, 136, 62, 0.08) 0%, transparent 50%),
@@ -178,133 +216,147 @@ const backgroundStyle = computed(() => {
         radial-gradient(ellipse at 50% 80%, rgba(240, 136, 62, 0.04) 0%, transparent 50%),
         var(--bg)
       `,
-    }
+    };
   }
-  return { background: 'var(--bg)' }
-})
+  return { background: "var(--bg)" };
+});
 
 /** 进度环颜色 */
-const ringColor = computed(() => sessionColor.value)
+const ringColor = computed(() => sessionColor.value);
 
 /** 进度环第二颜色（MagicRings 使用） */
 const ringSecondaryColor = computed(() => {
-  const type = timerStore.sessionType
+  const type = timerStore.sessionType;
   switch (type) {
-    case 'work': return '#58A6FF'
-    case 'short_break': return '#3FB950'
-    case 'long_break': return '#7C3AED'
-    case 'free': return '#FF6B35'
-    default: return '#58A6FF'
+    case "work":
+      return "#58A6FF";
+    case "short_break":
+      return "#3FB950";
+    case "long_break":
+      return "#7C3AED";
+    case "free":
+      return "#FF6B35";
+    default:
+      return "#58A6FF";
   }
-})
+});
 
 /** 进度环发光效果 */
 const ringGlow = computed(() => {
-  const color = sessionColor.value
-  return `0 0 20px ${color}40, 0 0 40px ${color}20, 0 0 60px ${color}10`
-})
+  const color = sessionColor.value;
+  return `0 0 20px ${color}40, 0 0 40px ${color}20, 0 0 60px ${color}10`;
+});
 
 // ---- 方法 ----
 
 /** 开始/暂停切换 */
 function toggleTimer() {
   // 触发主按钮弹簧效果
-  animatePrimaryBtn()
+  animatePrimaryBtn();
 
   if (timerStore.isRunning && !timerStore.isPaused) {
     // 暂停
-    timerStore.pause()
+    timerStore.pause();
   } else if (timerStore.isPaused) {
     // 恢复
-    timerStore.resume()
+    timerStore.resume();
   } else {
     // 开始 — 工作会话且有任务关联时，先显示规划提示
-    if (timerStore.sessionType === 'work' && timerStore.currentTaskId) {
-      showSessionPlanPrompt.value = true
-      return // 等待用户输入规划后再开始
+    if (timerStore.sessionType === "work" && timerStore.currentTaskId) {
+      showSessionPlanPrompt.value = true;
+      return; // 等待用户输入规划后再开始
     }
 
     // 开始 — 自由模式时传入自定义时长
-    doStartTimer()
+    doStartTimer();
   }
 }
 
 /** 实际开始计时 */
 function doStartTimer(plan?: string) {
-  if (timerStore.sessionType === 'free') {
-    const customDuration = freeMinutes.value * 60 + freeSeconds.value
-    if (customDuration <= 0) return // 防止零时长开始
-    timerStore.start(customDuration)
+  if (timerStore.sessionType === "free") {
+    const customDuration = freeMinutes.value * 60 + freeSeconds.value;
+    if (customDuration <= 0) return; // 防止零时长开始
+    timerStore.start(customDuration);
   } else {
-    timerStore.start(undefined, plan)
+    timerStore.start(undefined, plan);
   }
   // 播放音效
   if (timerStore.isWorkSession) {
-    playFocusStart()
+    playFocusStart();
   } else {
-    playBreakStart()
+    playBreakStart();
   }
 }
 
 /** 确认 Session 规划并开始 */
 function confirmSessionPlan() {
-  showSessionPlanPrompt.value = false
-  const plan = sessionPlanInput.value.trim()
-  doStartTimer(plan)
+  showSessionPlanPrompt.value = false;
+  const plan = sessionPlanInput.value.trim();
+  doStartTimer(plan);
   // 清空输入，为下次准备
-  setTimeout(() => { sessionPlanInput.value = '' }, 300)
+  setTimeout(() => {
+    sessionPlanInput.value = "";
+  }, 300);
 }
 
 /** 跳过 Session 规划 */
 function skipSessionPlan() {
-  sessionPlanInput.value = ''
-  confirmSessionPlan()
+  sessionPlanInput.value = "";
+  confirmSessionPlan();
 }
 
 /** 重置计时器 */
 function resetTimer() {
-  timerStore.reset()
+  timerStore.reset();
 }
 
 /** 处理快进请求 */
-const showFastForwardConfirm = ref(false)
+const showFastForwardConfirm = ref(false);
 
 function handleFastForward() {
-  const result = timerStore.fastForward()
-  if (result.success) return
-  if (result.reason === 'quota_exhausted') {
-    showFastForwardConfirm.value = true
+  const result = timerStore.fastForward();
+  if (result.success) return;
+  if (result.reason === "quota_exhausted") {
+    showFastForwardConfirm.value = true;
   }
   // 'idle' 按钮已禁用，理论上不会触发
 }
 
 /** 确认超额快进 */
 function confirmFastForward() {
-  showFastForwardConfirm.value = false
-  timerStore.fastForward(true)
+  showFastForwardConfirm.value = false;
+  timerStore.fastForward(true);
 }
 
 /** 取消超额快进 */
 function cancelFastForward() {
-  showFastForwardConfirm.value = false
+  showFastForwardConfirm.value = false;
 }
 
 /** 选择任务 */
 function selectTask(taskId: string | null) {
-  timerStore.setCurrentTaskId(taskId)
-  showTaskSelector.value = false
+  timerStore.setCurrentTaskId(taskId);
+  showTaskSelector.value = false;
 }
 
 /** 切换任务选择器 */
 function toggleTaskSelector() {
-  showTaskSelector.value = !showTaskSelector.value
+  showTaskSelector.value = !showTaskSelector.value;
 }
 
 /** 触发庆祝动画 */
 function triggerCelebration() {
-  showCelebration.value = true
+  showCelebration.value = true;
   // 生成粒子
-  const colors = ['#58A6FF', '#3FB950', '#A371F7', '#F0883E', '#F85149', '#FFD700']
+  const colors = [
+    "#58A6FF",
+    "#3FB950",
+    "#A371F7",
+    "#F0883E",
+    "#F85149",
+    "#FFD700",
+  ];
   celebrationParticles.value = Array.from({ length: 24 }, (_, i) => ({
     id: i,
     x: (Math.random() - 0.5) * 300,
@@ -312,200 +364,208 @@ function triggerCelebration() {
     size: Math.random() * 8 + 4,
     delay: Math.random() * 0.5,
     color: colors[Math.floor(Math.random() * colors.length)],
-  }))
+  }));
 
   // 3秒后清除
   setTimeout(() => {
-    showCelebration.value = false
-    celebrationParticles.value = []
-  }, 3000)
+    showCelebration.value = false;
+    celebrationParticles.value = [];
+  }, 3000);
 }
 
 /** 处理会话完成 */
 async function handleSessionComplete() {
-  playSessionComplete()
-  playSuccess()
-  triggerCelebration()
+  playSessionComplete();
+  playSuccess();
+  triggerCelebration();
 
   // 发送通知
-  const title = timerStore.isWorkSession ? '番茄钟完成!' : '休息结束!'
+  const title = timerStore.isWorkSession ? "番茄钟完成!" : "休息结束!";
   const body = timerStore.isWorkSession
-    ? `太棒了！你完成了一个番茄钟 ${currentTask.value ? `- ${currentTask.value.title}` : ''}`
-    : '休息结束，准备开始下一个番茄钟吧！'
+    ? `太棒了！你完成了一个番茄钟 ${currentTask.value ? `- ${currentTask.value.title}` : ""}`
+    : "休息结束，准备开始下一个番茄钟吧！";
 
   await sendNotification(title, body, {
-    tag: 'pomodorox-timer',
+    tag: "pomodorox-timer",
     onClick: () => {
-      window.focus()
+      window.focus();
     },
-  })
+  });
 }
 
 /** 确认 Session 总结 */
 async function confirmSessionCompletion() {
-  const taskId = timerStore.pendingCompletionForTaskId
+  const taskId = timerStore.pendingCompletionForTaskId;
   if (taskId && sessionCompletionInput.value.trim()) {
-    const sessions = sessionStore.getSessionsByTask(taskId)
-    const latest = sessions.sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0]
+    const sessions = sessionStore.getSessionsByTask(taskId);
+    const latest = sessions.sort((a, b) =>
+      b.startedAt.localeCompare(a.startedAt)
+    )[0];
     if (latest) {
-      await sessionStore.updateSession(latest.id, { completion: sessionCompletionInput.value.trim() })
+      await sessionStore.updateSession(latest.id, {
+        completion: sessionCompletionInput.value.trim(),
+      });
     }
   }
-  showSessionCompletionPrompt.value = false
-  sessionCompletionInput.value = ''
-  timerStore.clearPendingCompletion()
+  showSessionCompletionPrompt.value = false;
+  sessionCompletionInput.value = "";
+  timerStore.clearPendingCompletion();
 }
 
 /** 跳过 Session 总结 */
 function skipSessionCompletion() {
-  sessionCompletionInput.value = ''
-  showSessionCompletionPrompt.value = false
-  timerStore.clearPendingCompletion()
+  sessionCompletionInput.value = "";
+  showSessionCompletionPrompt.value = false;
+  timerStore.clearPendingCompletion();
 }
 
 /** 点击计时器中心 */
 function onTimerCenterClick() {
-  toggleTimer()
+  toggleTimer();
   // 移动端沉浸模式：双击计时器区域切换全屏
-  if (window.innerWidth < 640 && !timerStore.isRunning && !timerStore.isPaused) {
-    appStore.toggleImmersiveMode()
+  if (
+    window.innerWidth < 640 &&
+    !timerStore.isRunning &&
+    !timerStore.isPaused
+  ) {
+    appStore.toggleImmersiveMode();
   }
 }
 
 // ---- Anime.js 动效 ----
 
 /** 数字翻动动画 */
-let lastDisplayTime = ''
+let lastDisplayTime = "";
 function animateDigitFlip(newTime: string) {
   if (!animeInit.value || !newTime || newTime === lastDisplayTime) {
-    lastDisplayTime = newTime
-    return
+    lastDisplayTime = newTime;
+    return;
   }
-  const oldChars = lastDisplayTime.padEnd(5, ' ')
-  const newChars = newTime.padEnd(5, ' ')
-  const els = document.querySelectorAll('.timer-digits .digit-char')
+  const oldChars = lastDisplayTime.padEnd(5, " ");
+  const newChars = newTime.padEnd(5, " ");
+  const els = document.querySelectorAll(".timer-digits .digit-char");
 
   for (let i = 0; i < Math.min(els.length, 5); i++) {
-    const el = els[i] as HTMLElement
-    if (!el) continue
-    if (el.classList.contains('digit-colon')) continue
+    const el = els[i] as HTMLElement;
+    if (!el) continue;
+    if (el.classList.contains("digit-colon")) continue;
 
-    const oldCh = oldChars[i]
-    const newCh = newChars[i]
-    if (oldCh === newCh) continue
+    const oldCh = oldChars[i];
+    const newCh = newChars[i];
+    if (oldCh === newCh) continue;
 
-    const oldNum = parseInt(oldCh)
-    const newNum = parseInt(newCh)
+    const oldNum = parseInt(oldCh);
+    const newNum = parseInt(newCh);
     if (isNaN(oldNum) || isNaN(newNum)) {
-      el.textContent = newCh
-      continue
+      el.textContent = newCh;
+      continue;
     }
 
     // 使用 Anime.js 对数字对象插值
-    const obj = { v: oldNum }
+    const obj = { v: oldNum };
     animate(obj, {
       v: [oldNum, newNum],
       duration: 350,
-      ease: 'inOutBack',
+      ease: "inOutBack",
       onUpdate: () => {
-        el.textContent = Math.round(Math.abs(obj.v)).toString()
+        el.textContent = Math.round(Math.abs(obj.v)).toString();
         // 微小的位移 + 透明度变化
-        const t = Math.abs((obj.v - oldNum) / (newNum - oldNum || 1))
-        el.style.transform = `translateY(${(1 - t) * 5}px)`
-        el.style.opacity = String(0.55 + 0.45 * t)
+        const t = Math.abs((obj.v - oldNum) / (newNum - oldNum || 1));
+        el.style.transform = `translateY(${(1 - t) * 5}px)`;
+        el.style.opacity = String(0.55 + 0.45 * t);
       },
       onComplete: () => {
-        el.style.transform = ''
-        el.style.opacity = ''
+        el.style.transform = "";
+        el.style.opacity = "";
       },
-    })
+    });
   }
 
-  lastDisplayTime = newTime
+  lastDisplayTime = newTime;
 }
 
 /** 进度环平滑动画 */
-let animatingRing = false
-let prevProgress = 0
+let animatingRing = false;
+let prevProgress = 0;
 function animateRingProgress(progress: number) {
   if (!ringCircleRef.value || animatingRing) {
-    prevProgress = progress
-    return
+    prevProgress = progress;
+    return;
   }
-  animatingRing = true
-  const from = prevProgress
-  const to = progress
-  const obj = { v: from }
-  const circumference = 2 * Math.PI * RING_RADIUS
+  animatingRing = true;
+  const from = prevProgress;
+  const to = progress;
+  const obj = { v: from };
+  const circumference = 2 * Math.PI * RING_RADIUS;
 
   animate(obj, {
     v: [from, to],
     duration: 600,
-    ease: 'inOutCubic',
+    ease: "inOutCubic",
     onUpdate: () => {
-      const offset = circumference - (obj.v / 100) * circumference
-      ringCircleRef.value?.setAttribute('stroke-dashoffset', String(offset))
+      const offset = circumference - (obj.v / 100) * circumference;
+      ringCircleRef.value?.setAttribute("stroke-dashoffset", String(offset));
     },
     onComplete: () => {
-      prevProgress = to
-      animatingRing = false
+      prevProgress = to;
+      animatingRing = false;
     },
-  })
+  });
 }
 
 /** 主按钮弹簧点击效果 */
-const btnSpringEase = createSpring({ stiffness: 220, damping: 14 })
+const btnSpringEase = spring({ stiffness: 220, damping: 14 });
 function animatePrimaryBtn() {
-  if (!primaryBtnRef.value) return
+  if (!primaryBtnRef.value) return;
   animate(primaryBtnRef.value, {
     scale: [1, 0.92, 1],
     duration: 500,
     ease: btnSpringEase,
-  })
+  });
 }
 
 /** 模式切换时颜色过渡动画 */
 function animateModeColor(element: HTMLElement | null, color: string) {
-  if (!element) return
+  if (!element) return;
   animate(element, {
     color,
     duration: 500,
-    ease: 'inOutQuad',
-  })
+    ease: "inOutQuad",
+  });
 }
 
 // ---- 监听器 ----
 
 // 监听今日番茄数变化 → 新完成的 work session 已持久化，触发庆祝
-let prevTodayPomodoros = sessionStore.todayPomodoros
+let prevTodayPomodoros = sessionStore.todayPomodoros;
 watch(
   () => sessionStore.todayPomodoros,
   (newVal) => {
     if (newVal > prevTodayPomodoros) {
-      handleSessionComplete()
+      handleSessionComplete();
     }
-    prevTodayPomodoros = newVal
+    prevTodayPomodoros = newVal;
   }
-)
+);
 
 // 监听 Session 完成 → 显示总结提示
 watch(
   () => timerStore.pendingCompletionForTaskId,
   (taskId) => {
     if (taskId) {
-      showSessionCompletionPrompt.value = true
+      showSessionCompletionPrompt.value = true;
     }
   }
-)
+);
 
 // 监听会话类型变化 - 更新页面标题
 watch(
   () => timerStore.sessionType,
   (type) => {
-    const label = TIMER_MODES[type]?.labelZh || '计时器'
-    document.title = `${label} - PomodoroX`
+    const label = TIMER_MODES[type]?.labelZh || "计时器";
+    document.title = `${label} - PomodoroX`;
   }
-)
+);
 
 // ---- Anime.js 监听器 ----
 
@@ -513,17 +573,17 @@ watch(
 watch(
   () => timerStore.formattedRemaining,
   (newTime) => {
-    animateDigitFlip(newTime)
+    animateDigitFlip(newTime);
   }
-)
+);
 
 /** 监听进度变化 → 环形动画 */
 watch(
   () => timerStore.progress,
   (newProgress) => {
-    animateRingProgress(newProgress)
+    animateRingProgress(newProgress);
   }
-)
+);
 
 /** 监听会话类型 → 颜色过渡 */
 watch(
@@ -531,80 +591,83 @@ watch(
   () => {
     nextTick(() => {
       // 模式切换时文字颜色过渡
-      const sessionCfg = TIMER_MODES[timerStore.sessionType]
+      const sessionCfg = TIMER_MODES[timerStore.sessionType];
       if (sessionCfg) {
         // 统计数字颜色动画
-        timerFooterStats()
+        timerFooterStats();
       }
-    })
+    });
   }
-)
+);
 
 /** 底部统计颜色跟随 */
 function timerFooterStats() {
-  const color = TIMER_MODES[timerStore.sessionType]?.color || ''
-  if (!color) return
-  const els = document.querySelectorAll('.timer-digits, .session-type-badge')
+  const color = TIMER_MODES[timerStore.sessionType]?.color || "";
+  if (!color) return;
+  const els = document.querySelectorAll(".timer-digits, .session-type-badge");
   els.forEach((el) => {
-    animateModeColor(el as HTMLElement, color)
-  })
+    animateModeColor(el as HTMLElement, color);
+  });
 }
 
 // 键盘快捷键 - Space 开始/暂停
 function handleKeyDown(e: KeyboardEvent) {
-  const target = e.target as HTMLElement
-  const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
-  if (isInput) return
+  const target = e.target as HTMLElement;
+  const isInput =
+    target.tagName === "INPUT" ||
+    target.tagName === "TEXTAREA" ||
+    target.isContentEditable;
+  if (isInput) return;
 
-  if (e.code === 'Space' && !e.ctrlKey && !e.metaKey) {
-    e.preventDefault()
-    toggleTimer()
+  if (e.code === "Space" && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    toggleTimer();
   }
 }
 
 // 点击外部关闭任务选择器
 function handleDocumentClick(e: MouseEvent) {
-  const target = e.target as HTMLElement
-  if (showTaskSelector.value && !target.closest('.task-selector-container')) {
-    showTaskSelector.value = false
+  const target = e.target as HTMLElement;
+  if (showTaskSelector.value && !target.closest(".task-selector-container")) {
+    showTaskSelector.value = false;
   }
 }
 
 // ---- 生命周期 ----
 onMounted(async () => {
   // 加载今日数据
-  await timerStore.loadTodaySessions()
-  await taskStore.loadTasks()
+  await timerStore.loadTodaySessions();
+  await taskStore.loadTasks();
 
   // 如果计时器未初始化（remaining 为 0），设置默认时长
-  timerStore.initRemainingIfZero()
+  timerStore.initRemainingIfZero();
 
   // 请求通知权限
-  await requestPermission()
+  await requestPermission();
 
   // 注册键盘事件
-  document.addEventListener('keydown', handleKeyDown)
-  document.addEventListener('click', handleDocumentClick)
+  document.addEventListener("keydown", handleKeyDown);
+  document.addEventListener("click", handleDocumentClick);
 
   // ---- Anime.js 初始化 ----
-  await nextTick()
+  await nextTick();
   // 记录初始数字
-  lastDisplayTime = timerStore.formattedRemaining
+  lastDisplayTime = timerStore.formattedRemaining;
   // 记录初始进度
-  prevProgress = timerStore.progress
+  prevProgress = timerStore.progress;
   // 初始化环形位置
   if (ringCircleRef.value) {
-    const circumference = 2 * Math.PI * RING_RADIUS
-    const offset = circumference - (timerStore.progress / 100) * circumference
-    ringCircleRef.value.setAttribute('stroke-dashoffset', String(offset))
+    const circumference = 2 * Math.PI * RING_RADIUS;
+    const offset = circumference - (timerStore.progress / 100) * circumference;
+    ringCircleRef.value.setAttribute("stroke-dashoffset", String(offset));
   }
-  animeInit.value = true
-})
+  animeInit.value = true;
+});
 
 onUnmounted(() => {
-  document.removeEventListener('keydown', handleKeyDown)
-  document.removeEventListener('click', handleDocumentClick)
-})
+  document.removeEventListener("keydown", handleKeyDown);
+  document.removeEventListener("click", handleDocumentClick);
+});
 </script>
 
 <template>
@@ -644,21 +707,45 @@ onUnmounted(() => {
       <header class="timer-header">
         <div class="header-left">
           <div class="task-selector-container">
-            <button class="current-task-btn glass" @click.stop="toggleTaskSelector">
+            <button
+              class="current-task-btn glass"
+              @click.stop="toggleTaskSelector"
+            >
               <span class="task-icon">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M3 3h10v1H3V3zm0 4h7v1H3V7zm0 4h10v1H3v-1z" fill="currentColor" opacity="0.7"/>
+                  <path
+                    d="M3 3h10v1H3V3zm0 4h7v1H3V7zm0 4h10v1H3v-1z"
+                    fill="currentColor"
+                    opacity="0.7"
+                  />
                 </svg>
               </span>
               <span class="task-name">{{ currentTaskName }}</span>
-              <svg class="chevron-icon" :class="{ open: showTaskSelector }" width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <svg
+                class="chevron-icon"
+                :class="{ open: showTaskSelector }"
+                width="12"
+                height="12"
+                viewBox="0 0 12 12"
+                fill="none"
+              >
+                <path
+                  d="M3 4.5L6 7.5L9 4.5"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
               </svg>
             </button>
 
             <!-- 任务下拉选择 -->
             <Transition name="dropdown">
-              <div v-if="showTaskSelector" class="task-dropdown glass-strong" @click.stop>
+              <div
+                v-if="showTaskSelector"
+                class="task-dropdown glass-strong"
+                @click.stop
+              >
                 <div class="dropdown-header">选择任务</div>
                 <button
                   class="dropdown-item"
@@ -678,7 +765,12 @@ onUnmounted(() => {
                 >
                   <span
                     class="item-indicator"
-                    :style="{ backgroundColor: task.status === 'in_progress' ? '#58A6FF' : 'transparent' }"
+                    :style="{
+                      backgroundColor:
+                        task.status === 'in_progress'
+                          ? '#58A6FF'
+                          : 'transparent',
+                    }"
                   />
                   <span class="item-title">{{ task.title }}</span>
                   <span class="item-meta">
@@ -702,7 +794,14 @@ onUnmounted(() => {
       <div class="timer-center">
         <!-- 会话类型标签 -->
         <div class="session-label-wrapper">
-          <span class="session-type-badge" :style="{ color: sessionColor, borderColor: sessionColor + '40', background: sessionColor + '15' }">
+          <span
+            class="session-type-badge"
+            :style="{
+              color: sessionColor,
+              borderColor: sessionColor + '40',
+              background: sessionColor + '15',
+            }"
+          >
             {{ sessionLabel }}
           </span>
           <!-- 模式切换（GooeyNav） -->
@@ -752,7 +851,12 @@ onUnmounted(() => {
           </div>
 
           <!-- 外发光环 -->
-          <div class="ring-glow" :style="{ boxShadow: `0 0 60px ${sessionColor}20, 0 0 120px ${sessionColor}10` }" />
+          <div
+            class="ring-glow"
+            :style="{
+              boxShadow: `0 0 60px ${sessionColor}20, 0 0 120px ${sessionColor}10`,
+            }"
+          />
 
           <!-- SVG 环形进度 -->
           <svg
@@ -815,8 +919,16 @@ onUnmounted(() => {
             <!-- 刻度点（12个） -->
             <g v-for="i in 12" :key="'tick-' + i">
               <circle
-                :cx="170 + (RING_RADIUS + 20) * Math.cos(((i - 1) * 30 - 90) * Math.PI / 180)"
-                :cy="170 + (RING_RADIUS + 20) * Math.sin(((i - 1) * 30 - 90) * Math.PI / 180)"
+                :cx="
+                  170 +
+                  (RING_RADIUS + 20) *
+                    Math.cos((((i - 1) * 30 - 90) * Math.PI) / 180)
+                "
+                :cy="
+                  170 +
+                  (RING_RADIUS + 20) *
+                    Math.sin((((i - 1) * 30 - 90) * Math.PI) / 180)
+                "
                 r="2"
                 :fill="sessionColor"
                 :fill-opacity="i % 3 === 0 ? 0.5 : 0.15"
@@ -832,10 +944,14 @@ onUnmounted(() => {
                 :key="i"
                 class="digit-char"
                 :class="{ 'digit-colon': ch === ':' }"
-              >{{ ch }}</span>
+                >{{ ch }}</span
+              >
             </div>
             <!-- 自由计时输入（仅 idle + free 模式） -->
-            <div v-if="isIdle && timerStore.sessionType === 'free'" class="free-duration-input">
+            <div
+              v-if="isIdle && timerStore.sessionType === 'free'"
+              class="free-duration-input"
+            >
               <div class="duration-field">
                 <input
                   ref="minInputRef"
@@ -844,10 +960,15 @@ onUnmounted(() => {
                   min="1"
                   max="999"
                   class="duration-input"
-                  :style="{ borderColor: sessionColor + '40', color: sessionColor }"
+                  :style="{
+                    borderColor: sessionColor + '40',
+                    color: sessionColor,
+                  }"
                   @keydown.stop
                 />
-                <span class="duration-unit" :style="{ color: sessionColor }">分</span>
+                <span class="duration-unit" :style="{ color: sessionColor }"
+                  >分</span
+                >
               </div>
               <span class="duration-sep">:</span>
               <div class="duration-field">
@@ -857,16 +978,24 @@ onUnmounted(() => {
                   min="0"
                   max="59"
                   class="duration-input"
-                  :style="{ borderColor: sessionColor + '40', color: sessionColor }"
+                  :style="{
+                    borderColor: sessionColor + '40',
+                    color: sessionColor,
+                  }"
                   @keydown.stop
                 />
-                <span class="duration-unit" :style="{ color: sessionColor }">秒</span>
+                <span class="duration-unit" :style="{ color: sessionColor }"
+                  >秒</span
+                >
               </div>
             </div>
             <div v-if="isPausedState" class="timer-status-badge paused-badge">
               已暂停
             </div>
-            <div v-else-if="isIdle && timerStore.sessionType !== 'free'" class="timer-status-hint">
+            <div
+              v-else-if="isIdle && timerStore.sessionType !== 'free'"
+              class="timer-status-hint"
+            >
               按空格键开始
             </div>
           </div>
@@ -884,11 +1013,18 @@ onUnmounted(() => {
               :style="{
                 backgroundColor: i <= streakCount ? sessionColor : undefined,
                 borderColor: i <= streakCount ? sessionColor : undefined,
-                boxShadow: i <= streakCount ? `0 0 10px ${sessionColor}40` : 'none',
+                boxShadow:
+                  i <= streakCount ? `0 0 10px ${sessionColor}40` : 'none',
               }"
             >
-              <svg v-if="i <= streakCount" width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+              <svg
+                v-if="i <= streakCount"
+                width="10"
+                height="10"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
               </svg>
               <span v-else class="dot-number">{{ i }}</span>
             </span>
@@ -905,9 +1041,18 @@ onUnmounted(() => {
           title="重置 (Ctrl+R)"
           @click="resetTimer"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="1 4 1 10 7 10"/>
-            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polyline points="1 4 1 10 7 10" />
+            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
           </svg>
           <span class="control-label">重置</span>
         </button>
@@ -923,14 +1068,28 @@ onUnmounted(() => {
           }"
           @click="toggleTimer"
         >
-          <svg v-if="isActive" width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
-            <rect x="6" y="4" width="4" height="16" rx="1"/>
-            <rect x="14" y="4" width="4" height="16" rx="1"/>
+          <svg
+            v-if="isActive"
+            width="28"
+            height="28"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+          >
+            <rect x="6" y="4" width="4" height="16" rx="1" />
+            <rect x="14" y="4" width="4" height="16" rx="1" />
           </svg>
-          <svg v-else width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M8 5v14l11-7z"/>
+          <svg
+            v-else
+            width="28"
+            height="28"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+          >
+            <path d="M8 5v14l11-7z" />
           </svg>
-          <span class="control-label">{{ isActive ? '暂停' : (isPausedState ? '继续' : '开始') }}</span>
+          <span class="control-label">{{
+            isActive ? "暂停" : isPausedState ? "继续" : "开始"
+          }}</span>
         </button>
 
         <!-- 快进 10′ 按钮 -->
@@ -941,16 +1100,22 @@ onUnmounted(() => {
           @click="handleFastForward"
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-            <polygon points="13 19 22 12 13 5 13 19"/>
-            <polygon points="2 19 11 12 2 5 2 19"/>
+            <polygon points="13 19 22 12 13 5 13 19" />
+            <polygon points="2 19 11 12 2 5 2 19" />
           </svg>
           <span class="control-label">快进 10′</span>
           <span
             v-if="timerStore.sessionFastForwardCount > 0"
             class="ff-count"
-            :class="{ 'ff-count-over': timerStore.sessionFastForwardCount >= 3 }"
+            :class="{
+              'ff-count-over': timerStore.sessionFastForwardCount >= 3,
+            }"
           >
-            {{ timerStore.sessionFastForwardCount >= 3 ? timerStore.sessionFastForwardCount : timerStore.sessionFastForwardCount + '/3' }}
+            {{
+              timerStore.sessionFastForwardCount >= 3
+                ? timerStore.sessionFastForwardCount
+                : timerStore.sessionFastForwardCount + "/3"
+            }}
           </span>
         </button>
       </div>
@@ -967,8 +1132,12 @@ onUnmounted(() => {
             @keydown.enter="confirmSessionPlan"
           />
           <div class="prompt-actions">
-            <button class="btn btn-secondary btn-sm" @click="skipSessionPlan">跳过</button>
-            <button class="btn btn-primary btn-sm" @click="confirmSessionPlan">开始专注</button>
+            <button class="btn btn-secondary btn-sm" @click="skipSessionPlan">
+              跳过
+            </button>
+            <button class="btn btn-primary btn-sm" @click="confirmSessionPlan">
+              开始专注
+            </button>
           </div>
         </div>
       </Transition>
@@ -985,23 +1154,44 @@ onUnmounted(() => {
             @keydown.enter="confirmSessionCompletion"
           />
           <div class="prompt-actions">
-            <button class="btn btn-secondary btn-sm" @click="skipSessionCompletion">跳过</button>
-            <button class="btn btn-primary btn-sm" @click="confirmSessionCompletion">保存总结</button>
+            <button
+              class="btn btn-secondary btn-sm"
+              @click="skipSessionCompletion"
+            >
+              跳过
+            </button>
+            <button
+              class="btn btn-primary btn-sm"
+              @click="confirmSessionCompletion"
+            >
+              保存总结
+            </button>
           </div>
         </div>
       </Transition>
 
       <!-- 快进额度确认弹窗 -->
       <Transition name="dropdown">
-        <div v-if="showFastForwardConfirm" class="session-prompt glass ff-confirm">
+        <div
+          v-if="showFastForwardConfirm"
+          class="session-prompt glass ff-confirm"
+        >
           <div class="prompt-label">本周快进额度已用完</div>
           <p class="prompt-desc">
-            当前 session 已快进 {{ timerStore.sessionFastForwardCount }} 次，本周额度（{{ settingsStore.settings.weeklyFastForwardQuota }} 次）也已用尽。<br>
+            当前 session 已快进
+            {{ timerStore.sessionFastForwardCount }} 次，本周额度（{{
+              settingsStore.settings.weeklyFastForwardQuota
+            }}
+            次）也已用尽。<br />
             确定继续快进？超额使用将在下周一自动恢复。
           </p>
           <div class="prompt-actions">
-            <button class="btn btn-secondary btn-sm" @click="cancelFastForward">取消</button>
-            <button class="btn btn-primary btn-sm" @click="confirmFastForward">继续快进</button>
+            <button class="btn btn-secondary btn-sm" @click="cancelFastForward">
+              取消
+            </button>
+            <button class="btn btn-primary btn-sm" @click="confirmFastForward">
+              继续快进
+            </button>
           </div>
         </div>
       </Transition>
@@ -1009,17 +1199,40 @@ onUnmounted(() => {
       <!-- 底部统计信息栏 -->
       <footer class="timer-footer">
         <div class="stat-card glass">
-          <div class="stat-icon-wrapper" :style="{ background: sessionColor + '20', color: sessionColor }">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" opacity="0.3"/><circle cx="12" cy="12" r="4"/></svg>
+          <div
+            class="stat-icon-wrapper"
+            :style="{ background: sessionColor + '20', color: sessionColor }"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="12" r="10" opacity="0.3" />
+              <circle cx="12" cy="12" r="4" />
+            </svg>
           </div>
           <div class="stat-info">
-            <span class="stat-value" :style="{ color: sessionColor }">{{ completedCount }}</span>
+            <span class="stat-value" :style="{ color: sessionColor }">{{
+              completedCount
+            }}</span>
             <span class="stat-label">今日番茄</span>
           </div>
         </div>
         <div class="stat-card glass">
-          <div class="stat-icon-wrapper" style="background: rgba(63, 185, 80, 0.2); color: var(--success);">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <div
+            class="stat-icon-wrapper"
+            style="background: rgba(63, 185, 80, 0.2); color: var(--success)"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
           </div>
           <div class="stat-info">
             <span class="stat-value">{{ todayFocusDisplay }}</span>
@@ -1027,11 +1240,27 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="stat-card glass">
-          <div class="stat-icon-wrapper" style="background: rgba(240, 136, 62, 0.2); color: var(--warning);">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          <div
+            class="stat-icon-wrapper"
+            style="background: rgba(240, 136, 62, 0.2); color: var(--warning)"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+            </svg>
           </div>
           <div class="stat-info">
-            <span class="stat-value">{{ streakCount }}/{{ longBreakInterval }}</span>
+            <span class="stat-value"
+              >{{ streakCount }}/{{ longBreakInterval }}</span
+            >
             <span class="stat-label">连续进度</span>
           </div>
         </div>
@@ -1070,15 +1299,25 @@ onUnmounted(() => {
 
 .bg-orb {
   opacity: 0.4;
-  transition: background 2s ease, opacity 2s ease;
+  transition:
+    background 2s ease,
+    opacity 2s ease;
 }
 
 .bg-mesh {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse at 20% 30%, rgba(88, 166, 255, 0.03) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 70%, rgba(136, 100, 255, 0.03) 0%, transparent 50%);
+    radial-gradient(
+      ellipse at 20% 30%,
+      rgba(88, 166, 255, 0.03) 0%,
+      transparent 50%
+    ),
+    radial-gradient(
+      ellipse at 80% 70%,
+      rgba(136, 100, 255, 0.03) 0%,
+      transparent 50%
+    );
 }
 
 /* 各模式深色背景基底 */
@@ -1107,7 +1346,11 @@ onUnmounted(() => {
 .session-work .bg-orb-1 {
   width: 600px;
   height: 600px;
-  background: radial-gradient(circle, rgba(88, 166, 255, 0.15) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(88, 166, 255, 0.15) 0%,
+    transparent 70%
+  );
   top: -15%;
   left: -10%;
   animation: orb-float-timer-1 20s ease-in-out infinite;
@@ -1116,7 +1359,11 @@ onUnmounted(() => {
 .session-work .bg-orb-2 {
   width: 500px;
   height: 500px;
-  background: radial-gradient(circle, rgba(136, 100, 255, 0.12) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(136, 100, 255, 0.12) 0%,
+    transparent 70%
+  );
   bottom: -10%;
   right: -10%;
   animation: orb-float-timer-2 25s ease-in-out infinite;
@@ -1125,7 +1372,11 @@ onUnmounted(() => {
 .session-work .bg-orb-3 {
   width: 400px;
   height: 400px;
-  background: radial-gradient(circle, rgba(88, 166, 255, 0.08) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(88, 166, 255, 0.08) 0%,
+    transparent 70%
+  );
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -1136,7 +1387,11 @@ onUnmounted(() => {
 .session-short_break .bg-orb-1 {
   width: 600px;
   height: 600px;
-  background: radial-gradient(circle, rgba(78, 205, 196, 0.15) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(78, 205, 196, 0.15) 0%,
+    transparent 70%
+  );
   top: -15%;
   left: -10%;
   animation: orb-float-timer-1 22s ease-in-out infinite;
@@ -1145,7 +1400,11 @@ onUnmounted(() => {
 .session-short_break .bg-orb-2 {
   width: 500px;
   height: 500px;
-  background: radial-gradient(circle, rgba(63, 185, 80, 0.12) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(63, 185, 80, 0.12) 0%,
+    transparent 70%
+  );
   bottom: -10%;
   right: -10%;
   animation: orb-float-timer-2 20s ease-in-out infinite;
@@ -1154,7 +1413,11 @@ onUnmounted(() => {
 .session-short_break .bg-orb-3 {
   width: 400px;
   height: 400px;
-  background: radial-gradient(circle, rgba(78, 205, 196, 0.08) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(78, 205, 196, 0.08) 0%,
+    transparent 70%
+  );
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -1165,7 +1428,11 @@ onUnmounted(() => {
 .session-long_break .bg-orb-1 {
   width: 600px;
   height: 600px;
-  background: radial-gradient(circle, rgba(167, 139, 250, 0.15) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(167, 139, 250, 0.15) 0%,
+    transparent 70%
+  );
   top: -15%;
   left: -10%;
   animation: orb-float-timer-1 24s ease-in-out infinite;
@@ -1174,7 +1441,11 @@ onUnmounted(() => {
 .session-long_break .bg-orb-2 {
   width: 500px;
   height: 500px;
-  background: radial-gradient(circle, rgba(192, 132, 252, 0.12) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(192, 132, 252, 0.12) 0%,
+    transparent 70%
+  );
   bottom: -10%;
   right: -10%;
   animation: orb-float-timer-2 22s ease-in-out infinite;
@@ -1183,7 +1454,11 @@ onUnmounted(() => {
 .session-long_break .bg-orb-3 {
   width: 400px;
   height: 400px;
-  background: radial-gradient(circle, rgba(167, 139, 250, 0.08) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(167, 139, 250, 0.08) 0%,
+    transparent 70%
+  );
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -1194,7 +1469,11 @@ onUnmounted(() => {
 .session-free .bg-orb-1 {
   width: 600px;
   height: 600px;
-  background: radial-gradient(circle, rgba(255, 107, 107, 0.15) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(255, 107, 107, 0.15) 0%,
+    transparent 70%
+  );
   top: -15%;
   left: -10%;
   animation: orb-float-timer-1 20s ease-in-out infinite;
@@ -1203,7 +1482,11 @@ onUnmounted(() => {
 .session-free .bg-orb-2 {
   width: 500px;
   height: 500px;
-  background: radial-gradient(circle, rgba(248, 81, 73, 0.12) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(248, 81, 73, 0.12) 0%,
+    transparent 70%
+  );
   bottom: -10%;
   right: -10%;
   animation: orb-float-timer-2 25s ease-in-out infinite;
@@ -1212,7 +1495,11 @@ onUnmounted(() => {
 .session-free .bg-orb-3 {
   width: 400px;
   height: 400px;
-  background: radial-gradient(circle, rgba(255, 107, 107, 0.08) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(255, 107, 107, 0.08) 0%,
+    transparent 70%
+  );
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -1220,20 +1507,41 @@ onUnmounted(() => {
 }
 
 @keyframes orb-float-timer-1 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(50px, -40px) scale(1.1); }
-  66% { transform: translate(-30px, 30px) scale(0.95); }
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(50px, -40px) scale(1.1);
+  }
+  66% {
+    transform: translate(-30px, 30px) scale(0.95);
+  }
 }
 
 @keyframes orb-float-timer-2 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(-40px, 50px) scale(1.05); }
-  66% { transform: translate(40px, -30px) scale(0.9); }
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(-40px, 50px) scale(1.05);
+  }
+  66% {
+    transform: translate(40px, -30px) scale(0.9);
+  }
 }
 
 @keyframes orb-float-timer-3 {
-  0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.4; }
-  50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.7; }
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.2);
+    opacity: 0.7;
+  }
 }
 
 /* ---- 主内容 ---- */
@@ -1523,8 +1831,13 @@ onUnmounted(() => {
 }
 
 @keyframes timer-breathe {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.02); }
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.02);
+  }
 }
 
 /* 暂停状态 - 微弱闪烁 */
@@ -1533,8 +1846,13 @@ onUnmounted(() => {
 }
 
 @keyframes timer-paused-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.8; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
 }
 
 /* SVG 进度环 */
@@ -1547,7 +1865,9 @@ onUnmounted(() => {
 }
 
 .progress-ring {
-  transition: stroke var(--transition-slow), filter var(--transition-slow);
+  transition:
+    stroke var(--transition-slow),
+    filter var(--transition-slow);
 }
 
 /* 中心内容 */
@@ -1602,8 +1922,13 @@ onUnmounted(() => {
 }
 
 @keyframes badge-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 .timer-status-hint {
@@ -1652,8 +1977,13 @@ onUnmounted(() => {
 }
 
 @keyframes dot-pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.1); }
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
 }
 
 /* ---- 控制按钮 ---- */
@@ -1752,7 +2082,8 @@ onUnmounted(() => {
 }
 
 @keyframes primary-pulse {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow:
       0 4px 24px var(--btn-glow, rgba(88, 166, 255, 0.3)),
       0 0 0 0 var(--btn-glow, rgba(88, 166, 255, 0.2));
@@ -1808,7 +2139,9 @@ onUnmounted(() => {
 
 .prompt-input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--active-bg), 0 0 15px var(--accent-glow);
+  box-shadow:
+    0 0 0 3px var(--active-bg),
+    0 0 15px var(--accent-glow);
 }
 
 .prompt-input::placeholder {
@@ -2182,7 +2515,7 @@ onUnmounted(() => {
   }
 
   .ff-count-over {
-    background: var(--danger, #F85149);
+    background: var(--danger, #f85149);
   }
 
   .ff-confirm .prompt-desc {

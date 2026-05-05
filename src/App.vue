@@ -1,40 +1,70 @@
 <script setup lang="ts">
-import { onMounted, computed } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
-import { useAppStore } from '@/stores/app'
-import { useSettingsStore } from '@/stores/settings'
-import { useSyncStore } from '@/stores/sync'
-import { useKeyboard } from '@/composables/useKeyboard'
-import ToastContainer from '@/components/ToastContainer.vue'
-import GlobalSearch from '@/components/GlobalSearch.vue'
-import type { ViewName } from '@/types'
+import { onMounted, computed } from "vue";
+import { useRouter, useRoute } from "vue-router";
+import { useAppStore } from "@/stores/app";
+import { useSettingsStore } from "@/stores/settings";
+import { useSyncStore } from "@/stores/sync";
+import { useKeyboard } from "@/composables/useKeyboard";
+import ToastContainer from "@/components/ToastContainer.vue";
+import GlobalSearch from "@/components/GlobalSearch.vue";
+import type { ViewName } from "@/types";
 
-const router = useRouter()
-const route = useRoute()
-const appStore = useAppStore()
-const settingsStore = useSettingsStore()
-const syncStore = useSyncStore()
+const router = useRouter();
+const route = useRoute();
+const appStore = useAppStore();
+const settingsStore = useSettingsStore();
+const syncStore = useSyncStore();
 
 // ---- 底部导航配置 ----
 const navItems = [
-  { name: 'timer' as ViewName, path: '/', label: '专注', icon: 'focus', shortcut: 'Ctrl+1' },
-  { name: 'tasks' as ViewName, path: '/tasks', label: '任务', icon: 'tasks', shortcut: 'Ctrl+2' },
-  { name: 'reflections' as ViewName, path: '/reflections', label: '反思', icon: 'journal', shortcut: 'Ctrl+3' },
-  { name: 'stats' as ViewName, path: '/stats', label: '统计', icon: 'stats', shortcut: 'Ctrl+4' },
-  { name: 'settings' as ViewName, path: '/settings', label: '设置', icon: 'settings', shortcut: 'Ctrl+5' },
-]
+  {
+    name: "timer" as ViewName,
+    path: "/",
+    label: "专注",
+    icon: "focus",
+    shortcut: "Ctrl+1",
+  },
+  {
+    name: "tasks" as ViewName,
+    path: "/tasks",
+    label: "任务",
+    icon: "tasks",
+    shortcut: "Ctrl+2",
+  },
+  {
+    name: "reflections" as ViewName,
+    path: "/reflections",
+    label: "反思",
+    icon: "journal",
+    shortcut: "Ctrl+3",
+  },
+  {
+    name: "stats" as ViewName,
+    path: "/stats",
+    label: "统计",
+    icon: "stats",
+    shortcut: "Ctrl+4",
+  },
+  {
+    name: "settings" as ViewName,
+    path: "/settings",
+    label: "设置",
+    icon: "settings",
+    shortcut: "Ctrl+5",
+  },
+];
 
 /** 当前激活的导航项 */
 const activeNav = computed(() => {
-  return navItems.find((item) => item.path === route.path) || navItems[0]
-})
+  return navItems.find((item) => item.path === route.path) || navItems[0];
+});
 
 /** 导航到指定视图 */
 function navigateTo(view: ViewName) {
-  const item = navItems.find((n) => n.name === view)
+  const item = navItems.find((n) => n.name === view);
   if (item) {
-    router.push(item.path)
-    appStore.navigateTo(view)
+    router.push(item.path);
+    appStore.navigateTo(view);
   }
 }
 
@@ -42,64 +72,79 @@ function navigateTo(view: ViewName) {
 useKeyboard({
   onNavigate: navigateTo,
   onCloseModal: () => {
-    appStore.closeModal()
-    appStore.closeGlobalSearch()
+    appStore.closeModal();
+    appStore.closeGlobalSearch();
   },
   onGlobalSearch: () => {
-    appStore.toggleGlobalSearch()
+    appStore.toggleGlobalSearch();
   },
-})
+});
 
 // ---- 初始化 ----
 onMounted(async () => {
-  await settingsStore.loadSettings()
+  await settingsStore.loadSettings();
 
   // 如果已配置 GitHub，启动时自动拉取远程数据
-  const { githubToken, githubOwner, githubRepo } = settingsStore.settings
+  const { githubToken, githubOwner, githubRepo } = settingsStore.settings;
   if (githubToken && githubOwner && githubRepo) {
-    syncStore.authenticate(githubToken)
-    syncStore.setRepo(githubOwner, githubRepo)
-    syncStore.backgroundPull() // 后台拉取 outbox 事件，不阻塞 UI
+    syncStore.authenticate(githubToken);
+    syncStore.setRepo(githubOwner, githubRepo);
+    // 后台拉取 outbox 事件，不阻塞 UI；网络异常静默处理
+    syncStore.backgroundPull().catch(() => {});
   }
 
-  const currentNav = navItems.find((item) => item.path === route.path)
+  const currentNav = navItems.find((item) => item.path === route.path);
   if (currentNav) {
-    appStore.navigateTo(currentNav.name)
+    appStore.navigateTo(currentNav.name);
   }
-})
+});
 
 // ---- SVG 图标渲染函数 ----
 function renderIcon(name: string, active: boolean) {
-  const color = active ? 'currentColor' : 'currentColor'
-  const opacity = active ? '1' : '0.5'
+  const color = active ? "currentColor" : "currentColor";
+  const opacity = active ? "1" : "0.5";
 
   switch (name) {
-    case 'focus':
-      return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`
-    case 'tasks':
-      return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>`
-    case 'journal':
-      return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`
-    case 'stats':
-      return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>`
-    case 'settings':
-      return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.67 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.67a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>`
+    case "focus":
+      return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`;
+    case "tasks":
+      return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>`;
+    case "journal":
+      return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`;
+    case "stats":
+      return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>`;
+    case "settings":
+      return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.67 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.67a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>`;
     default:
-      return ''
+      return "";
   }
 }
 </script>
 
 <template>
-  <div class="app-container" :class="{ 'immersive-mode': appStore.immersiveMode }">
+  <div
+    class="app-container"
+    :class="{ 'immersive-mode': appStore.immersiveMode }"
+  >
     <!-- 顶部栏 -->
     <header class="top-bar">
       <div class="top-bar-left">
         <span class="app-logo">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="10" stroke="var(--accent)" stroke-width="2"/>
-            <circle cx="12" cy="12" r="3" fill="var(--accent)"/>
-            <path d="M12 2v4M12 18v4M2 12h4M18 12h4" stroke="var(--accent)" stroke-width="1.5" opacity="0.5"/>
+            <circle
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="var(--accent)"
+              stroke-width="2"
+            />
+            <circle cx="12" cy="12" r="3" fill="var(--accent)" />
+            <path
+              d="M12 2v4M12 18v4M2 12h4M18 12h4"
+              stroke="var(--accent)"
+              stroke-width="1.5"
+              opacity="0.5"
+            />
           </svg>
         </span>
         <span class="app-title">PomodoroX</span>
@@ -110,9 +155,18 @@ function renderIcon(name: string, active: boolean) {
           title="全局搜索 (Ctrl+K)"
           @click="appStore.toggleGlobalSearch()"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="11" cy="11" r="8"/>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
           <span class="search-hint">Ctrl K</span>
         </button>
@@ -139,7 +193,10 @@ function renderIcon(name: string, active: boolean) {
         :class="{ active: activeNav.name === item.name }"
         @click="navigateTo(item.name)"
       >
-        <span class="nav-icon" v-html="renderIcon(item.icon, activeNav.name === item.name)" />
+        <span
+          class="nav-icon"
+          v-html="renderIcon(item.icon, activeNav.name === item.name)"
+        />
         <span class="nav-label">{{ item.label }}</span>
         <span v-if="activeNav.name === item.name" class="nav-indicator" />
       </button>
@@ -194,7 +251,7 @@ function renderIcon(name: string, active: boolean) {
   font-size: 1.1rem;
   font-weight: 700;
   letter-spacing: -0.02em;
-  background: linear-gradient(135deg, var(--accent), #A78BFA);
+  background: linear-gradient(135deg, var(--accent), #a78bfa);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -432,5 +489,4 @@ function renderIcon(name: string, active: boolean) {
 .immersive-mode .main-content {
   height: 100vh;
 }
-
 </style>
