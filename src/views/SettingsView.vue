@@ -12,7 +12,7 @@ import { useWebDavSync } from "@/composables/useWebDavSync";
 import { isTauri } from "@/utils/platform";
 import type { ImportReflection } from "@/utils/importReflection";
 import { parseImportFile } from "@/utils/importReflection";
-import type { ThemeName } from "@/types";
+import type { ThemeName, Reflection, Session, Task } from "@/types";
 import { db } from "@/services/database";
 
 // ---- Stores ----
@@ -657,38 +657,20 @@ async function syncWebDav() {
     try {
       if (r.value.type === "reflections") {
         const reflectionStore = useReflectionStore();
-        // 直接操作数据库内部 Map
-        const memoryStore = (db as any).memoryStore;
-        if (memoryStore) {
-          memoryStore.reflections.clear();
-          for (const reflection of r.value.merged as any[]) {
-            memoryStore.reflections.set(reflection.id, reflection);
-          }
-          await memoryStore.saveToLocalStorage();
+        for (const reflection of r.value.merged as Reflection[]) {
+          await db.upsertReflection(reflection);
         }
         await reflectionStore.loadReflections();
       } else if (r.value.type === "sessions") {
         const sessionStore = useSessionStore();
-        // 直接操作数据库内部 Map
-        const memoryStore = (db as any).memoryStore;
-        if (memoryStore) {
-          memoryStore.sessions.clear();
-          for (const session of r.value.merged as any[]) {
-            memoryStore.sessions.set(session.id, session);
-          }
-          await memoryStore.saveToLocalStorage();
+        for (const session of r.value.merged as Session[]) {
+          await db.upsertSession(session);
         }
         await sessionStore.loadAllSessions();
       } else if (r.value.type === "tasks") {
         const taskStore = useTaskStore();
-        // 直接操作数据库内部 Map
-        const memoryStore = (db as any).memoryStore;
-        if (memoryStore) {
-          memoryStore.tasks.clear();
-          for (const task of r.value.merged as any[]) {
-            memoryStore.tasks.set(task.id, task);
-          }
-          await memoryStore.saveToLocalStorage();
+        for (const task of r.value.merged as Task[]) {
+          await db.upsertTask(task);
         }
         await taskStore.loadTasks();
       }
