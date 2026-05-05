@@ -1,33 +1,54 @@
-import { marked } from 'marked'
+import MarkdownIt from 'markdown-it'
+import anchor from 'markdown-it-anchor'
 
-marked.setOptions({
+const md = new MarkdownIt({
+  html: false,
   breaks: true,
-  gfm: true,
+  linkify: true,
 })
 
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+md.use(anchor, {
+  slugify,
+  permalink: false,
+})
+
+export interface TocItem {
+  level: number
+  text: string
+  id: string
+}
+
 export function useMarkdown() {
-  function sanitize(html: string): string {
-    const temp = document.createElement('div')
-    temp.innerHTML = html
-    temp.querySelectorAll('script').forEach((el) => el.remove())
-    temp.querySelectorAll('*').forEach((el) => {
-      for (const attr of Array.from(el.attributes)) {
-        if (/^on/i.test(attr.name) || attr.value.includes('javascript:')) {
-          el.removeAttribute(attr.name)
+  function renderMarkdown(text: string): string {
+    return md.render(text)
+  }
+
+  function extractToc(text: string): TocItem[] {
+    const tokens = md.parse(text, {})
+    const toc: TocItem[] = []
+    const seenIds = new Set<string>()
+    for (let i = 0; i < tokens.length; i++) {
+      if (tokens[i].type === 'heading_open' && tokens[i].tag.match(/^h[1-3]$/)) {
+        const level = parseInt(tokens[i].tag[1])
+        const textToken = tokens[i + 1]
+        if (textToken && textToken.type === 'inline') {
+          const rawText = textToken.content
+          const id = slugify(rawText)
+          if (seenIds.has(id)) continue
+          seenIds.add(id)
+          toc.push({ level, text: rawText, id })
         }
       }
-    })
-    return temp.innerHTML
-  }
-
-  function renderMarkdown(text: string): string {
-    try {
-      const raw = marked.parse(text, { async: false }) as string
-      return sanitize(raw)
-    } catch {
-      return text.replace(/\n/g, '<br>')
     }
+    return toc
   }
 
-  return { renderMarkdown }
+  return { renderMarkdown, extractToc }
 }

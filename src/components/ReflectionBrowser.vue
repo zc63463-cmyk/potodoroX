@@ -1,10 +1,7 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useMarkdown } from '@/composables/useMarkdown'
+import { computed } from 'vue'
 import type { Reflection } from '@/types'
 import { formatFriendlyDate } from '@/utils/format'
-
-const { renderMarkdown } = useMarkdown()
 
 // ---- Props ----
 const props = defineProps<{
@@ -15,12 +12,9 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'filterByTag', tag: string | null): void
-  (e: 'selectReflection', reflection: Reflection): void
+  (e: 'openDetail', reflection: Reflection): void
   (e: 'deleteReflection', id: string): void
 }>()
-
-// ---- 本地状态 ----
-const expandedId = ref<string | null>(null)
 
 // ---- 计算属性 ----
 const filteredReflections = computed(() => {
@@ -32,10 +26,6 @@ const filteredReflections = computed(() => {
 })
 
 // ---- 方法 ----
-function toggleExpand(reflection: Reflection) {
-  expandedId.value = expandedId.value === reflection.id ? null : reflection.id
-}
-
 function getContentPreview(content: string): string {
   if (!content) return '无内容'
   const stripped = content.replace(/[#*_[\]]/g, '').replace(/\n+/g, ' ').trim()
@@ -84,9 +74,8 @@ function getMoodInfo(mood: string) {
         v-for="r in filteredReflections"
         :key="r.id"
         class="reflection-card"
-        :class="{ expanded: expandedId === r.id }"
       >
-        <div class="reflection-card-header" @click="toggleExpand(r)">
+        <div class="reflection-card-header" @click="emit('openDetail', r)">
           <div class="reflection-card-meta">
             <span class="reflection-card-date">{{ formatFriendlyDate(r.date) }}</span>
             <span class="reflection-card-mood" :style="{ color: getMoodInfo(r.mood).color }">
@@ -107,19 +96,9 @@ function getMoodInfo(mood: string) {
           </button>
         </div>
 
-        <p v-if="expandedId !== r.id" class="reflection-card-preview">
+        <p class="reflection-card-preview">
           {{ getContentPreview(r.content) }}
         </p>
-
-        <div
-          v-show="expandedId === r.id"
-          class="reflection-card-body markdown-body"
-          v-html="renderMarkdown(r.content)"
-        />
-
-        <div v-if="expandedId === r.id" class="reflection-card-actions">
-          <button class="card-action-btn" @click="emit('selectReflection', r)">✏️ 编辑此条</button>
-        </div>
       </div>
     </div>
   </div>
@@ -260,36 +239,6 @@ function getMoodInfo(mood: string) {
   margin: 0;
 }
 
-.reflection-card-body {
-  font-size: 0.9rem;
-  line-height: 1.7;
-  color: var(--text-secondary);
-  margin-top: 10px;
-  animation: fade-in 0.3s ease;
-}
-
-.reflection-card-actions {
-  margin-top: 12px;
-  display: flex;
-  justify-content: flex-end;
-}
-
-.card-action-btn {
-  padding: 6px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--accent-dim);
-  background: transparent;
-  color: var(--accent);
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: all 0.25s ease;
-}
-
-.card-action-btn:hover {
-  background: var(--accent);
-  color: #fff;
-  box-shadow: 0 0 10px var(--accent-glow);
-}
 
 .reflection-card-delete {
   position: absolute;
@@ -315,123 +264,6 @@ function getMoodInfo(mood: string) {
   box-shadow: 0 0 8px rgba(248, 81, 73, 0.2);
 }
 
-@keyframes fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
 
-/* ---- Markdown 预览样式 ---- */
-.markdown-body :deep(h1) {
-  font-size: 1.1rem;
-  font-weight: 700;
-  margin: 12px 0 6px;
-  color: var(--accent);
-}
 
-.markdown-body :deep(h2) {
-  font-size: 1rem;
-  font-weight: 600;
-  margin: 10px 0 4px;
-  color: var(--text);
-}
-
-.markdown-body :deep(h3) {
-  font-size: 0.95rem;
-  font-weight: 600;
-  margin: 8px 0 4px;
-  color: var(--text);
-}
-
-.markdown-body :deep(ul),
-.markdown-body :deep(ol) {
-  margin: 6px 0;
-  padding-left: 20px;
-}
-
-.markdown-body :deep(li) {
-  margin: 3px 0;
-  color: var(--text-secondary);
-}
-
-.markdown-body :deep(strong) {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.markdown-body :deep(em) {
-  color: var(--text-secondary);
-  font-style: italic;
-}
-
-.markdown-body :deep(code) {
-  padding: 2px 5px;
-  border-radius: 4px;
-  background: var(--surface);
-  color: var(--accent);
-  font-size: 0.85rem;
-  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Consolas, monospace;
-}
-
-.markdown-body :deep(pre) {
-  padding: 10px 14px;
-  border-radius: 8px;
-  background: var(--surface);
-  overflow-x: auto;
-  margin: 8px 0;
-}
-
-.markdown-body :deep(pre code) {
-  background: transparent;
-  padding: 0;
-}
-
-.markdown-body :deep(blockquote) {
-  margin: 8px 0;
-  padding: 6px 14px;
-  border-left: 3px solid var(--accent-dim);
-  background: rgba(88, 166, 255, 0.05);
-  border-radius: 0 8px 8px 0;
-  color: var(--text-secondary);
-}
-
-.markdown-body :deep(hr) {
-  border: none;
-  border-top: 1px solid var(--glass-border);
-  margin: 12px 0;
-}
-
-.markdown-body :deep(table) {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 10px 0;
-  font-size: 0.85rem;
-}
-
-.markdown-body :deep(th),
-.markdown-body :deep(td) {
-  padding: 6px 10px;
-  border: 1px solid var(--glass-border);
-  text-align: left;
-}
-
-.markdown-body :deep(th) {
-  background: var(--bg-elevated);
-  font-weight: 600;
-  color: var(--text);
-}
-
-.markdown-body :deep(td) {
-  color: var(--text-secondary);
-}
-
-.markdown-body :deep(p) {
-  margin: 6px 0;
-  color: var(--text-secondary);
-}
 </style>

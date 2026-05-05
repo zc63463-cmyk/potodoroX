@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import ReflectionEditor from '@/components/ReflectionEditor.vue'
 import ReflectionBrowser from '@/components/ReflectionBrowser.vue'
+import ReflectionDetailModal from '@/components/ReflectionDetailModal.vue'
 import { useReflectionStore } from '@/stores/reflection'
 import { useTaskStore } from '@/stores/task'
 import type { Mood, Reflection } from '@/types'
@@ -23,6 +24,8 @@ const showDeleteConfirm = ref(false)
 const deleteTargetId = ref<string | null>(null)
 const autoSaveTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const browseActiveTag = ref<string | null>(null)
+const showDetailModal = ref(false)
+const selectedReflectionForModal = ref<Reflection | null>(null)
 
 // ---- 计算属性 ----
 const currentReflection = computed(() => {
@@ -134,6 +137,27 @@ function goToToday() {
 function editReflection(reflection: Reflection) {
   selectedDate.value = reflection.date
   mode.value = 'edit'
+}
+
+function openDetailModal(reflection: Reflection) {
+  selectedReflectionForModal.value = reflection
+  showDetailModal.value = true
+}
+
+function closeDetailModal() {
+  showDetailModal.value = false
+  selectedReflectionForModal.value = null
+}
+
+async function saveDetail(id: string, payload: { content: string }) {
+  try {
+    await reflectionStore.updateReflection(id, payload)
+    showSaveMessage('保存成功')
+    closeDetailModal()
+  } catch (err) {
+    console.error('Modal 保存反思失败:', err)
+    showSaveMessage('保存失败')
+  }
 }
 
 function requestDelete(id: string) {
@@ -326,7 +350,7 @@ onUnmounted(() => {
         :all-tags="reflectionStore.allTags"
         :active-tag="browseActiveTag"
         @filter-by-tag="handleBrowserFilter"
-        @select-reflection="editReflection"
+        @open-detail="openDetailModal"
         @delete-reflection="requestDelete"
       />
 
@@ -436,6 +460,14 @@ onUnmounted(() => {
         </div>
       </Transition>
     </Teleport>
+
+    <!-- 反思详情弹窗 -->
+    <ReflectionDetailModal
+      v-if="showDetailModal && selectedReflectionForModal"
+      :reflection="selectedReflectionForModal"
+      @close="closeDetailModal"
+      @save="saveDetail"
+    />
   </div>
 </template>
 

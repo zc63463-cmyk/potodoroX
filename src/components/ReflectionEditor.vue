@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, nextTick } from 'vue'
-import { useMarkdown } from '@/composables/useMarkdown'
+import MarkdownPreview from '@/components/MarkdownPreview.vue'
 import type { Mood, Task } from '@/types'
 import { MOODS } from '@/utils/constants'
 import { formatFriendlyDate, getWeekdayName } from '@/utils/format'
-
-const { renderMarkdown } = useMarkdown()
 
 // ---- Props ----
 const props = defineProps<{
@@ -208,7 +206,7 @@ function getMoodInfo(mood: Mood) {
     />
 
     <!-- 预览模式 -->
-    <div v-else class="reflection-preview markdown-body" v-html="renderMarkdown(content)" />
+    <MarkdownPreview v-else :content="content" show-toc />
   </div>
 </template>
 
@@ -508,123 +506,6 @@ function getMoodInfo(mood: Mood) {
   background: var(--surface-hover);
 }
 
-.reflection-preview {
-  flex: 1;
-  padding: 20px;
-  overflow-y: auto;
-  font-size: 0.95rem;
-  line-height: 1.7;
-  color: var(--text-secondary);
-}
-
-/* ---- Markdown 预览样式 ---- */
-.markdown-body :deep(h1) {
-  font-size: 1.25rem;
-  font-weight: 700;
-  margin: 16px 0 8px;
-  color: var(--accent);
-}
-
-.markdown-body :deep(h2) {
-  font-size: 1.1rem;
-  font-weight: 600;
-  margin: 14px 0 6px;
-  color: var(--text);
-}
-
-.markdown-body :deep(h3) {
-  font-size: 1rem;
-  font-weight: 600;
-  margin: 12px 0 4px;
-  color: var(--text);
-}
-
-.markdown-body :deep(ul),
-.markdown-body :deep(ol) {
-  margin: 8px 0;
-  padding-left: 24px;
-}
-
-.markdown-body :deep(li) {
-  margin: 4px 0;
-  color: var(--text-secondary);
-}
-
-.markdown-body :deep(strong) {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.markdown-body :deep(em) {
-  color: var(--text-secondary);
-  font-style: italic;
-}
-
-.markdown-body :deep(code) {
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--surface);
-  color: var(--accent);
-  font-size: 0.875rem;
-  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Consolas, monospace;
-}
-
-.markdown-body :deep(pre) {
-  padding: 12px 16px;
-  border-radius: 8px;
-  background: var(--surface);
-  overflow-x: auto;
-  margin: 10px 0;
-}
-
-.markdown-body :deep(pre code) {
-  background: transparent;
-  padding: 0;
-}
-
-.markdown-body :deep(blockquote) {
-  margin: 10px 0;
-  padding: 8px 16px;
-  border-left: 3px solid var(--accent-dim);
-  background: rgba(88, 166, 255, 0.05);
-  border-radius: 0 8px 8px 0;
-  color: var(--text-secondary);
-}
-
-.markdown-body :deep(hr) {
-  border: none;
-  border-top: 1px solid var(--glass-border);
-  margin: 16px 0;
-}
-
-.markdown-body :deep(table) {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 12px 0;
-  font-size: 0.9rem;
-}
-
-.markdown-body :deep(th),
-.markdown-body :deep(td) {
-  padding: 8px 12px;
-  border: 1px solid var(--glass-border);
-  text-align: left;
-}
-
-.markdown-body :deep(th) {
-  background: var(--bg-elevated);
-  font-weight: 600;
-  color: var(--text);
-}
-
-.markdown-body :deep(td) {
-  color: var(--text-secondary);
-}
-
-.markdown-body :deep(p) {
-  margin: 8px 0;
-  color: var(--text-secondary);
-}
 
 /* ---- 响应式 ---- */
 @media (max-width: 600px) {
