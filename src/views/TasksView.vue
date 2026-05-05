@@ -4,197 +4,219 @@
 // 列表 / 看板 / 日历热力图 三种视图模式
 // ============================================================
 
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { useTaskStore } from '@/stores/task'
-import { useSessionStore } from '@/stores/session'
-import { PRIORITIES, STATUSES } from '@/utils/constants'
-import type { Task, TaskStatus, Priority, UpdateTaskInput, SortField, SortOrder } from '@/types'
-import TaskDetailModal from '@/components/TaskDetailModal.vue'
-import TaskFormModal from '@/components/TaskFormModal.vue'
-import TaskDeleteConfirm from '@/components/TaskDeleteConfirm.vue'
-import TaskListPanel from '@/components/TaskListPanel.vue'
-import TaskKanbanPanel from '@/components/TaskKanbanPanel.vue'
-import TaskCalendarPanel from '@/components/TaskCalendarPanel.vue'
+import { ref, computed, onMounted, onUnmounted, watch } from "vue";
+import { useTaskStore } from "@/stores/task";
+import { useSessionStore } from "@/stores/session";
+import { PRIORITIES, STATUSES } from "@/utils/constants";
+import type {
+  Task,
+  TaskStatus,
+  Priority,
+  UpdateTaskInput,
+  SortField,
+  SortOrder,
+} from "@/types";
+import TaskDetailModal from "@/components/TaskDetailModal.vue";
+import TaskFormModal from "@/components/TaskFormModal.vue";
+import TaskDeleteConfirm from "@/components/TaskDeleteConfirm.vue";
+import TaskListPanel from "@/components/TaskListPanel.vue";
+import TaskKanbanPanel from "@/components/TaskKanbanPanel.vue";
+import TaskCalendarPanel from "@/components/TaskCalendarPanel.vue";
+import TaskExportModal from "@/components/TaskExportModal.vue";
 
 // ---- Stores ----
-const taskStore = useTaskStore()
-const sessionStore = useSessionStore()
+const taskStore = useTaskStore();
+const sessionStore = useSessionStore();
 
 // ---- 视图模式 ----
-type ViewMode = 'list' | 'kanban' | 'calendar'
-const viewMode = ref<ViewMode>('list')
+type ViewMode = "list" | "kanban" | "calendar";
+const viewMode = ref<ViewMode>("list");
 
 // ---- 模态框状态 ----
-const showForm = ref(false)
-const showDeleteConfirm = ref(false)
-const editingTask = ref<Task | null>(null)
-const deletingTaskId = ref<string | null>(null)
+const showForm = ref(false);
+const showDeleteConfirm = ref(false);
+const showExportModal = ref(false);
+const editingTask = ref<Task | null>(null);
+const deletingTaskId = ref<string | null>(null);
 
 // ---- 任务详情弹窗状态 ----
-const showTaskDetail = ref(false)
-const selectedTaskForDetail = ref<Task | null>(null)
-const detailInitialTab = ref<'plan' | 'completion' | 'sessions'>('plan')
+const showTaskDetail = ref(false);
+const selectedTaskForDetail = ref<Task | null>(null);
+const detailInitialTab = ref<"plan" | "completion" | "sessions">("plan");
 
 // ---- 列表视图状态 ----
-const statusFilter = ref<TaskStatus | 'all'>('all')
-const priorityFilter = ref<Priority | ''>('')
-const tagFilter = ref('')
-const searchQuery = ref('')
-const sortField = ref<SortField>('createdAt')
-const sortOrder = ref<SortOrder>('desc')
+const statusFilter = ref<TaskStatus | "all">("all");
+const priorityFilter = ref<Priority | "">("");
+const tagFilter = ref("");
+const searchQuery = ref("");
+const sortField = ref<SortField>("createdAt");
+const sortOrder = ref<SortOrder>("desc");
 
 // ---- 排序选项 ----
 const sortOptions: { field: SortField; label: string }[] = [
-  { field: 'createdAt', label: '创建时间' },
-  { field: 'updatedAt', label: '更新时间' },
-  { field: 'priority', label: '优先级' },
-  { field: 'dueDate', label: '截止日期' },
-  { field: 'title', label: '标题' },
-]
+  { field: "createdAt", label: "创建时间" },
+  { field: "updatedAt", label: "更新时间" },
+  { field: "priority", label: "优先级" },
+  { field: "dueDate", label: "截止日期" },
+  { field: "title", label: "标题" },
+];
 
 // ---- 计算属性 ----
 
 /** 委托给 taskStore 的筛选排序结果 */
-const displayTasks = computed(() => taskStore.filteredTasks)
+const displayTasks = computed(() => taskStore.filteredTasks);
 
 /** 同步本地筛选状态到 taskStore */
 function syncFilterToStore() {
   taskStore.setFilter({
-    status: statusFilter.value === 'all' ? undefined : statusFilter.value,
+    status: statusFilter.value === "all" ? undefined : statusFilter.value,
     priority: priorityFilter.value || undefined,
     tag: tagFilter.value || undefined,
     search: searchQuery.value.trim() || undefined,
-  })
-  taskStore.setSort(sortField.value, sortOrder.value)
+  });
+  taskStore.setSort(sortField.value, sortOrder.value);
 }
 
 // 监听筛选条件变化，同步到 store
-watch([statusFilter, priorityFilter, tagFilter, searchQuery, sortField, sortOrder], () => {
-  syncFilterToStore()
-}, { immediate: true })
+watch(
+  [statusFilter, priorityFilter, tagFilter, searchQuery, sortField, sortOrder],
+  () => {
+    syncFilterToStore();
+  },
+  { immediate: true }
+);
 
 // ---- 方法 ----
 
 /** 打开任务详情弹窗 */
-function openTaskDetail(task: Task, tab?: 'plan' | 'completion' | 'sessions') {
-  selectedTaskForDetail.value = task
-  detailInitialTab.value = tab || 'plan'
-  showTaskDetail.value = true
+function openTaskDetail(task: Task, tab?: "plan" | "completion" | "sessions") {
+  selectedTaskForDetail.value = task;
+  detailInitialTab.value = tab || "plan";
+  showTaskDetail.value = true;
 }
 
 /** 关闭任务详情弹窗 */
 function closeTaskDetail() {
-  showTaskDetail.value = false
-  selectedTaskForDetail.value = null
+  showTaskDetail.value = false;
+  selectedTaskForDetail.value = null;
 }
 
 /** 处理任务详情更新 */
 async function handleTaskUpdate(id: string, input: UpdateTaskInput) {
-  await taskStore.updateTask(id, input)
-  const refreshed = taskStore.getTaskById(id)
-  if (refreshed) selectedTaskForDetail.value = refreshed
+  await taskStore.updateTask(id, input);
+  const refreshed = taskStore.getTaskById(id);
+  if (refreshed) selectedTaskForDetail.value = refreshed;
 }
 
 /** 打开新建表单 */
 function openNewTask() {
-  editingTask.value = null
-  showForm.value = true
+  editingTask.value = null;
+  showForm.value = true;
 }
 
 /** 打开编辑表单 */
 function openEditTask(task: Task) {
-  editingTask.value = task
-  showForm.value = true
+  editingTask.value = task;
+  showForm.value = true;
 }
 
 /** 关闭表单 */
 function closeForm() {
-  showForm.value = false
-  editingTask.value = null
+  showForm.value = false;
+  editingTask.value = null;
 }
 
 /** 处理表单创建 */
-async function handleTaskCreate(input: Parameters<typeof taskStore.createTask>[0]) {
-  await taskStore.createTask(input)
-  closeForm()
+async function handleTaskCreate(
+  input: Parameters<typeof taskStore.createTask>[0]
+) {
+  await taskStore.createTask(input);
+  closeForm();
 }
 
 /** 处理表单更新 */
 async function handleFormUpdate(id: string, input: UpdateTaskInput) {
-  await taskStore.updateTask(id, input)
-  closeForm()
+  await taskStore.updateTask(id, input);
+  closeForm();
 }
 
 /** 切换完成状态 */
 async function toggleDone(task: Task) {
-  const newStatus: TaskStatus = task.status === 'done' ? 'todo' : 'done'
-  await taskStore.updateTask(task.id, { status: newStatus })
+  const newStatus: TaskStatus = task.status === "done" ? "todo" : "done";
+  await taskStore.updateTask(task.id, { status: newStatus });
 
   // 获取最新引用，避免传入旧对象
-  const refreshed = taskStore.getTaskById(task.id)
-  if (!refreshed) return
+  const refreshed = taskStore.getTaskById(task.id);
+  if (!refreshed) return;
 
   // 如果标记为完成且 completion 为空，打开详情弹窗提醒填写
-  if (newStatus === 'done' && !refreshed.completion) {
-    openTaskDetail(refreshed, 'completion')
+  if (newStatus === "done" && !refreshed.completion) {
+    openTaskDetail(refreshed, "completion");
   }
 }
 
 /** 确认删除 */
 function confirmDelete(taskId: string) {
-  deletingTaskId.value = taskId
-  showDeleteConfirm.value = true
+  deletingTaskId.value = taskId;
+  showDeleteConfirm.value = true;
 }
 
 /** 取消删除 */
 function cancelDelete() {
-  deletingTaskId.value = null
-  showDeleteConfirm.value = false
+  deletingTaskId.value = null;
+  showDeleteConfirm.value = false;
 }
 
 /** 执行删除 */
 async function executeDelete() {
   if (deletingTaskId.value) {
-    await taskStore.deleteTask(deletingTaskId.value)
+    await taskStore.deleteTask(deletingTaskId.value);
   }
-  cancelDelete()
+  cancelDelete();
 }
 
 /** 切换排序 */
 function toggleSort(field: SortField) {
   if (sortField.value === field) {
-    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
+    sortOrder.value = sortOrder.value === "asc" ? "desc" : "asc";
   } else {
-    sortField.value = field
-    sortOrder.value = field === 'priority' ? 'desc' : 'desc'
+    sortField.value = field;
+    sortOrder.value = field === "priority" ? "desc" : "desc";
   }
+}
+
+function openExportModal() {
+  showExportModal.value = true;
+}
+
+function closeExportModal() {
+  showExportModal.value = false;
 }
 
 // ---- 键盘快捷键 ----
 function handleKeyDown(e: KeyboardEvent) {
-  const target = e.target as HTMLElement
-  const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
+  const target = e.target as HTMLElement;
+  const isInput =
+    target.tagName === "INPUT" ||
+    target.tagName === "TEXTAREA" ||
+    target.isContentEditable;
 
   // N 键新建任务（非输入状态）
-  if (e.key === 'n' && !e.ctrlKey && !e.metaKey && !isInput) {
-    e.preventDefault()
-    openNewTask()
+  if (e.key === "n" && !e.ctrlKey && !e.metaKey && !isInput) {
+    e.preventDefault();
+    openNewTask();
   }
-
 }
 
 // ---- 生命周期 ----
 onMounted(async () => {
-  await Promise.all([
-    taskStore.loadTasks(),
-    sessionStore.loadAllSessions(),
-  ])
-  document.addEventListener('keydown', handleKeyDown)
-})
+  await Promise.all([taskStore.loadTasks(), sessionStore.loadAllSessions()]);
+  document.addEventListener("keydown", handleKeyDown);
+});
 
 onUnmounted(() => {
-  document.removeEventListener('keydown', handleKeyDown)
-})
+  document.removeEventListener("keydown", handleKeyDown);
+});
 </script>
 
 <template>
@@ -216,9 +238,19 @@ onUnmounted(() => {
         <div class="header-right">
           <!-- 搜索框 -->
           <div class="search-box">
-            <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="11" cy="11" r="8"/>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            <svg
+              class="search-icon"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
             <input
               v-model="searchQuery"
@@ -231,18 +263,58 @@ onUnmounted(() => {
               class="search-clear"
               @click="searchQuery = ''"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18"/>
-                <line x1="6" y1="6" x2="18" y2="18"/>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
             </button>
           </div>
 
+          <!-- 导出按钮 -->
+          <button
+            class="export-btn"
+            @click="openExportModal"
+            title="导出任务数据"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+          </button>
+
           <!-- 新建任务按钮 -->
           <button class="new-task-btn" @click="openNewTask">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19"/>
-              <line x1="5" y1="12" x2="19" y2="12"/>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
             <span>新建任务</span>
           </button>
@@ -254,24 +326,65 @@ onUnmounted(() => {
         <!-- 视图模式切换 -->
         <div class="view-tabs">
           <button
-            v-for="mode in ([
+            v-for="mode in [
               { key: 'list', label: '列表' },
               { key: 'kanban', label: '看板' },
               { key: 'calendar', label: '日历' },
-            ] as const)"
+            ] as const"
             :key="mode.key"
             class="view-tab"
             :class="{ active: viewMode === mode.key }"
             @click="viewMode = mode.key"
           >
-            <svg v-if="mode.key === 'list'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+            <svg
+              v-if="mode.key === 'list'"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="8" y1="6" x2="21" y2="6" />
+              <line x1="8" y1="12" x2="21" y2="12" />
+              <line x1="8" y1="18" x2="21" y2="18" />
+              <line x1="3" y1="6" x2="3.01" y2="6" />
+              <line x1="3" y1="12" x2="3.01" y2="12" />
+              <line x1="3" y1="18" x2="3.01" y2="18" />
             </svg>
-            <svg v-if="mode.key === 'kanban'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>
+            <svg
+              v-if="mode.key === 'kanban'"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="3" y="3" width="7" height="9" rx="1" />
+              <rect x="14" y="3" width="7" height="5" rx="1" />
+              <rect x="14" y="12" width="7" height="9" rx="1" />
+              <rect x="3" y="16" width="7" height="5" rx="1" />
             </svg>
-            <svg v-if="mode.key === 'calendar'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+            <svg
+              v-if="mode.key === 'calendar'"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+              <line x1="16" y1="2" x2="16" y2="6" />
+              <line x1="8" y1="2" x2="8" y2="6" />
+              <line x1="3" y1="10" x2="21" y2="10" />
             </svg>
             {{ mode.label }}
           </button>
@@ -282,10 +395,10 @@ onUnmounted(() => {
           <!-- 状态筛选 -->
           <div class="filter-group">
             <button
-              v-for="s in ([
+              v-for="s in [
                 { value: 'all', label: '全部' },
                 ...STATUSES,
-              ] as const)"
+              ] as const"
               :key="s.value"
               class="filter-chip"
               :class="{ active: statusFilter === s.value }"
@@ -296,10 +409,7 @@ onUnmounted(() => {
           </div>
 
           <!-- 优先级筛选 -->
-          <select
-            v-model="priorityFilter"
-            class="filter-select"
-          >
+          <select v-model="priorityFilter" class="filter-select">
             <option value="">全部优先级</option>
             <option v-for="p in PRIORITIES" :key="p.value" :value="p.value">
               {{ p.label }}
@@ -307,10 +417,7 @@ onUnmounted(() => {
           </select>
 
           <!-- 标签筛选 -->
-          <select
-            v-model="tagFilter"
-            class="filter-select"
-          >
+          <select v-model="tagFilter" class="filter-select">
             <option value="">全部标签</option>
             <option v-for="tag in taskStore.allTags" :key="tag" :value="tag">
               {{ tag }}
@@ -328,10 +435,17 @@ onUnmounted(() => {
             {{ opt.label }}
             <svg
               v-if="sortField === opt.field"
-              width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              :style="{ transform: sortOrder === 'asc' ? 'rotate(180deg)' : 'none' }"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              :style="{
+                transform: sortOrder === 'asc' ? 'rotate(180deg)' : 'none',
+              }"
             >
-              <polyline points="6 9 12 15 18 9"/>
+              <polyline points="6 9 12 15 18 9" />
             </svg>
           </button>
         </div>
@@ -383,7 +497,11 @@ onUnmounted(() => {
     <!-- ==================== 删除确认弹窗 ==================== -->
     <TaskDeleteConfirm
       :visible="showDeleteConfirm"
-      :task-title="deletingTaskId ? taskStore.getTaskById(deletingTaskId)?.title : undefined"
+      :task-title="
+        deletingTaskId
+          ? taskStore.getTaskById(deletingTaskId)?.title
+          : undefined
+      "
       @confirm="executeDelete"
       @cancel="cancelDelete"
     />
@@ -395,6 +513,20 @@ onUnmounted(() => {
       :initial-tab="detailInitialTab"
       @close="closeTaskDetail"
       @update="handleTaskUpdate"
+    />
+
+    <!-- ==================== 任务导出弹窗 ==================== -->
+    <TaskExportModal
+      :visible="showExportModal"
+      :tasks="displayTasks"
+      :sessions="sessionStore.sessions"
+      :current-filters="{
+        status: statusFilter,
+        priority: priorityFilter,
+        tag: tagFilter,
+        search: searchQuery,
+      }"
+      @close="closeExportModal"
     />
   </div>
 </template>
@@ -431,7 +563,11 @@ onUnmounted(() => {
 .bg-orb-1 {
   width: 600px;
   height: 600px;
-  background: radial-gradient(circle, rgba(88, 166, 255, 0.1) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(88, 166, 255, 0.1) 0%,
+    transparent 70%
+  );
   top: -20%;
   right: -10%;
   animation: orb-drift-tasks-1 25s ease-in-out infinite;
@@ -440,20 +576,34 @@ onUnmounted(() => {
 .bg-orb-2 {
   width: 400px;
   height: 400px;
-  background: radial-gradient(circle, rgba(136, 100, 255, 0.08) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(136, 100, 255, 0.08) 0%,
+    transparent 70%
+  );
   bottom: -10%;
   left: -5%;
   animation: orb-drift-tasks-2 30s ease-in-out infinite;
 }
 
 @keyframes orb-drift-tasks-1 {
-  0%, 100% { transform: translate(0, 0); }
-  50% { transform: translate(-40px, 30px); }
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(-40px, 30px);
+  }
 }
 
 @keyframes orb-drift-tasks-2 {
-  0%, 100% { transform: translate(0, 0); }
-  50% { transform: translate(30px, -20px); }
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(30px, -20px);
+  }
 }
 
 /* ---- 主内容 ---- */
@@ -535,7 +685,9 @@ onUnmounted(() => {
 .search-input:focus {
   width: 280px;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--active-bg), 0 0 15px var(--accent-glow);
+  box-shadow:
+    0 0 0 3px var(--active-bg),
+    0 0 15px var(--accent-glow);
 }
 
 .search-input::placeholder {
@@ -583,12 +735,37 @@ onUnmounted(() => {
 
 .new-task-btn:hover {
   filter: brightness(1.15);
-  box-shadow: 0 0 25px var(--accent-glow), 0 4px 12px rgba(0, 0, 0, 0.2);
+  box-shadow:
+    0 0 25px var(--accent-glow),
+    0 4px 12px rgba(0, 0, 0, 0.2);
   transform: translateY(-1px);
 }
 
 .new-task-btn:active {
   transform: translateY(0);
+}
+
+/* ---- 导出按钮 ---- */
+.export-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  backdrop-filter: blur(8px);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.export-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--active-bg);
+  box-shadow: 0 0 12px var(--accent-glow);
 }
 
 /* ---- 工具栏 ---- */
@@ -899,11 +1076,15 @@ onUnmounted(() => {
 
 /* 视图切换 */
 .view-fade-enter-active {
-  transition: opacity var(--transition-normal), transform var(--transition-normal);
+  transition:
+    opacity var(--transition-normal),
+    transform var(--transition-normal);
 }
 
 .view-fade-leave-active {
-  transition: opacity var(--transition-fast), transform var(--transition-fast);
+  transition:
+    opacity var(--transition-fast),
+    transform var(--transition-fast);
 }
 
 .view-fade-enter-from {
@@ -960,7 +1141,6 @@ onUnmounted(() => {
   .main-area {
     padding: 0 20px 20px;
   }
-
 }
 
 @media (max-width: 480px) {
@@ -1080,5 +1260,4 @@ onUnmounted(() => {
     min-height: 44px;
   }
 }
-
 </style>
