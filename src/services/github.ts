@@ -25,6 +25,30 @@ interface SyncResult {
 let octokit: Octokit | null = null
 let config: GitHubConfig = { token: '', owner: '', repo: '' }
 
+/** GitHub API 请求超时时间（毫秒） */
+const GITHUB_TIMEOUT_MS = 15000
+
+/**
+ * 包装 fetch 增加超时控制
+ * 防止 api.github.com 网络不通时 Octokit 挂起数分钟
+ */
+function createTimeoutFetch(): typeof fetch {
+  return (input, init) => {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), GITHUB_TIMEOUT_MS)
+
+    // 如果调用方已提供 signal，需要桥接
+    if (init?.signal) {
+      init.signal.addEventListener('abort', () => controller.abort())
+    }
+
+    return fetch(input, {
+      ...init,
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeoutId))
+  }
+}
+
 /**
  * 将 UTF-8 字符串安全编码为 Base64
  * 替代已废弃的 btoa(unescape(encodeURIComponent(...))) 方案
@@ -69,6 +93,9 @@ export function authenticate(token: string): void {
   }
   octokit = new Octokit({
     auth: token,
+    request: {
+      fetch: createTimeoutFetch(),
+    },
   })
   config.token = token
 }
