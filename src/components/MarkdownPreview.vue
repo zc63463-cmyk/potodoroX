@@ -44,10 +44,14 @@ function buildObserver() {
 }
 
 function scrollToToc(id: string) {
-  const el = document.getElementById(id)
-  if (el && contentRef.value) {
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
+  if (!contentRef.value) return
+  const el = contentRef.value.querySelector<HTMLElement>(`#${CSS.escape(id)}`)
+  if (!el) return
+
+  const containerRect = contentRef.value.getBoundingClientRect()
+  const elRect = el.getBoundingClientRect()
+  const offset = elRect.top - containerRect.top + contentRef.value.scrollTop
+  contentRef.value.scrollTo({ top: offset, behavior: 'smooth' })
 }
 
 onMounted(() => {
