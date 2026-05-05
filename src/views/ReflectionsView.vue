@@ -1,93 +1,105 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import ReflectionEditor from '@/components/ReflectionEditor.vue'
-import ReflectionBrowser from '@/components/ReflectionBrowser.vue'
-import ReflectionDetailModal from '@/components/ReflectionDetailModal.vue'
-import { useReflectionStore } from '@/stores/reflection'
-import { useTaskStore } from '@/stores/task'
-import type { Mood, Reflection } from '@/types'
-import { formatDate, formatFriendlyDate } from '@/utils/format'
+import { ref, computed, watch, onMounted, onUnmounted } from "vue";
+import ReflectionEditor from "@/components/ReflectionEditor.vue";
+import ReflectionBrowser from "@/components/ReflectionBrowser.vue";
+import ReflectionDetailModal from "@/components/ReflectionDetailModal.vue";
+import { useReflectionStore } from "@/stores/reflection";
+import { useTaskStore } from "@/stores/task";
+import type { Mood, Reflection } from "@/types";
+import { formatDate, formatFriendlyDate } from "@/utils/format";
 
 // ---- Stores ----
-const reflectionStore = useReflectionStore()
-const taskStore = useTaskStore()
+const reflectionStore = useReflectionStore();
+const taskStore = useTaskStore();
 
 // ---- 状态 ----
-const mode = ref<'edit' | 'browse'>('edit')
-const selectedDate = ref(formatDate(new Date()))
-const content = ref('')
-const currentMood = ref<Mood>('normal')
-const currentTags = ref<string[]>([])
-const isSaving = ref(false)
-const saveMessage = ref('')
-const showDeleteConfirm = ref(false)
-const deleteTargetId = ref<string | null>(null)
-const autoSaveTimer = ref<ReturnType<typeof setTimeout> | null>(null)
-const browseActiveTag = ref<string | null>(null)
-const showDetailModal = ref(false)
-const selectedReflectionForModal = ref<Reflection | null>(null)
+const mode = ref<"edit" | "browse">("edit");
+const selectedDate = ref(formatDate(new Date()));
+const content = ref("");
+const currentMood = ref<Mood>("normal");
+const currentTags = ref<string[]>([]);
+const isSaving = ref(false);
+const saveMessage = ref("");
+const showDeleteConfirm = ref(false);
+const deleteTargetId = ref<string | null>(null);
+const autoSaveTimer = ref<ReturnType<typeof setTimeout> | null>(null);
+
+/** 页面刷新前保存未保存内容 */
+function handleBeforeUnload(e: BeforeUnloadEvent) {
+  if (hasUnsavedChanges.value) {
+    // 同步触发保存（异步不等待，但至少启动保存流程）
+    saveReflection();
+    // 提示浏览器有未保存内容
+    e.preventDefault();
+    e.returnValue = "";
+  }
+}
+const browseActiveTag = ref<string | null>(null);
+const showDetailModal = ref(false);
+const selectedReflectionForModal = ref<Reflection | null>(null);
 
 // ---- 计算属性 ----
 const currentReflection = computed(() => {
-  return reflectionStore.reflections.find((r) => r.date === selectedDate.value)
-})
+  return reflectionStore.reflections.find((r) => r.date === selectedDate.value);
+});
 
 const currentReflectionId = computed(() => {
-  return currentReflection.value?.id || null
-})
+  return currentReflection.value?.id || null;
+});
 
 const hasUnsavedChanges = computed(() => {
   if (!currentReflection.value) {
     return (
-      content.value.trim() !== '' ||
-      currentMood.value !== 'normal' ||
+      content.value.trim() !== "" ||
+      currentMood.value !== "normal" ||
       currentTags.value.length > 0
-    )
+    );
   }
   return (
     currentReflection.value.content !== content.value ||
     currentReflection.value.mood !== currentMood.value ||
-    JSON.stringify(currentReflection.value.tags) !== JSON.stringify(currentTags.value)
-  )
-})
+    JSON.stringify(currentReflection.value.tags) !==
+      JSON.stringify(currentTags.value)
+  );
+});
 
 const todayTasks = computed(() => {
   return taskStore.tasks.filter(
     (t) =>
       t.createdAt.startsWith(selectedDate.value) ||
       (t.dueDate && t.dueDate.startsWith(selectedDate.value))
-  )
-})
+  );
+});
 
 const recentReflections = computed(() => {
   return reflectionStore.filteredReflections
     .filter((r) => r.id !== currentReflectionId.value)
-    .slice(0, 10)
-})
+    .slice(0, 10);
+});
 
 // ---- 方法 ----
 function loadReflectionForDate(date: string) {
-  const reflection = reflectionStore.reflections.find((r) => r.date === date)
+  const reflection = reflectionStore.reflections.find((r) => r.date === date);
   if (reflection) {
-    content.value = reflection.content
-    currentMood.value = reflection.mood
-    currentTags.value = [...reflection.tags]
+    content.value = reflection.content;
+    currentMood.value = reflection.mood;
+    currentTags.value = [...reflection.tags];
   } else {
-    content.value = ''
-    currentMood.value = 'normal'
-    currentTags.value = []
+    content.value = "";
+    currentMood.value = "normal";
+    currentTags.value = [];
   }
 }
 
 async function saveReflection() {
-  isSaving.value = true
+  isSaving.value = true;
   try {
     if (currentReflectionId.value) {
       await reflectionStore.updateReflection(currentReflectionId.value, {
         content: content.value,
         mood: currentMood.value,
         tags: currentTags.value,
-      })
+      });
     } else {
       await reflectionStore.createReflection({
         date: selectedDate.value,
@@ -95,149 +107,158 @@ async function saveReflection() {
         mood: currentMood.value,
         relatedTaskIds: [],
         tags: currentTags.value,
-      })
+      });
     }
-    showSaveMessage('保存成功')
+    showSaveMessage("保存成功");
   } catch (err) {
-    console.error('保存反思失败:', err)
-    showSaveMessage('保存失败')
+    console.error("保存反思失败:", err);
+    showSaveMessage("保存失败");
   } finally {
-    isSaving.value = false
+    isSaving.value = false;
   }
 }
 
 function triggerAutoSave() {
   if (autoSaveTimer.value) {
-    clearTimeout(autoSaveTimer.value)
+    clearTimeout(autoSaveTimer.value);
   }
   autoSaveTimer.value = setTimeout(() => {
     if (hasUnsavedChanges.value) {
-      saveReflection()
+      saveReflection();
     }
-  }, 1500)
+  }, 300);
 }
 
 function showSaveMessage(msg: string) {
-  saveMessage.value = msg
+  saveMessage.value = msg;
   setTimeout(() => {
-    saveMessage.value = ''
-  }, 2000)
+    saveMessage.value = "";
+  }, 2000);
 }
 
 function changeDate(offset: number) {
-  const d = new Date(selectedDate.value)
-  d.setDate(d.getDate() + offset)
-  selectedDate.value = formatDate(d)
+  const d = new Date(selectedDate.value);
+  d.setDate(d.getDate() + offset);
+  selectedDate.value = formatDate(d);
 }
 
 function goToToday() {
-  selectedDate.value = formatDate(new Date())
+  selectedDate.value = formatDate(new Date());
 }
 
 function editReflection(reflection: Reflection) {
-  selectedDate.value = reflection.date
-  mode.value = 'edit'
+  selectedDate.value = reflection.date;
+  mode.value = "edit";
 }
 
 function openDetailModal(reflection: Reflection) {
-  selectedReflectionForModal.value = reflection
-  showDetailModal.value = true
+  selectedReflectionForModal.value = reflection;
+  showDetailModal.value = true;
 }
 
 function closeDetailModal() {
-  showDetailModal.value = false
-  selectedReflectionForModal.value = null
+  showDetailModal.value = false;
+  selectedReflectionForModal.value = null;
 }
 
 async function saveDetail(id: string, payload: { content: string }) {
   try {
-    await reflectionStore.updateReflection(id, payload)
-    showSaveMessage('保存成功')
-    closeDetailModal()
+    await reflectionStore.updateReflection(id, payload);
+    showSaveMessage("保存成功");
+    closeDetailModal();
   } catch (err) {
-    console.error('Modal 保存反思失败:', err)
-    showSaveMessage('保存失败')
+    console.error("Modal 保存反思失败:", err);
+    showSaveMessage("保存失败");
   }
 }
 
 function requestDelete(id: string) {
-  deleteTargetId.value = id
-  showDeleteConfirm.value = true
+  deleteTargetId.value = id;
+  showDeleteConfirm.value = true;
 }
 
 async function confirmDelete() {
   if (deleteTargetId.value) {
-    await reflectionStore.deleteReflection(deleteTargetId.value)
+    await reflectionStore.deleteReflection(deleteTargetId.value);
     if (deleteTargetId.value === currentReflectionId.value) {
-      content.value = ''
-      currentMood.value = 'normal'
-      currentTags.value = []
+      content.value = "";
+      currentMood.value = "normal";
+      currentTags.value = [];
     }
   }
-  showDeleteConfirm.value = false
-  deleteTargetId.value = null
+  showDeleteConfirm.value = false;
+  deleteTargetId.value = null;
 }
 
 function cancelDelete() {
-  showDeleteConfirm.value = false
-  deleteTargetId.value = null
+  showDeleteConfirm.value = false;
+  deleteTargetId.value = null;
 }
 
 function handleBrowserFilter(tag: string | null) {
-  browseActiveTag.value = tag
+  browseActiveTag.value = tag;
   if (tag) {
-    reflectionStore.setFilter({ tag })
+    reflectionStore.setFilter({ tag });
   } else {
-    reflectionStore.clearFilter()
+    reflectionStore.clearFilter();
   }
 }
 
 function getMoodEmoji(mood: string): string {
   const map: Record<string, string> = {
-    great: '\u{1F604}',
-    good: '\u{1F642}',
-    normal: '\u{1F610}',
-    bad: '\u{1F61F}',
-    terrible: '\u{1F61E}',
-  }
-  return map[mood] || map.normal
+    great: "\u{1F604}",
+    good: "\u{1F642}",
+    normal: "\u{1F610}",
+    bad: "\u{1F61F}",
+    terrible: "\u{1F61E}",
+  };
+  return map[mood] || map.normal;
 }
 
 function getMoodColor(mood: string): string {
   const map: Record<string, string> = {
-    great: '#3FB950',
-    good: '#58A6FF',
-    normal: '#D29922',
-    bad: '#F0883E',
-    terrible: '#F85149',
-  }
-  return map[mood] || map.normal
+    great: "#3FB950",
+    good: "#58A6FF",
+    normal: "#D29922",
+    bad: "#F0883E",
+    terrible: "#F85149",
+  };
+  return map[mood] || map.normal;
 }
 
 function getContentPreview(content: string): string {
-  if (!content) return '无内容'
-  const stripped = content.replace(/[#*_[\]]/g, '').replace(/\n+/g, ' ').trim()
-  return stripped.length > 80 ? stripped.slice(0, 80) + '...' : stripped
+  if (!content) return "无内容";
+  const stripped = content
+    .replace(/[#*_[\]]/g, "")
+    .replace(/\n+/g, " ")
+    .trim();
+  return stripped.length > 80 ? stripped.slice(0, 80) + "..." : stripped;
 }
 
 // ---- 监听 ----
 watch(selectedDate, (newDate) => {
-  loadReflectionForDate(newDate)
-})
+  loadReflectionForDate(newDate);
+});
 
 // ---- 初始化 ----
 onMounted(async () => {
-  await Promise.all([reflectionStore.loadReflections(), taskStore.loadTasks()])
-  loadReflectionForDate(selectedDate.value)
-})
+  window.addEventListener("beforeunload", handleBeforeUnload);
+  await Promise.all([reflectionStore.loadReflections(), taskStore.loadTasks()]);
+  loadReflectionForDate(selectedDate.value);
+});
 
 // ---- 清理 ----
 onUnmounted(() => {
+  window.removeEventListener("beforeunload", handleBeforeUnload);
   if (autoSaveTimer.value) {
-    clearTimeout(autoSaveTimer.value)
-    autoSaveTimer.value = null
+    clearTimeout(autoSaveTimer.value);
+    autoSaveTimer.value = null;
   }
-})
+  // 组件卸载前保存未保存内容（防止切到其他视图再回来时数据丢失）
+  if (hasUnsavedChanges.value) {
+    saveReflection();
+  }
+});
 </script>
 
 <template>
@@ -250,10 +271,18 @@ onUnmounted(() => {
     <header class="reflections-header">
       <div class="header-left">
         <div class="mode-switch">
-          <button class="mode-btn" :class="{ active: mode === 'edit' }" @click="mode = 'edit'">
+          <button
+            class="mode-btn"
+            :class="{ active: mode === 'edit' }"
+            @click="mode = 'edit'"
+          >
             ✍️ 写反思
           </button>
-          <button class="mode-btn" :class="{ active: mode === 'browse' }" @click="mode = 'browse'">
+          <button
+            class="mode-btn"
+            :class="{ active: mode === 'browse' }"
+            @click="mode = 'browse'"
+          >
             📚 浏览历史
           </button>
         </div>
@@ -318,7 +347,7 @@ onUnmounted(() => {
           >
             <path d="M21 12a9 9 0 11-6.219-8.56" />
           </svg>
-          <span>{{ isSaving ? '保存中...' : '保存' }}</span>
+          <span>{{ isSaving ? "保存中..." : "保存" }}</span>
         </button>
       </div>
     </header>
@@ -334,9 +363,18 @@ onUnmounted(() => {
         :tags="currentTags"
         :reflection-id="currentReflectionId"
         :today-tasks="todayTasks"
-        @update:content="content = $event; triggerAutoSave()"
-        @update:mood="currentMood = $event; triggerAutoSave()"
-        @update:tags="currentTags = $event; triggerAutoSave()"
+        @update:content="
+          content = $event;
+          triggerAutoSave();
+        "
+        @update:mood="
+          currentMood = $event;
+          triggerAutoSave();
+        "
+        @update:tags="
+          currentTags = $event;
+          triggerAutoSave();
+        "
         @change-date="changeDate"
         @go-to-today="goToToday"
         @save="saveReflection"
@@ -375,9 +413,15 @@ onUnmounted(() => {
             </svg>
             今日任务
           </h3>
-          <div v-if="todayTasks.length === 0" class="empty-hint">当日暂无相关任务</div>
+          <div v-if="todayTasks.length === 0" class="empty-hint">
+            当日暂无相关任务
+          </div>
           <ul v-else class="task-link-list">
-            <li v-for="task in todayTasks" :key="task.id" class="task-link-item">
+            <li
+              v-for="task in todayTasks"
+              :key="task.id"
+              class="task-link-item"
+            >
               <span
                 class="task-status-dot"
                 :class="{
@@ -410,7 +454,9 @@ onUnmounted(() => {
             </svg>
             最近反思
           </h3>
-          <div v-if="recentReflections.length === 0" class="empty-hint">暂无反思记录</div>
+          <div v-if="recentReflections.length === 0" class="empty-hint">
+            暂无反思记录
+          </div>
           <ul v-else class="reflection-list">
             <li
               v-for="r in recentReflections"
@@ -419,7 +465,9 @@ onUnmounted(() => {
               @click="editReflection(r)"
             >
               <div class="reflection-item-header">
-                <span class="reflection-item-date">{{ formatFriendlyDate(r.date) }}</span>
+                <span class="reflection-item-date">{{
+                  formatFriendlyDate(r.date)
+                }}</span>
                 <span
                   class="reflection-item-mood"
                   :style="{ color: getMoodColor(r.mood) }"
@@ -427,13 +475,20 @@ onUnmounted(() => {
                   {{ getMoodEmoji(r.mood) }}
                 </span>
               </div>
-              <p class="reflection-item-preview">{{ getContentPreview(r.content) }}</p>
+              <p class="reflection-item-preview">
+                {{ getContentPreview(r.content) }}
+              </p>
               <button
                 class="reflection-item-delete"
                 title="删除"
                 @click.stop="requestDelete(r.id)"
               >
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                >
                   <path
                     d="M6.5 1.75a.25.25 0 01.25-.25h2.5a.25.25 0 01.25.25V3h-3V1.75zM11 3V1.75A1.75 1.75 0 009.25 0h-2.5A1.75 1.75 0 005 1.75V3H2.75a.75.75 0 000 1.5h.69l.95 9.3A1.75 1.75 0 006.12 16h3.76a1.75 1.75 0 001.73-1.5l.95-9.3h.69a.75.75 0 000-1.5H11zm-6.56 1.5l.91 8.82a.25.25 0 00.25.22h3.8a.25.25 0 00.25-.22l.91-8.82H4.44z"
                   />
@@ -448,13 +503,21 @@ onUnmounted(() => {
     <!-- 删除确认对话框 -->
     <Teleport to="body">
       <Transition name="fade">
-        <div v-if="showDeleteConfirm" class="modal-overlay" @click.self="cancelDelete">
+        <div
+          v-if="showDeleteConfirm"
+          class="modal-overlay"
+          @click.self="cancelDelete"
+        >
           <div class="modal-content">
             <h3 class="modal-title">确认删除</h3>
             <p class="modal-message">删除后无法恢复，确定要删除这条反思吗？</p>
             <div class="modal-actions">
-              <button class="modal-btn cancel" @click="cancelDelete">取消</button>
-              <button class="modal-btn danger" @click="confirmDelete">删除</button>
+              <button class="modal-btn cancel" @click="cancelDelete">
+                取消
+              </button>
+              <button class="modal-btn danger" @click="confirmDelete">
+                删除
+              </button>
             </div>
           </div>
         </div>
@@ -507,7 +570,11 @@ onUnmounted(() => {
 .bg-orb-1 {
   width: 500px;
   height: 500px;
-  background: radial-gradient(circle, rgba(167, 139, 250, 0.1) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(167, 139, 250, 0.1) 0%,
+    transparent 70%
+  );
   top: -15%;
   left: -10%;
   animation: orb-drift-reflections-1 25s ease-in-out infinite;
@@ -516,7 +583,11 @@ onUnmounted(() => {
 .bg-orb-2 {
   width: 400px;
   height: 400px;
-  background: radial-gradient(circle, rgba(88, 166, 255, 0.08) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(88, 166, 255, 0.08) 0%,
+    transparent 70%
+  );
   bottom: -10%;
   right: -5%;
   animation: orb-drift-reflections-2 30s ease-in-out infinite;
