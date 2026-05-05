@@ -72,18 +72,17 @@ function joinUrl(base: string, path: string): string {
   return `${trimmedBase}/${trimmedPath}`
 }
 
-/** 浏览器端通过 Worker 代理发起 WebDAV 请求 */
+/** 浏览器端通过 Vercel Edge API 代理发起 WebDAV 请求 */
 async function webProxyRequest(
   cfg: WebDavConfig,
   method: string,
   path: string,
   body?: string,
 ): Promise<Response> {
-  if (!cfg.proxyUrl) {
-    throw new Error('未配置 WebDAV 代理 URL（Web 端必需）')
-  }
   const targetUrl = joinUrl(cfg.url, path)
-  const proxy = cfg.proxyUrl.endsWith('/') ? cfg.proxyUrl.slice(0, -1) : cfg.proxyUrl
+  const proxy = cfg.proxyUrl
+    ? cfg.proxyUrl.endsWith('/') ? cfg.proxyUrl.slice(0, -1) : cfg.proxyUrl
+    : '/api/webdav-proxy'
   const reqUrl = `${proxy}/?url=${encodeURIComponent(targetUrl)}`
   const auth = btoa(`${cfg.username}:${cfg.password}`)
   const headers: Record<string, string> = {
@@ -117,14 +116,12 @@ async function webProxyRequest(
 export function useWebDavSync() {
   const isAvailable = computed(() => {
     if (isTauri()) return true
-    // Web 端需要配置了 proxyUrl 才可用
-    return !!config.value?.proxyUrl
+    // Web 端：只要配置了服务器地址+用户名+密码即可（使用同域名 /api/webdav-proxy）
+    return !!config.value
   })
 
   const isConfigured = computed(() => {
-    if (!config.value) return false
-    if (isTauri()) return true
-    return !!config.value.proxyUrl
+    return !!config.value
   })
 
   function setConfig(cfg: WebDavConfig) {

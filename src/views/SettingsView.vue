@@ -41,7 +41,6 @@ const webDav = useWebDavSync()
 const webDavUrl = ref('')
 const webDavUsername = ref('')
 const webDavPassword = ref('')
-const webDavProxyUrl = ref('')
 const isTestingWebDav = ref(false)
 const webDavTestResult = ref<{ success: boolean; message: string } | null>(null)
 
@@ -50,15 +49,11 @@ if (webDav.config.value) {
   webDavUrl.value = webDav.config.value.url
   webDavUsername.value = webDav.config.value.username
   webDavPassword.value = webDav.config.value.password
-  webDavProxyUrl.value = webDav.config.value.proxyUrl || ''
 }
 
 /** 是否具备测试连接的最小条件 */
 const canTestWebDav = computed(() => {
-  if (!webDavUrl.value || !webDavUsername.value) return false
-  // Web 端需要额外配置 Worker 代理 URL
-  if (!isTauri() && !webDavProxyUrl.value) return false
-  return true
+  return !!(webDavUrl.value && webDavUsername.value)
 })
 
 // ---- 本地编辑副本（避免直接修改 store） ----
@@ -503,7 +498,6 @@ function saveWebDavConfig() {
       url: webDavUrl.value,
       username: webDavUsername.value,
       password: webDavPassword.value,
-      proxyUrl: webDavProxyUrl.value || undefined,
     })
   }
 }
@@ -705,19 +699,7 @@ onMounted(async () => {
               <line x1="12" y1="16" x2="12" y2="12"/>
               <line x1="12" y1="8" x2="12.01" y2="8"/>
             </svg>
-            <span>浏览器端需要自部署 Cloudflare Worker 代理以绕过 CORS 限制。<a href="https://github.com/zc63463-cmyk/potodoroX/tree/main/cloudflare-worker" target="_blank" rel="noopener">部署指南</a></span>
-          </div>
-
-          <!-- Worker 代理 URL (仅 Web 端) -->
-          <div v-if="!isTauri()" class="form-group">
-            <label class="form-label">Worker 代理 URL</label>
-            <input
-              v-model="webDavProxyUrl"
-              type="text"
-              class="form-input"
-              placeholder="https://pomodorox-webdav-proxy.xxx.workers.dev"
-            />
-            <p class="form-hint">部署你自己的 Cloudflare Worker 后填入此处</p>
+            <span>浏览器端通过 Vercel 边缘代理访问 WebDAV，无需额外配置代理。</span>
           </div>
 
           <div class="form-group">
