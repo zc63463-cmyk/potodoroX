@@ -89,13 +89,28 @@ async function webProxyRequest(
   const headers: Record<string, string> = {
     Authorization: `Basic ${auth}`,
   }
-  if (body !== undefined) {
+
+  let finalBody: string | undefined = body
+
+  // PROPFIND 必须带 Depth header（坚果云等 WebDAV 服务器严格要求）
+  // Depth: 0 = 仅查询资源本身，用于存在性检查
+  if (method === 'PROPFIND') {
+    headers['Depth'] = '0'
+    headers['Content-Type'] = 'application/xml; charset=utf-8'
+    // 空 PROPFIND body = 请求所有属性（标准 allprop 行为）
+    finalBody =
+      body ??
+      '<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:allprop/></D:propfind>'
+  } else if (method === 'PUT') {
+    headers['Content-Type'] = 'application/json'
+  } else if (body !== undefined) {
     headers['Content-Type'] = 'application/json'
   }
+
   return fetch(reqUrl, {
     method,
     headers,
-    body,
+    body: finalBody,
   })
 }
 
