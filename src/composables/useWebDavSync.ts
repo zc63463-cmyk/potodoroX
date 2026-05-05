@@ -274,6 +274,16 @@ export function useWebDavSync() {
     syncError.value = null
 
     try {
+      // Web 端：先确保远程目录存在，避免后续 GET/PUT 因父目录缺失返回 409
+      if (!isTauri()) {
+        try {
+          const dirPath = REMOTE_PATH.split('/').slice(0, -1).join('/') + '/'
+          await webProxyRequest(config.value, 'MKCOL', dirPath)
+        } catch {
+          /* 目录已存在或冲突，忽略 */
+        }
+      }
+
       const remote = await pullReflections()
 
       const merged = new Map<string, Reflection>()
