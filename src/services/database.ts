@@ -331,13 +331,15 @@ class MemoryStore {
 
   // ---- Sessions ----
   async createSession(input: CreateSessionInput): Promise<Session> {
+    const now = formatDateTime(new Date());
     const session: Session = {
       id: generateId(),
       ...input,
-      endedAt: input.completed ? formatDateTime(new Date()) : null,
+      endedAt: input.completed ? now : null,
       plan: input.plan ?? "",
       completion: input.completion ?? "",
       synced: false,
+      updatedAt: now,
     };
     this.sessions.set(session.id, session);
     if (this.autoSaveEnabled) await this.saveToLocalStorage();
@@ -599,7 +601,7 @@ class SqliteDatabase {
   }
 
   private rowToSession(row: Record<string, SqlValue>): Session {
-    return {
+    const session: Session = {
       id: row.id as string,
       taskId: row.task_id as string | null,
       type: row.type as Session["type"],
@@ -610,7 +612,12 @@ class SqliteDatabase {
       plan: (row.plan as string) ?? "",
       completion: (row.completion as string) ?? "",
       synced: Boolean(row.synced),
+      updatedAt:
+        (row.updated_at as string) ??
+        (row.ended_at as string | null) ??
+        (row.started_at as string),
     };
+    return session;
   }
 
   // ---- Tasks ----
@@ -975,6 +982,7 @@ class SqliteDatabase {
       plan,
       completion,
       synced: false,
+      updatedAt: formatDateTime(new Date()),
     };
   }
 
