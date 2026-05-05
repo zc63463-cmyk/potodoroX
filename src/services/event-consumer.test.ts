@@ -317,4 +317,43 @@ describe("consumeEventsFrom", () => {
     await consumeEventsFrom([e2, e1]);
     expect(order).toEqual(["first", "second"]);
   });
+
+  it("session.updated 事件应触发 upsertSession", async () => {
+    const ev = makeEvent({
+      type: "session.updated",
+      entityType: "session",
+      entityId: "sess-1",
+      payload: {
+        id: "sess-1",
+        type: "work",
+        duration: 1500,
+        startedAt: "2026-05-04T10:00:00.000Z",
+        completed: true,
+        plan: "补充计划",
+        completion: "已完成",
+        updatedAt: "2026-05-04 18:00:00",
+      },
+      timestamp: "2026-05-04T10:00:00.000Z",
+    });
+    const r = await consumeEventsFrom([ev]);
+    expect(r.processed).toBe(1);
+    expect(mockDb.upsertSession).toHaveBeenCalledWith(ev.payload);
+  });
+
+  it("session.updated：本地 updatedAt 较新时被跳过", async () => {
+    mockDb.getSession.mockResolvedValue({
+      id: "sess-1",
+      updatedAt: "2026-05-04 20:00:00", // 本地较新
+    } as any);
+    const ev = makeEvent({
+      type: "session.updated",
+      entityType: "session",
+      entityId: "sess-1",
+      timestamp: "2026-05-04T08:00:00.000Z",
+      payload: { id: "sess-1", updatedAt: "2026-05-04 08:00:00" },
+    });
+    const r = await consumeEventsFrom([ev]);
+    expect(r.processed).toBe(1); // 标记为已处理
+    expect(mockDb.upsertSession).not.toHaveBeenCalled();
+  });
 });

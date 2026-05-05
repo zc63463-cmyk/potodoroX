@@ -91,7 +91,22 @@ async function shouldSkipDueToVersion(event: OutboxEvent): Promise<boolean> {
         }
         break;
       }
-      // Session 是 append-only（只有 created），无需版本保护
+      case "session": {
+        // session.updated 也走版本保护；session.created 通常没有本地版本可比较
+        const session = await db.getSession(entityId);
+        if (
+          session &&
+          session.updatedAt &&
+          isNewerThan(session.updatedAt, event.timestamp)
+        ) {
+          console.log(
+            `[EventConsumer] 跳过 ${eventType} ${entityId}: ` +
+              `本地 updatedAt ${session.updatedAt} > 事件时间 ${event.timestamp}`
+          );
+          return true;
+        }
+        break;
+      }
     }
   } catch {
     // 查询失败时，允许事件通过处理
@@ -151,7 +166,8 @@ async function processEvent(event: OutboxEvent): Promise<void> {
     }
 
     // ---- Session 事件 ----
-    case "session.created": {
+    case "session.created":
+    case "session.updated": {
       const session = event.payload as Session;
       await db.upsertSession(session);
       break;

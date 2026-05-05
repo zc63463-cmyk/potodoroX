@@ -668,21 +668,35 @@ export function useWebDavSync() {
 
   /**
    * 从 WebDAV 拉取所有远程事件（PROPFIND + GET 每个文件）
-   * 返回解析后的事件数组或 fatal 错误。
+   * 返回解析后的事件数组、读失败数和损坏数；调用方应把这些累加到 errors。
+   *
+   * - listEvents fatal：整体 fatal 中止
+   * - 单个文件 GET fatal：fetchErrors++（不中断其他文件）
+   * - 单个文件 JSON parse 失败 / 字段缺失：parseErrors++
    */
   async function pullRemoteEvents(): Promise<
-    { kind: "ok"; events: OutboxEvent[] } | { kind: "fatal"; error: string }
+    | {
+        kind: "ok";
+        events: OutboxEvent[];
+        fetchErrors: number;
+        parseErrors: number;
+      }
+    | { kind: "fatal"; error: string }
   > {
     const listRes = await listEvents();
     if (listRes.kind === "fatal") return listRes;
-    if (listRes.names.length === 0) return { kind: "ok", events: [] };
+    if (listRes.names.length === 0) {
+      return { kind: "ok", events: [], fetchErrors: 0, parseErrors: 0 };
+    }
 
     const events: OutboxEvent[] = [];
+    let fetchErrors = 0;
+    let parseErrors = 0;
     for (const name of listRes.names) {
       const path = `${REMOTE_PATHS.eventsDir}${name}`;
       const res = await pullFile(path);
-      // 单个事件文件 fatal 不中断整体拉取，只记录
       if (res.kind === "fatal") {
+        fetchErrors++;
         console.warn(`[WebDAV] 拉取事件 ${name} 失败: ${res.error}`);
         continue;
       }
@@ -691,12 +705,16 @@ export function useWebDavSync() {
         const parsed = JSON.parse(res.content) as OutboxEvent;
         if (parsed && parsed.eventId && parsed.type && parsed.timestamp) {
           events.push(parsed);
+        } else {
+          parseErrors++;
+          console.warn(`[WebDAV] 事件 ${name} 字段缺失，跳过`);
         }
       } catch (err) {
+        parseErrors++;
         console.warn(`[WebDAV] 解析事件 ${name} 失败:`, err);
       }
     }
-    return { kind: "ok", events };
+    return { kind: "ok", events, fetchErrors, parseErrors };
   }
 
   /**
@@ -752,7 +770,8 @@ export function useWebDavSync() {
         pushed,
         pulled: consumed.pulled,
         processed: consumed.processed,
-        errors: failed + consumed.errors,
+        errors:
+          failed + consumed.errors + pullRes.fetchErrors + pullRes.parseErrors,
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "事件同步失败";

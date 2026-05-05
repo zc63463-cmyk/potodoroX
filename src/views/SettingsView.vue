@@ -52,11 +52,6 @@ const isTestingWebDav = ref(false);
 const webDavTestResult = ref<{ success: boolean; message: string } | null>(
   null
 );
-const syncTypes = ref<Array<"reflections" | "sessions" | "tasks">>([
-  "reflections",
-  "sessions",
-  "tasks",
-]);
 
 // 初始化 WebDAV 配置
 if (webDav.config.value) {
@@ -70,10 +65,12 @@ const canTestWebDav = computed(() => {
   return !!(webDavUrl.value && webDavUsername.value);
 });
 
-/** 是否可以同步（至少选择一种类型） */
-const canSyncWebDav = computed(() => {
-  return canTestWebDav.value && syncTypes.value.length > 0;
-});
+/**
+ * 是否可以执行同步。
+ * Phase 2 事件流模式下，所有实体（任务/反思/番茄记录）同属一条 outbox，
+ * 不再按类型筛选；只要有合法连接就可同步。
+ */
+const canSyncWebDav = computed(() => canTestWebDav.value);
 
 // ---- 本地编辑副本（避免直接修改 store） ----
 const localSettings = ref({
@@ -919,24 +916,9 @@ onMounted(async () => {
 
           <div class="form-group">
             <label class="form-label">同步内容</label>
-            <div class="checkbox-group">
-              <label class="checkbox-item">
-                <input
-                  type="checkbox"
-                  value="reflections"
-                  v-model="syncTypes"
-                />
-                <span>反思</span>
-              </label>
-              <label class="checkbox-item">
-                <input type="checkbox" value="sessions" v-model="syncTypes" />
-                <span>番茄记录</span>
-              </label>
-              <label class="checkbox-item">
-                <input type="checkbox" value="tasks" v-model="syncTypes" />
-                <span>任务</span>
-              </label>
-            </div>
+            <p class="form-hint">
+              事件流模式：任务、反思、番茄记录会作为一组不可变事件统一同步，多端并发安全。
+            </p>
           </div>
 
           <div class="form-actions">
