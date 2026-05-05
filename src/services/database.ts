@@ -360,7 +360,12 @@ class MemoryStore {
   ): Promise<Session | null> {
     const existing = this.sessions.get(id);
     if (!existing) return null;
-    const updated: Session = { ...existing, ...input, id };
+    const updated: Session = {
+      ...existing,
+      ...input,
+      id,
+      updatedAt: formatDateTime(new Date()),
+    };
     this.sessions.set(id, updated);
     if (this.autoSaveEnabled) await this.saveToLocalStorage();
     return updated;
@@ -499,6 +504,7 @@ class SqliteDatabase {
           completed INTEGER DEFAULT 0,
           started_at TEXT NOT NULL,
           ended_at TEXT,
+          updated_at TEXT,
           synced INTEGER DEFAULT 0
         )
       `);
@@ -551,6 +557,13 @@ class SqliteDatabase {
     if (!(await columnExists("sessions", "completion"))) {
       await db.execute(
         `ALTER TABLE sessions ADD COLUMN completion TEXT DEFAULT ''`
+      );
+    }
+    if (!(await columnExists("sessions", "updated_at"))) {
+      await db.execute(`ALTER TABLE sessions ADD COLUMN updated_at TEXT`);
+      // 回填旧行的 updated_at，优先用 ended_at，次之 started_at
+      await db.execute(
+        `UPDATE sessions SET updated_at = COALESCE(ended_at, started_at) WHERE updated_at IS NULL`
       );
     }
   }
@@ -930,9 +943,14 @@ class SqliteDatabase {
 
   async upsertSession(session: Session): Promise<Session> {
     const db = await this.getDb();
+    const updatedAt =
+      session.updatedAt ??
+      session.endedAt ??
+      session.startedAt ??
+      formatDateTime(new Date());
     await db.execute(
-      `INSERT OR REPLACE INTO sessions (id, task_id, type, duration, completed, started_at, ended_at, plan, completion, synced)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO sessions (id, task_id, type, duration, completed, started_at, ended_at, plan, completion, updated_at, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         session.id,
         session.taskId,
@@ -943,22 +961,24 @@ class SqliteDatabase {
         session.endedAt,
         session.plan,
         session.completion,
+        updatedAt,
         session.synced ? 1 : 0,
       ]
     );
-    return session;
+    return { ...session, updatedAt };
   }
 
   // ---- Sessions ----
   async createSession(input: CreateSessionInput): Promise<Session> {
     const db = await this.getDb();
     const id = generateId();
-    const endedAt = input.completed ? formatDateTime(new Date()) : null;
+    const now = formatDateTime(new Date());
+    const endedAt = input.completed ? now : null;
     const plan = input.plan ?? "";
     const completion = input.completion ?? "";
     await db.execute(
-      `INSERT INTO sessions (id, task_id, type, duration, completed, started_at, ended_at, plan, completion, synced)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      `INSERT INTO sessions (id, task_id, type, duration, completed, started_at, ended_at, plan, completion, updated_at, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
       [
         id,
         input.taskId,
@@ -969,6 +989,7 @@ class SqliteDatabase {
         endedAt,
         plan,
         completion,
+        now,
       ]
     );
     return {
@@ -982,7 +1003,7 @@ class SqliteDatabase {
       plan,
       completion,
       synced: false,
-      updatedAt: formatDateTime(new Date()),
+      updatedAt: now,
     };
   }
 
@@ -1015,12 +1036,20 @@ class SqliteDatabase {
     const completion =
       input.completion !== undefined ? input.completion : existing.completion;
 
+    const now = formatDateTime(new Date());
     await db.execute(
-      "UPDATE sessions SET completed=?, ended_at=?, plan=?, completion=? WHERE id=?",
-      [completed ? 1 : 0, endedAt, plan, completion, id]
+      "UPDATE sessions SET completed=?, ended_at=?, plan=?, completion=?, updated_at=? WHERE id=?",
+      [completed ? 1 : 0, endedAt, plan, completion, now, id]
     );
 
-    return { ...existing, completed, endedAt, plan, completion };
+    return {
+      ...existing,
+      completed,
+      endedAt,
+      plan,
+      completion,
+      updatedAt: now,
+    };
   }
 
   async deleteSession(id: string): Promise<boolean> {

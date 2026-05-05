@@ -14,6 +14,7 @@ import {
   upsertTombstones,
   type Tombstone,
 } from "@/services/outbox";
+import { parseTime } from "@/services/event-consumer";
 
 interface WebDavConfig {
   url: string;
@@ -53,6 +54,94 @@ const config = ref<WebDavConfig | null>(loadConfig());
 const lastSyncAt = ref<string | null>(loadLastSync());
 const isSyncing = ref(false);
 const syncError = ref<string | null>(null);
+
+// ---- 全局串行锁（模块级，保证所有 sync 调用按顺序执行） ----
+let _syncLock: Promise<unknown> = Promise.resolve();
+
+/** 串行执行异步函数：同一时间只有一个 WebDAV 同步操作 */
+function serialized<T>(fn: () => Promise<T>): Promise<T> {
+  const run = _syncLock.then(() => fn());
+  _syncLock = run.catch(() => undefined);
+  return run;
+}
+
+// ---- 可测试的纯函数（导出供测试用） ----
+
+/**
+ * 应用墓碑过滤的合并：
+ * - 跳过 tombstone.deletedAt >= entity.updatedAt 的条目
+ * - 返回需从本地删除的 ID（本地有但被远端墓碑覆盖）
+ * - 使用 parseTime 避免字符串格式差异（YYYY-MM-DD HH:mm:ss vs ISO）
+ */
+export function mergeWithTombstones<
+  T extends { id: string; updatedAt: string },
+>(
+  entityType: string,
+  local: T[],
+  remote: T[],
+  tombstones: Tombstone[]
+): { merged: T[]; pulled: number; toDeleteLocal: string[] } {
+  const tsMap = new Map<string, string>();
+  tombstones
+    .filter((t) => t.entityType === entityType)
+    .forEach((t) => tsMap.set(t.entityId, t.deletedAt));
+
+  const merged = new Map<string, T>();
+  const toDeleteLocal: string[] = [];
+
+  local.forEach((item) => {
+    const ts = tsMap.get(item.id);
+    if (ts && parseTime(ts) >= parseTime(item.updatedAt)) {
+      toDeleteLocal.push(item.id);
+      return;
+    }
+    merged.set(item.id, item);
+  });
+
+  let pulled = 0;
+  remote.forEach((item) => {
+    const ts = tsMap.get(item.id);
+    if (ts && parseTime(ts) >= parseTime(item.updatedAt)) return;
+    const existing = merged.get(item.id);
+    if (!existing) {
+      merged.set(item.id, item);
+      pulled++;
+    } else if (parseTime(item.updatedAt) > parseTime(existing.updatedAt)) {
+      merged.set(item.id, item);
+      pulled++;
+    }
+  });
+
+  return { merged: Array.from(merged.values()), pulled, toDeleteLocal };
+}
+
+/** 合并墓碑列表（按 entityType+entityId 保留最新 deletedAt） */
+export function mergeTombstones(
+  local: Tombstone[],
+  remote: Tombstone[]
+): { merged: Tombstone[]; pulled: number } {
+  const map = new Map<string, Tombstone>();
+  const keyOf = (t: Tombstone) => `${t.entityType}:${t.entityId}`;
+  local.forEach((t) => map.set(keyOf(t), t));
+
+  let pulled = 0;
+  remote.forEach((t) => {
+    const k = keyOf(t);
+    const existing = map.get(k);
+    if (!existing) {
+      map.set(k, t);
+      pulled++;
+    } else if (parseTime(t.deletedAt) > parseTime(existing.deletedAt)) {
+      map.set(k, t);
+      pulled++;
+    }
+  });
+
+  return { merged: Array.from(map.values()), pulled };
+}
+
+/** 暴露全局串行锁（仅测试用） */
+export const __webdavSerialized = serialized;
 
 function loadConfig(): WebDavConfig | null {
   try {
@@ -224,46 +313,77 @@ export function useWebDavSync() {
     }
   }
 
-  async function pullFile(path: string): Promise<string | null> {
-    if (!config.value) return null;
+  /**
+   * 拉取远程文件的三态结果：
+   * - ok: 文件存在并成功读取
+   * - missing: 文件不存在（404/409）
+   * - fatal: 其他错误（401/5xx/网络异常），调用方必须禁止 PUT 避免以本地子集覆盖远端
+   */
+  type PullResult =
+    | { kind: "ok"; content: string }
+    | { kind: "missing" }
+    | { kind: "fatal"; error: string };
+
+  async function pullFile(path: string): Promise<PullResult> {
+    if (!config.value) return { kind: "fatal", error: "WebDAV 未配置" };
 
     if (isTauri()) {
       try {
-        return await invoke<string>("webdav_get", {
+        const content = await invoke<string>("webdav_get", {
           url: config.value.url,
           username: config.value.username,
           password: config.value.password,
           path,
         });
+        return { kind: "ok", content };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("404") || msg.includes("Not Found")) {
-          return null;
+          return { kind: "missing" };
         }
         console.error("[WebDAV] 下载失败:", err);
-        return null;
+        return { kind: "fatal", error: msg };
       }
     }
 
     try {
       const res = await webProxyRequest(config.value, "GET", path);
-      if (res.status === 404 || res.status === 409) return null;
+      if (res.status === 404 || res.status === 409) return { kind: "missing" };
       if (!res.ok) {
-        console.error("[WebDAV] 代理下载失败:", res.status);
-        return null;
+        const body = await res.text().catch(() => "");
+        const err = `HTTP ${res.status} ${body}`.trim();
+        console.error("[WebDAV] 代理下载失败:", err);
+        return { kind: "fatal", error: err };
       }
-      return await res.text();
+      return { kind: "ok", content: await res.text() };
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       console.error("[WebDAV] 代理下载异常:", err);
-      return null;
+      return { kind: "fatal", error: msg };
     }
   }
 
-  /** Web 端：确保远程目录存在（忽略已存在错误） */
+  /** 确保远程目录存在（Web 端和 Tauri 端均支持，已存在错误忽略） */
   async function ensureRemoteDir(): Promise<void> {
-    if (!config.value || isTauri()) return;
+    if (!config.value) return;
+    const dirPath = "pomodorox/";
+
+    if (isTauri()) {
+      try {
+        await invoke("webdav_mkcol", {
+          url: config.value.url,
+          username: config.value.username,
+          password: config.value.password,
+          path: dirPath,
+        });
+      } catch (err) {
+        // 目录已存在或冲突，忽略
+        console.debug("[WebDAV] MKCOL 忽略:", err);
+      }
+      return;
+    }
+
     try {
-      const dirPath = "pomodorox/";
       await webProxyRequest(config.value, "MKCOL", dirPath);
     } catch {
       /* 目录已存在或冲突，忽略 */
@@ -271,74 +391,8 @@ export function useWebDavSync() {
   }
 
   /**
-   * 应用墓碑过滤的合并：
-   * - 跳过 tombstone.deletedAt >= entity.updatedAt 的条目
-   * - 返回需从本地删除的 ID（本地有但被远端墓碑覆盖）
+   * 应用墓碑过滤的合并：使用模块级 mergeWithTombstones 实现
    */
-  function mergeWithTombstones<T extends { id: string; updatedAt: string }>(
-    entityType: string,
-    local: T[],
-    remote: T[],
-    tombstones: Tombstone[]
-  ): { merged: T[]; pulled: number; toDeleteLocal: string[] } {
-    const tsMap = new Map<string, string>();
-    tombstones
-      .filter((t) => t.entityType === entityType)
-      .forEach((t) => tsMap.set(t.entityId, t.deletedAt));
-
-    const merged = new Map<string, T>();
-    const toDeleteLocal: string[] = [];
-
-    local.forEach((item) => {
-      const ts = tsMap.get(item.id);
-      if (ts && ts >= item.updatedAt) {
-        toDeleteLocal.push(item.id);
-        return;
-      }
-      merged.set(item.id, item);
-    });
-
-    let pulled = 0;
-    remote.forEach((item) => {
-      const ts = tsMap.get(item.id);
-      if (ts && ts >= item.updatedAt) return;
-      const existing = merged.get(item.id);
-      if (!existing) {
-        merged.set(item.id, item);
-        pulled++;
-      } else if (item.updatedAt > existing.updatedAt) {
-        merged.set(item.id, item);
-        pulled++;
-      }
-    });
-
-    return { merged: Array.from(merged.values()), pulled, toDeleteLocal };
-  }
-
-  /** 合并墓碑列表（按 entityType+entityId 保留最新 deletedAt） */
-  function mergeTombstones(
-    local: Tombstone[],
-    remote: Tombstone[]
-  ): { merged: Tombstone[]; pulled: number } {
-    const map = new Map<string, Tombstone>();
-    const keyOf = (t: Tombstone) => `${t.entityType}:${t.entityId}`;
-    local.forEach((t) => map.set(keyOf(t), t));
-
-    let pulled = 0;
-    remote.forEach((t) => {
-      const k = keyOf(t);
-      const existing = map.get(k);
-      if (!existing) {
-        map.set(k, t);
-        pulled++;
-      } else if (t.deletedAt > existing.deletedAt) {
-        map.set(k, t);
-        pulled++;
-      }
-    });
-
-    return { merged: Array.from(map.values()), pulled };
-  }
 
   /** 同步墓碑（必须先于实体同步执行） */
   async function syncTombstones(): Promise<SyncTombstonesResult> {
@@ -358,11 +412,20 @@ export function useWebDavSync() {
       await ensureRemoteDir();
 
       const local = await getAllTombstones();
-      const content = await pullFile(REMOTE_PATHS.tombstones);
+      const pullRes = await pullFile(REMOTE_PATHS.tombstones);
+      if (pullRes.kind === "fatal") {
+        // 读取失败时禁止 PUT，避免以本地子集覆盖远端
+        return {
+          pushed: 0,
+          pulled: 0,
+          merged: local,
+          error: `拉取墓碑失败（已中止推送）：${pullRes.error}`,
+        };
+      }
       let remote: Tombstone[] = [];
-      if (content) {
+      if (pullRes.kind === "ok") {
         try {
-          const data = JSON.parse(content);
+          const data = JSON.parse(pullRes.content);
           if (Array.isArray(data)) remote = data as Tombstone[];
         } catch {
           /* ignore */
@@ -417,11 +480,19 @@ export function useWebDavSync() {
     try {
       await ensureRemoteDir();
 
-      const content = await pullFile(REMOTE_PATHS.reflections);
+      const pullRes = await pullFile(REMOTE_PATHS.reflections);
+      if (pullRes.kind === "fatal") {
+        return {
+          type: "reflections",
+          pushed: 0,
+          pulled: 0,
+          error: `拉取失败（已中止推送）：${pullRes.error}`,
+        };
+      }
       let remote: Reflection[] = [];
-      if (content) {
+      if (pullRes.kind === "ok") {
         try {
-          const data = JSON.parse(content);
+          const data = JSON.parse(pullRes.content);
           if (Array.isArray(data)) remote = data as Reflection[];
         } catch {
           // 解析失败，视为无远程数据
@@ -483,11 +554,19 @@ export function useWebDavSync() {
     try {
       await ensureRemoteDir();
 
-      const content = await pullFile(REMOTE_PATHS.sessions);
+      const pullRes = await pullFile(REMOTE_PATHS.sessions);
+      if (pullRes.kind === "fatal") {
+        return {
+          type: "sessions",
+          pushed: 0,
+          pulled: 0,
+          error: `拉取失败（已中止推送）：${pullRes.error}`,
+        };
+      }
       let remote: Session[] = [];
-      if (content) {
+      if (pullRes.kind === "ok") {
         try {
-          const data = JSON.parse(content);
+          const data = JSON.parse(pullRes.content);
           if (Array.isArray(data)) remote = data as Session[];
         } catch {
           // 解析失败，视为无远程数据
@@ -549,11 +628,19 @@ export function useWebDavSync() {
     try {
       await ensureRemoteDir();
 
-      const content = await pullFile(REMOTE_PATHS.tasks);
+      const pullRes = await pullFile(REMOTE_PATHS.tasks);
+      if (pullRes.kind === "fatal") {
+        return {
+          type: "tasks",
+          pushed: 0,
+          pulled: 0,
+          error: `拉取失败（已中止推送）：${pullRes.error}`,
+        };
+      }
       let remote: Task[] = [];
-      if (content) {
+      if (pullRes.kind === "ok") {
         try {
-          const data = JSON.parse(content);
+          const data = JSON.parse(pullRes.content);
           if (Array.isArray(data)) remote = data as Task[];
         } catch {
           // 解析失败，视为无远程数据
@@ -602,9 +689,13 @@ export function useWebDavSync() {
     setConfig,
     clearConfig,
     testConnection,
-    syncTombstones,
-    syncReflections,
-    syncSessions,
-    syncTasks,
+    // 所有同步函数通过 serialized 锁串行化，防止并发读写冲突
+    syncTombstones: () => serialized(() => syncTombstones()),
+    syncReflections: (items: Reflection[], tombstones: Tombstone[] = []) =>
+      serialized(() => syncReflections(items, tombstones)),
+    syncSessions: (items: Session[], tombstones: Tombstone[] = []) =>
+      serialized(() => syncSessions(items, tombstones)),
+    syncTasks: (items: Task[], tombstones: Tombstone[] = []) =>
+      serialized(() => syncTasks(items, tombstones)),
   };
 }

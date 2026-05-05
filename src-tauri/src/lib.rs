@@ -61,6 +61,23 @@ fn webdav_test(url: &str, username: &str, password: &str) -> Result<bool, String
     Ok(resp.status() == 207 || resp.status() == 200)
 }
 
+/// WebDAV MKCOL 创建目录（若已存在则忽略 405/409）
+#[tauri::command]
+fn webdav_mkcol(url: &str, username: &str, password: &str, path: &str) -> Result<String, String> {
+    let full_url = format!("{}/{}", url.trim_end_matches('/'), path.trim_start_matches('/'));
+    let result = ureq::request("MKCOL", &full_url)
+        .set("Authorization", &format!("Basic {}", base64_encode(&format!("{}:{}", username, password))))
+        .call();
+    match result {
+        Ok(resp) => Ok(format!("MKCOL {}", resp.status())),
+        Err(ureq::Error::Status(code, _)) if code == 405 || code == 409 || code == 301 => {
+            // 405 Method Not Allowed / 409 Conflict / 301 常见于目录已存在
+            Ok(format!("MKCOL already exists ({})", code))
+        }
+        Err(e) => Err(format!("MKCOL failed: {}", e)),
+    }
+}
+
 fn base64_encode(input: &str) -> String {
     use base64::{Engine as _, engine::general_purpose};
     general_purpose::STANDARD.encode(input)
@@ -74,7 +91,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![greet, webdav_put, webdav_get, webdav_test])
+        .invoke_handler(tauri::generate_handler![greet, webdav_put, webdav_get, webdav_test, webdav_mkcol])
         .setup(|app| {
             // Create the tray menu
             let show_i = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
