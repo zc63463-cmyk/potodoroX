@@ -8,6 +8,9 @@ import { useTimerStore } from '@/stores/timer'
 import { useSyncStore } from '@/stores/sync'
 import { useSessionStore } from '@/stores/session'
 import type { ThemeName } from '@/types'
+import { parseImportFile, type ImportReflection } from '@/utils/importReflection'
+import { useWebDavSync } from '@/composables/useWebDavSync'
+import { isTauri } from '@/utils/platform'
 
 // ---- Stores ----
 const settingsStore = useSettingsStore()
@@ -28,6 +31,25 @@ const showClearConfirm = ref(false)
 const isExporting = ref(false)
 const isImporting = ref(false)
 const isClearing = ref(false)
+const isImportingReflection = ref(false)
+const showConflictModal = ref(false)
+const importConflicts = ref<Array<{ date: string; incoming: ImportReflection; action: 'replace' | 'skip' }>>([])
+const pendingImportItems = ref<ImportReflection[]>([])
+
+// ---- WebDAV 同步 ----
+const webDav = useWebDavSync()
+const webDavUrl = ref('')
+const webDavUsername = ref('')
+const webDavPassword = ref('')
+const isTestingWebDav = ref(false)
+const webDavTestResult = ref<{ success: boolean; message: string } | null>(null)
+
+// 初始化 WebDAV 配置
+if (webDav.config.value) {
+  webDavUrl.value = webDav.config.value.url
+  webDavUsername.value = webDav.config.value.username
+  webDavPassword.value = webDav.config.value.password
+}
 
 // ---- 本地编辑副本（避免直接修改 store） ----
 const localSettings = ref({
@@ -327,6 +349,109 @@ function requestClearData() {
   showClearConfirm.value = true
 }
 
+/** 导入反思（专用入口，支持 .md/.json） */
+async function importReflectionData() {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.json,.md,.markdown'
+  input.onchange = async (e) => {
+    const file = (e.target as HTMLInputElement).files?.[0]
+    if (!file) return
+
+    isImportingReflection.value = true
+    try {
+      const text = await file.text()
+      const result = parseImportFile(text, file.name)
+
+      // 检测冲突
+      const conflicts: typeof importConflicts.value = []
+      const reflectionStore = useReflectionStore()
+      await reflectionStore.loadReflections()
+
+      for (const item of result.items) {
+        const existing = reflectionStore.reflections.find((r) => r.date === item.date)
+        if (existing) {
+          conflicts.push({ date: item.date, incoming: item, action: 'replace' })
+        }
+      }
+
+      // 无冲突直接导入
+      if (conflicts.length === 0) {
+        for (const item of result.items) {
+          await importSingleReflection(item)
+        }
+        await reflectionStore.loadReflections()
+        appStore.showToast(`成功导入 ${result.items.length} 条反思`, 'success')
+        return
+      }
+
+      // 有冲突，弹出选择
+      importConflicts.value = conflicts
+      pendingImportItems.value = result.items
+      showConflictModal.value = true
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '导入失败'
+      console.error('导入反思失败:', err)
+      appStore.showToast(`导入失败：${msg}`, 'error')
+    } finally {
+      isImportingReflection.value = false
+    }
+  }
+  input.click()
+}
+
+/** 导入单条反思（内部） */
+async function importSingleReflection(item: ImportReflection) {
+  const reflectionStore = useReflectionStore()
+  const existing = reflectionStore.reflections.find((r) => r.date === item.date)
+
+  if (existing) {
+    await reflectionStore.updateReflection(existing.id, {
+      content: item.content,
+      mood: item.mood,
+      tags: item.tags,
+    })
+  } else {
+    await reflectionStore.createReflection({
+      date: item.date,
+      content: item.content,
+      mood: item.mood,
+      tags: item.tags,
+      relatedTaskIds: item.relatedTaskIds || [],
+    })
+  }
+}
+
+/** 应用冲突解决并导入 */
+async function applyConflictResolution() {
+  const reflectionStore = useReflectionStore()
+  let imported = 0
+  let skipped = 0
+
+  for (const item of pendingImportItems.value) {
+    const conflict = importConflicts.value.find((c) => c.date === item.date)
+    if (conflict && conflict.action === 'skip') {
+      skipped++
+      continue
+    }
+    await importSingleReflection(item)
+    imported++
+  }
+
+  await reflectionStore.loadReflections()
+  showConflictModal.value = false
+  importConflicts.value = []
+  pendingImportItems.value = []
+  appStore.showToast(`导入完成：${imported} 条已导入，${skipped} 条已跳过`, 'success')
+}
+
+/** 取消冲突处理 */
+function cancelConflictImport() {
+  showConflictModal.value = false
+  importConflicts.value = []
+  pendingImportItems.value = []
+}
+
 /** 确认清除数据 */
 async function confirmClearData() {
   isClearing.value = true
@@ -359,6 +484,48 @@ async function confirmClearData() {
 /** 取消清除 */
 function cancelClear() {
   showClearConfirm.value = false
+}
+
+/** WebDAV 保存配置 */
+function saveWebDavConfig() {
+  if (webDavUrl.value && webDavUsername.value) {
+    webDav.setConfig({
+      url: webDavUrl.value,
+      username: webDavUsername.value,
+      password: webDavPassword.value,
+    })
+  }
+}
+
+/** WebDAV 测试连接 */
+async function testWebDavConnection() {
+  isTestingWebDav.value = true
+  webDavTestResult.value = null
+  saveWebDavConfig()
+
+  try {
+    const ok = await webDav.testConnection()
+    webDavTestResult.value = {
+      success: ok,
+      message: ok ? '连接成功！WebDAV 服务可用' : '连接失败：无法访问 WebDAV 服务器',
+    }
+  } catch (err) {
+    webDavTestResult.value = {
+      success: false,
+      message: err instanceof Error ? err.message : '连接测试失败',
+    }
+  } finally {
+    isTestingWebDav.value = false
+  }
+}
+
+/** WebDAV 执行同步 */
+async function syncWebDav() {
+  saveWebDavConfig()
+  const reflectionStore = useReflectionStore()
+  await reflectionStore.loadReflections()
+  const result = await webDav.sync(reflectionStore.reflections)
+  appStore.showToast(result.message, result.success ? 'success' : 'error')
 }
 
 /** 加载数据库统计 */
@@ -507,6 +674,90 @@ onMounted(async () => {
               ({{ appStore.syncStatus.pendingCount }} 项待同步)
             </span>
           </div>
+        </div>
+      </section>
+
+      <!-- WebDAV 同步 -->
+      <section class="settings-section">
+        <h2 class="section-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="section-icon">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5"/>
+            <path d="M2 12l10 5 10-5"/>
+          </svg>
+          WebDAV 同步
+        </h2>
+        <div class="section-content">
+          <div v-if="!isTauri()" class="webdav-not-available">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <span>WebDAV 同步功能仅限桌面端使用</span>
+          </div>
+
+          <template v-else>
+            <div class="form-group">
+              <label class="form-label">服务器地址</label>
+              <input
+                v-model="webDavUrl"
+                type="text"
+                class="form-input"
+                placeholder="https://dav.jianguoyun.com/dav/"
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">用户名</label>
+              <input
+                v-model="webDavUsername"
+                type="text"
+                class="form-input"
+                placeholder="your@email.com"
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">密码</label>
+              <input
+                v-model="webDavPassword"
+                type="password"
+                class="form-input"
+                placeholder="应用专用密码"
+              />
+            </div>
+
+            <div class="form-actions">
+              <button
+                class="btn-secondary"
+                :disabled="isTestingWebDav || !webDavUrl || !webDavUsername"
+                @click="testWebDavConnection"
+              >
+                <svg v-if="isTestingWebDav" class="spin-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 12a9 9 0 11-6.219-8.56"/>
+                </svg>
+                <span>{{ isTestingWebDav ? '测试中...' : '测试连接' }}</span>
+              </button>
+              <button
+                class="btn-primary"
+                :disabled="webDav.isSyncing.value || !webDav.isConfigured.value"
+                @click="syncWebDav"
+              >
+                <svg v-if="webDav.isSyncing.value" class="spin-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 12a9 9 0 11-6.219-8.56"/>
+                </svg>
+                <span>{{ webDav.isSyncing.value ? '同步中...' : '立即同步' }}</span>
+              </button>
+            </div>
+
+            <div v-if="webDavTestResult" class="result-message" :class="{ success: webDavTestResult.success, error: !webDavTestResult.success }">
+              {{ webDavTestResult.message }}
+            </div>
+
+            <div class="sync-status">
+              <span class="sync-status-label">上次同步：</span>
+              <span class="sync-status-value">{{ webDav.lastSyncAt.value || '从未同步' }}</span>
+            </div>
+          </template>
         </div>
       </section>
 
@@ -771,6 +1022,18 @@ onMounted(async () => {
               <span>{{ isImporting ? '导入中...' : '导入数据' }}</span>
             </button>
             <button
+              class="btn-secondary"
+              :disabled="isImportingReflection"
+              @click="importReflectionData"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              <span>{{ isImportingReflection ? '导入中...' : '导入反思' }}</span>
+            </button>
+            <button
               class="btn-danger"
               :disabled="isClearing"
               @click="requestClearData"
@@ -826,6 +1089,52 @@ onMounted(async () => {
         </div>
       </section>
     </div>
+
+    <!-- 冲突处理对话框 -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="showConflictModal" class="modal-overlay" @click.self="cancelConflictImport">
+          <div class="modal-content" style="max-width: 480px;">
+            <h3 class="modal-title">导入冲突</h3>
+            <p class="modal-message">
+              以下日期的反思已存在，请选择处理方式：
+            </p>
+            <div class="conflict-list" style="max-height: 300px; overflow-y: auto; margin: 12px 0;">
+              <div
+                v-for="conflict in importConflicts"
+                :key="conflict.date"
+                class="conflict-item"
+                style="display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border);"
+              >
+                <span style="font-weight: 500; color: var(--text);">{{ conflict.date }}</span>
+                <div style="display: flex; gap: 8px;">
+                  <button
+                    class="modal-btn"
+                    :class="{ 'cancel': conflict.action !== 'replace' }"
+                    style="padding: 4px 12px; font-size: 0.8rem;"
+                    @click="conflict.action = 'replace'"
+                  >
+                    替换
+                  </button>
+                  <button
+                    class="modal-btn"
+                    :class="{ 'cancel': conflict.action !== 'skip' }"
+                    style="padding: 4px 12px; font-size: 0.8rem;"
+                    @click="conflict.action = 'skip'"
+                  >
+                    跳过
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="modal-actions">
+              <button class="modal-btn cancel" @click="cancelConflictImport">取消</button>
+              <button class="modal-btn" @click="applyConflictResolution">确认导入</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
 
     <!-- 清除确认对话框 -->
     <Teleport to="body">

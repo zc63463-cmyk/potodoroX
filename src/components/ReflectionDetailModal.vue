@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import MarkdownPreview from '@/components/MarkdownPreview.vue'
 import type { Reflection } from '@/types'
 import { formatFriendlyDate, getWeekdayName } from '@/utils/format'
+import { downloadReflection } from '@/utils/exportReflection'
 
 const props = defineProps<{
   reflection: Reflection
@@ -16,6 +17,7 @@ const emit = defineEmits<{
 const editedContent = ref(props.reflection.content)
 const showPreview = ref(false)
 const isSaving = ref(false)
+const showExportMenu = ref(false)
 
 const dateDisplay = computed(() => {
   const friendly = formatFriendlyDate(props.reflection.date)
@@ -103,14 +105,40 @@ function onClose() {
 
         <!-- 底部操作栏 -->
         <div class="modal-footer">
-          <button class="btn-cancel" @click="onClose">取消</button>
-          <button
-            class="btn-save"
-            :disabled="isSaving || editedContent === reflection.content"
-            @click="onSave"
-          >
-            {{ isSaving ? '保存中...' : '保存' }}
-          </button>
+          <div class="footer-left">
+            <div class="export-dropdown" @mouseleave="showExportMenu = false">
+              <button
+                class="btn-export"
+                :disabled="isSaving"
+                @mouseenter="showExportMenu = true"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                导出
+              </button>
+              <div v-if="showExportMenu" class="export-menu">
+                <button class="export-menu-item" @click="downloadReflection(reflection, 'md'); showExportMenu = false">
+                  Markdown (.md)
+                </button>
+                <button class="export-menu-item" @click="downloadReflection(reflection, 'json'); showExportMenu = false">
+                  JSON (.json)
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="footer-right">
+            <button class="btn-cancel" @click="onClose">关闭</button>
+            <button
+              class="btn-save"
+              :disabled="isSaving || editedContent === reflection.content"
+              @click="onSave"
+            >
+              {{ isSaving ? '保存中...' : '保存' }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -264,12 +292,25 @@ function onClose() {
 /* ---- 底部 ---- */
 .modal-footer {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   gap: 10px;
   padding: 14px 20px;
   border-top: 1px solid var(--glass-border);
   flex-shrink: 0;
   background: var(--bg-elevated);
+}
+
+.footer-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.footer-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .btn-cancel {
@@ -310,6 +351,70 @@ function onClose() {
 .btn-save:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+
+/* ---- 导出下拉 ---- */
+.export-dropdown {
+  position: relative;
+}
+
+.btn-export {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-export:hover:not(:disabled) {
+  background: var(--hover-bg);
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+
+.btn-export:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.export-menu {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
+  padding: 4px;
+  min-width: 140px;
+  z-index: 10;
+}
+
+.export-menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.2s ease;
+  white-space: nowrap;
+}
+
+.export-menu-item:hover {
+  background: var(--surface-hover);
+  color: var(--accent);
 }
 
 /* ---- 响应式 ---- */

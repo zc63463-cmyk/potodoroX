@@ -4,6 +4,7 @@ import MarkdownPreview from '@/components/MarkdownPreview.vue'
 import type { Mood, Task } from '@/types'
 import { MOODS } from '@/utils/constants'
 import { formatFriendlyDate, getWeekdayName } from '@/utils/format'
+import { downloadReflection } from '@/utils/exportReflection'
 
 // ---- Props ----
 const props = defineProps<{
@@ -28,6 +29,7 @@ const emit = defineEmits<{
 // ---- 本地状态 ----
 const showPreview = ref(false)
 const tagInput = ref('')
+const showExportMenu = ref(false)
 
 // ---- 心情配置 ----
 const moodConfig: Record<Mood, { emoji: string; label: string; color: string; bgColor: string }> = {
@@ -139,7 +141,27 @@ function getMoodInfo(mood: Mood) {
     <!-- 日期标题 -->
     <div class="editor-date-header">
       <h2 class="date-title">{{ dateDisplayText }}</h2>
-      <button class="btn-today" @click="emit('goToToday')">回到今天</button>
+      <div class="header-actions">
+        <div class="export-dropdown" @mouseleave="showExportMenu = false">
+          <button class="btn-export" @mouseenter="showExportMenu = true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            导出
+          </button>
+          <div v-if="showExportMenu" class="export-menu">
+            <button class="export-menu-item" @click="downloadReflection({ id: reflectionId || '', date, content, mood, tags, relatedTaskIds: [], createdAt: '', updatedAt: '', synced: false }, 'md'); showExportMenu = false">
+              Markdown (.md)
+            </button>
+            <button class="export-menu-item" @click="downloadReflection({ id: reflectionId || '', date, content, mood, tags, relatedTaskIds: [], createdAt: '', updatedAt: '', synced: false }, 'json'); showExportMenu = false">
+              JSON (.json)
+            </button>
+          </div>
+        </div>
+        <button class="btn-today" @click="emit('goToToday')">回到今天</button>
+      </div>
     </div>
 
     <!-- 心情选择器 -->
@@ -255,6 +277,71 @@ function getMoodInfo(mood: Mood) {
   color: var(--accent);
   border-color: var(--accent-dim);
   box-shadow: 0 0 8px var(--accent-glow);
+}
+
+/* ---- 导出下拉 ---- */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.export-dropdown {
+  position: relative;
+}
+
+.btn-export {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.btn-export:hover {
+  background: var(--hover-bg);
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.export-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  box-shadow: var(--glass-shadow);
+  padding: 4px;
+  min-width: 140px;
+  z-index: 10;
+}
+
+.export-menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.2s ease;
+}
+
+.export-menu-item:hover {
+  background: var(--surface-hover);
+  color: var(--accent);
 }
 
 /* ---- 心情选择器 ---- */
