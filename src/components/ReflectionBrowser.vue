@@ -1,51 +1,111 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import type { Reflection } from '@/types'
-import { formatFriendlyDate } from '@/utils/format'
+import { computed } from "vue";
+import type { Reflection } from "@/types";
+import { formatFriendlyDate } from "@/utils/format";
 
 // ---- Props ----
 const props = defineProps<{
-  reflections: Reflection[]
-  allTags: string[]
-  activeTag: string | null
-}>()
+  reflections: Reflection[];
+  allTags: string[];
+  activeTag: string | null;
+  dateFrom: string | null;
+  dateTo: string | null;
+}>();
 
 const emit = defineEmits<{
-  (e: 'filterByTag', tag: string | null): void
-  (e: 'openDetail', reflection: Reflection): void
-  (e: 'deleteReflection', id: string): void
-}>()
+  (e: "filterByTag", tag: string | null): void;
+  (
+    e: "filterByDateRange",
+    dateFrom: string | null,
+    dateTo: string | null
+  ): void;
+  (e: "openDetail", reflection: Reflection): void;
+  (e: "deleteReflection", id: string): void;
+}>();
 
 // ---- 计算属性 ----
 const filteredReflections = computed(() => {
-  let list = [...props.reflections]
+  let list = [...props.reflections];
   if (props.activeTag) {
-    list = list.filter((r) => r.tags.includes(props.activeTag!))
+    list = list.filter((r) => r.tags.includes(props.activeTag!));
   }
-  return list
-})
+  if (props.dateFrom) {
+    list = list.filter((r) => r.date >= props.dateFrom!);
+  }
+  if (props.dateTo) {
+    list = list.filter((r) => r.date <= props.dateTo!);
+  }
+  return list;
+});
 
 // ---- 方法 ----
 function getContentPreview(content: string): string {
-  if (!content) return '无内容'
-  const stripped = content.replace(/[#*_[\]]/g, '').replace(/\n+/g, ' ').trim()
-  return stripped.length > 150 ? stripped.slice(0, 150) + '...' : stripped
+  if (!content) return "无内容";
+  const stripped = content
+    .replace(/[#*_[\]]/g, "")
+    .replace(/\n+/g, " ")
+    .trim();
+  return stripped.length > 150 ? stripped.slice(0, 150) + "..." : stripped;
 }
 
 function getMoodInfo(mood: string) {
   const map: Record<string, { emoji: string; color: string }> = {
-    great: { emoji: '\u{1F604}', color: '#3FB950' },
-    good: { emoji: '\u{1F642}', color: '#58A6FF' },
-    normal: { emoji: '\u{1F610}', color: '#D29922' },
-    bad: { emoji: '\u{1F61F}', color: '#F0883E' },
-    terrible: { emoji: '\u{1F61E}', color: '#F85149' },
-  }
-  return map[mood] || map.normal
+    great: { emoji: "\u{1F604}", color: "#3FB950" },
+    good: { emoji: "\u{1F642}", color: "#58A6FF" },
+    normal: { emoji: "\u{1F610}", color: "#D29922" },
+    bad: { emoji: "\u{1F61F}", color: "#F0883E" },
+    terrible: { emoji: "\u{1F61E}", color: "#F85149" },
+  };
+  return map[mood] || map.normal;
+}
+
+function handleDateFromChange(e: Event) {
+  const target = e.target as HTMLInputElement;
+  emit("filterByDateRange", target.value || null, props.dateTo);
+}
+
+function handleDateToChange(e: Event) {
+  const target = e.target as HTMLInputElement;
+  emit("filterByDateRange", props.dateFrom, target.value || null);
+}
+
+function clearDateRange() {
+  emit("filterByDateRange", null, null);
 }
 </script>
 
 <template>
   <div class="browser-panel">
+    <!-- 日期筛选栏 -->
+    <div class="date-filter-bar">
+      <div class="date-filter-label">📅 日期范围:</div>
+      <div class="date-filter-inputs">
+        <input
+          type="date"
+          class="date-filter-input"
+          :value="dateFrom"
+          @change="handleDateFromChange"
+          placeholder="开始日期"
+        />
+        <span class="date-filter-separator">-</span>
+        <input
+          type="date"
+          class="date-filter-input"
+          :value="dateTo"
+          @change="handleDateToChange"
+          placeholder="结束日期"
+        />
+        <button
+          v-if="dateFrom || dateTo"
+          class="date-filter-clear"
+          @click="clearDateRange"
+          title="清除日期筛选"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+
     <!-- 标签筛选栏 -->
     <div v-if="allTags.length > 0" class="tag-filter-bar">
       <button
@@ -68,20 +128,28 @@ function getMoodInfo(mood: string) {
     <div v-else class="tag-filter-empty">暂无标签</div>
 
     <!-- 反思卡片列表 -->
-    <div v-if="filteredReflections.length === 0" class="browser-empty">暂无反思记录</div>
+    <div v-if="filteredReflections.length === 0" class="browser-empty">
+      暂无反思记录
+    </div>
     <div v-else class="reflection-card-list">
-      <div
-        v-for="r in filteredReflections"
-        :key="r.id"
-        class="reflection-card"
-      >
+      <div v-for="r in filteredReflections" :key="r.id" class="reflection-card">
         <div class="reflection-card-header" @click="emit('openDetail', r)">
           <div class="reflection-card-meta">
-            <span class="reflection-card-date">{{ formatFriendlyDate(r.date) }}</span>
-            <span class="reflection-card-mood" :style="{ color: getMoodInfo(r.mood).color }">
+            <span class="reflection-card-date">{{
+              formatFriendlyDate(r.date)
+            }}</span>
+            <span
+              class="reflection-card-mood"
+              :style="{ color: getMoodInfo(r.mood).color }"
+            >
               {{ getMoodInfo(r.mood).emoji }}
             </span>
-            <span v-for="tag in r.tags" :key="tag" class="reflection-card-tag">{{ tag }}</span>
+            <span
+              v-for="tag in r.tags"
+              :key="tag"
+              class="reflection-card-tag"
+              >{{ tag }}</span
+            >
           </div>
           <button
             class="reflection-card-delete"
@@ -155,6 +223,75 @@ function getMoodInfo(mood: string) {
   font-size: 0.85rem;
   color: var(--text-muted);
   padding: 8px 0;
+}
+
+/* ---- 日期筛选栏 ---- */
+.date-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--glass-border);
+  flex-wrap: wrap;
+}
+
+.date-filter-label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.date-filter-inputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.date-filter-input {
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 130px;
+}
+
+.date-filter-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.date-filter-separator {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.date-filter-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: none;
+  background: var(--hover-bg);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.85rem;
+}
+
+.date-filter-clear:hover {
+  background: rgba(248, 81, 73, 0.15);
+  color: var(--danger);
 }
 
 /* ---- 空状态 ---- */
@@ -239,7 +376,6 @@ function getMoodInfo(mood: string) {
   margin: 0;
 }
 
-
 .reflection-card-delete {
   position: absolute;
   top: 10px;
@@ -263,7 +399,4 @@ function getMoodInfo(mood: string) {
   color: var(--danger);
   box-shadow: 0 0 8px rgba(248, 81, 73, 0.2);
 }
-
-
-
 </style>
