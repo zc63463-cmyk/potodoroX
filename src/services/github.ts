@@ -26,7 +26,7 @@ let octokit: Octokit | null = null;
 let config: GitHubConfig = { token: "", owner: "", repo: "" };
 
 /** GitHub API 请求超时时间（毫秒） */
-const GITHUB_TIMEOUT_MS = 15000;
+const GITHUB_TIMEOUT_MS = 30000;
 
 /**
  * 包装 fetch 增加超时控制
