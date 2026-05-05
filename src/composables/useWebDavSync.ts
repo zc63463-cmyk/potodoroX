@@ -391,6 +391,41 @@ export function useWebDavSync() {
   }
 
   /**
+   * 拉取并解析 JSON 数组文件，将 JSON 解析失败也升级为 fatal：
+   * - ok: 解析成功的数组（missing 和文件为空都返回 [] 且 kind=ok）
+   * - fatal: HTTP 错误 / 网络异常 / JSON parse 失败 / 顶层非数组
+   *
+   * 把 parse 失败视为 fatal 是关键保护：远端文件可能损坏、被 Worker 代理返回成
+   * HTML 错误页、或被部分写坏；若当作空数组继续 PUT，会用本地子集覆盖远端数据。
+   */
+  async function pullJsonArray<T>(
+    path: string
+  ): Promise<{ kind: "ok"; data: T[] } | { kind: "fatal"; error: string }> {
+    const res = await pullFile(path);
+    if (res.kind === "fatal") return { kind: "fatal", error: res.error };
+    if (res.kind === "missing") return { kind: "ok", data: [] };
+    // 空文件视为空数组（ok）
+    const trimmed = res.content.trim();
+    if (trimmed === "") return { kind: "ok", data: [] };
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!Array.isArray(parsed)) {
+        return {
+          kind: "fatal",
+          error: `远端 ${path} JSON 顶层不是数组`,
+        };
+      }
+      return { kind: "ok", data: parsed as T[] };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        kind: "fatal",
+        error: `解析 ${path} 失败（可能文件损坏）：${msg}`,
+      };
+    }
+  }
+
+  /**
    * 应用墓碑过滤的合并：使用模块级 mergeWithTombstones 实现
    */
 
@@ -412,9 +447,9 @@ export function useWebDavSync() {
       await ensureRemoteDir();
 
       const local = await getAllTombstones();
-      const pullRes = await pullFile(REMOTE_PATHS.tombstones);
+      const pullRes = await pullJsonArray<Tombstone>(REMOTE_PATHS.tombstones);
       if (pullRes.kind === "fatal") {
-        // 读取失败时禁止 PUT，避免以本地子集覆盖远端
+        // 读取或解析失败都禁止 PUT，避免以本地子集覆盖远端
         return {
           pushed: 0,
           pulled: 0,
@@ -422,15 +457,7 @@ export function useWebDavSync() {
           error: `拉取墓碑失败（已中止推送）：${pullRes.error}`,
         };
       }
-      let remote: Tombstone[] = [];
-      if (pullRes.kind === "ok") {
-        try {
-          const data = JSON.parse(pullRes.content);
-          if (Array.isArray(data)) remote = data as Tombstone[];
-        } catch {
-          /* ignore */
-        }
-      }
+      const remote: Tombstone[] = pullRes.data;
 
       const { merged, pulled } = mergeTombstones(local, remote);
 
@@ -480,7 +507,7 @@ export function useWebDavSync() {
     try {
       await ensureRemoteDir();
 
-      const pullRes = await pullFile(REMOTE_PATHS.reflections);
+      const pullRes = await pullJsonArray<Reflection>(REMOTE_PATHS.reflections);
       if (pullRes.kind === "fatal") {
         return {
           type: "reflections",
@@ -489,15 +516,7 @@ export function useWebDavSync() {
           error: `拉取失败（已中止推送）：${pullRes.error}`,
         };
       }
-      let remote: Reflection[] = [];
-      if (pullRes.kind === "ok") {
-        try {
-          const data = JSON.parse(pullRes.content);
-          if (Array.isArray(data)) remote = data as Reflection[];
-        } catch {
-          // 解析失败，视为无远程数据
-        }
-      }
+      const remote: Reflection[] = pullRes.data;
 
       const { merged, pulled, toDeleteLocal } = mergeWithTombstones(
         "reflection",
@@ -554,7 +573,7 @@ export function useWebDavSync() {
     try {
       await ensureRemoteDir();
 
-      const pullRes = await pullFile(REMOTE_PATHS.sessions);
+      const pullRes = await pullJsonArray<Session>(REMOTE_PATHS.sessions);
       if (pullRes.kind === "fatal") {
         return {
           type: "sessions",
@@ -563,15 +582,7 @@ export function useWebDavSync() {
           error: `拉取失败（已中止推送）：${pullRes.error}`,
         };
       }
-      let remote: Session[] = [];
-      if (pullRes.kind === "ok") {
-        try {
-          const data = JSON.parse(pullRes.content);
-          if (Array.isArray(data)) remote = data as Session[];
-        } catch {
-          // 解析失败，视为无远程数据
-        }
-      }
+      const remote: Session[] = pullRes.data;
 
       const { merged, pulled, toDeleteLocal } = mergeWithTombstones(
         "session",
@@ -628,7 +639,7 @@ export function useWebDavSync() {
     try {
       await ensureRemoteDir();
 
-      const pullRes = await pullFile(REMOTE_PATHS.tasks);
+      const pullRes = await pullJsonArray<Task>(REMOTE_PATHS.tasks);
       if (pullRes.kind === "fatal") {
         return {
           type: "tasks",
@@ -637,15 +648,7 @@ export function useWebDavSync() {
           error: `拉取失败（已中止推送）：${pullRes.error}`,
         };
       }
-      let remote: Task[] = [];
-      if (pullRes.kind === "ok") {
-        try {
-          const data = JSON.parse(pullRes.content);
-          if (Array.isArray(data)) remote = data as Task[];
-        } catch {
-          // 解析失败，视为无远程数据
-        }
-      }
+      const remote: Task[] = pullRes.data;
 
       const { merged, pulled, toDeleteLocal } = mergeWithTombstones(
         "task",
