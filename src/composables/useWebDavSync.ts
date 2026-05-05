@@ -11,10 +11,22 @@ import { isTauri } from "@/utils/platform";
 import type { Reflection, Session, Task } from "@/types";
 import {
   getAllTombstones,
+  getUnpushedEvents,
+  removePushedEvents,
   upsertTombstones,
+  type OutboxEvent,
   type Tombstone,
 } from "@/services/outbox";
-import { parseTime } from "@/services/event-consumer";
+import { consumeEventsFrom, parseTime } from "@/services/event-consumer";
+
+/** 事件同步结果（Phase 2 / append-only 事件流） */
+export interface SyncEventsResult {
+  pushed: number;
+  pulled: number;
+  processed: number;
+  errors: number;
+  error?: string;
+}
 
 interface WebDavConfig {
   url: string;
@@ -48,6 +60,8 @@ const REMOTE_PATHS = {
   sessions: "pomodorox/sessions.json",
   tasks: "pomodorox/tasks.json",
   tombstones: "pomodorox/tombstones.json",
+  /** Phase 2: 事件流目录（append-only） */
+  eventsDir: "pomodorox/events/",
 } as const;
 
 const config = ref<WebDavConfig | null>(loadConfig());
@@ -143,6 +157,84 @@ export function mergeTombstones(
 /** 暴露全局串行锁（仅测试用） */
 export const __webdavSerialized = serialized;
 
+// ---- PROPFIND XML 解析 ----
+
+/**
+ * 解析 WebDAV PROPFIND Depth:1 返回的 XML multistatus 响应，
+ * 提取 href 子节点的路径部分（URL-decoded）。
+ *
+ * 返回的是 href 的完整 path 部分（以 "/" 开头，不含 host）。
+ * 调用方需自行剥离目录前缀、筛选扩展名等。
+ */
+export function parsePropfindHrefs(xml: string): string[] {
+  if (!xml || !xml.trim()) return [];
+
+  // 优先用 DOMParser（浏览器 / happy-dom / jsdom 均支持）
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xml, "application/xml");
+    // 命名空间可能是 "DAV:" 前缀 d 或 D。用本地名获取：
+    const hrefs = Array.from(doc.getElementsByTagName("*"))
+      .filter((el) => el.localName === "href" || el.nodeName.endsWith(":href"))
+      .map((el) => el.textContent?.trim() ?? "")
+      .filter((s) => s.length > 0)
+      .map((s) => {
+        try {
+          return decodeURIComponent(s);
+        } catch {
+          return s;
+        }
+      });
+    if (hrefs.length > 0) return hrefs;
+  } catch {
+    // DOMParser 不可用或解析失败，降级到 regex
+  }
+
+  // 降级：用正则提取 <*:href>...</*:href>
+  const regex = /<[^>:]*:?href[^>]*>([^<]+)<\/[^>:]*:?href>/gi;
+  const result: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(xml)) !== null) {
+    const raw = m[1].trim();
+    if (!raw) continue;
+    try {
+      result.push(decodeURIComponent(raw));
+    } catch {
+      result.push(raw);
+    }
+  }
+  return result;
+}
+
+/**
+ * 从 href 列表中提取指定目录下的文件名（过滤目录本身 + 非目标扩展名）。
+ *
+ * @param hrefs PROPFIND 返回的完整 href 数组
+ * @param dirPath 目标目录（如 "pomodorox/events/"）
+ * @param suffix 可选后缀过滤（如 ".json"）
+ */
+export function extractFileNamesFromHrefs(
+  hrefs: string[],
+  dirPath: string,
+  suffix?: string
+): string[] {
+  const dir = dirPath.endsWith("/") ? dirPath : dirPath + "/";
+  const names: string[] = [];
+  for (const href of hrefs) {
+    // href 可能是绝对（/dav/pomodorox/events/abc.json）或相对（pomodorox/events/abc.json）
+    // 提取目标目录后的 basename
+    const idx = href.indexOf(dir);
+    if (idx === -1) continue;
+    const tail = href.slice(idx + dir.length);
+    if (!tail || tail === "" || tail.endsWith("/")) continue; // 是目录本身或子目录
+    // 只取第一层 basename（不走更深层级）
+    if (tail.includes("/")) continue;
+    if (suffix && !tail.endsWith(suffix)) continue;
+    names.push(tail);
+  }
+  return names;
+}
+
 function loadConfig(): WebDavConfig | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -186,7 +278,8 @@ async function webProxyRequest(
   cfg: WebDavConfig,
   method: string,
   path: string,
-  body?: string
+  body?: string,
+  opts?: { depth?: string }
 ): Promise<Response> {
   const targetUrl = joinUrl(cfg.url, path);
   const proxy = cfg.proxyUrl
@@ -203,9 +296,9 @@ async function webProxyRequest(
   let finalBody: string | undefined = body;
 
   // PROPFIND 必须带 Depth header（坚果云等 WebDAV 服务器严格要求）
-  // Depth: 0 = 仅查询资源本身，用于存在性检查
+  // Depth: 0 = 仅查询资源本身；Depth: 1 = 查询直接子资源（列目录）
   if (method === "PROPFIND") {
-    headers["Depth"] = "0";
+    headers["Depth"] = opts?.depth ?? "0";
     headers["Content-Type"] = "application/xml; charset=utf-8";
     // 空 PROPFIND body = 请求所有属性（标准 allprop 行为）
     finalBody =
@@ -428,6 +521,247 @@ export function useWebDavSync() {
   /**
    * 应用墓碑过滤的合并：使用模块级 mergeWithTombstones 实现
    */
+
+  // ============================================================
+  // Phase 2: 事件流同步（append-only / 多端并发安全）
+  //
+  // 每个 outbox 事件写入独立文件 pomodorox/events/{eventId}.json，
+  // 文件不可变。两端同时同步各自上传不同 eventId → 无快照覆盖风险。
+  // ============================================================
+
+  /** PROPFIND Depth:1 列出目录下的文件名（只返回第一层） */
+  async function listEvents(): Promise<
+    { kind: "ok"; names: string[] } | { kind: "fatal"; error: string }
+  > {
+    if (!config.value) return { kind: "fatal", error: "WebDAV 未配置" };
+
+    let xml = "";
+    try {
+      if (isTauri()) {
+        xml = await invoke<string>("webdav_list", {
+          url: config.value.url,
+          username: config.value.username,
+          password: config.value.password,
+          path: REMOTE_PATHS.eventsDir,
+        });
+      } else {
+        const res = await webProxyRequest(
+          config.value,
+          "PROPFIND",
+          REMOTE_PATHS.eventsDir,
+          undefined,
+          { depth: "1" }
+        );
+        if (res.status === 404 || res.status === 409) {
+          return { kind: "ok", names: [] };
+        }
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          return {
+            kind: "fatal",
+            error: `PROPFIND HTTP ${res.status} ${body}`.trim(),
+          };
+        }
+        xml = await res.text();
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Tauri 404 -> 空字符串；其他异常 -> fatal
+      if (msg.includes("404") || msg.includes("Not Found")) {
+        return { kind: "ok", names: [] };
+      }
+      return { kind: "fatal", error: msg };
+    }
+
+    // 空响应（目录不存在）
+    if (!xml.trim()) return { kind: "ok", names: [] };
+
+    const hrefs = parsePropfindHrefs(xml);
+    const names = extractFileNamesFromHrefs(
+      hrefs,
+      REMOTE_PATHS.eventsDir,
+      ".json"
+    );
+    return { kind: "ok", names };
+  }
+
+  /** 删除远程文件（幂等，404 视为已删除）——供未来 GC 使用 */
+  async function _deleteRemoteFile(path: string): Promise<boolean> {
+    if (!config.value) return false;
+
+    if (isTauri()) {
+      try {
+        await invoke("webdav_delete", {
+          url: config.value.url,
+          username: config.value.username,
+          password: config.value.password,
+          path,
+        });
+        return true;
+      } catch (err) {
+        console.warn("[WebDAV] 删除失败:", err);
+        return false;
+      }
+    }
+
+    try {
+      const res = await webProxyRequest(config.value, "DELETE", path);
+      return res.ok || res.status === 404;
+    } catch (err) {
+      console.warn("[WebDAV] 代理删除异常:", err);
+      return false;
+    }
+  }
+  void _deleteRemoteFile; // 暂未使用但保留接口
+
+  /**
+   * 推送本地 outbox 事件到 WebDAV（append-only）
+   * 每个事件 PUT 到独立文件，不存在覆盖冲突。
+   * 成功后从本地 outbox 移除。
+   */
+  async function pushLocalEvents(): Promise<{
+    pushed: number;
+    failed: number;
+  }> {
+    await ensureRemoteDir();
+    // 确保 events 子目录存在
+    if (isTauri() && config.value) {
+      try {
+        await invoke("webdav_mkcol", {
+          url: config.value.url,
+          username: config.value.username,
+          password: config.value.password,
+          path: REMOTE_PATHS.eventsDir,
+        });
+      } catch {
+        /* already exists */
+      }
+    } else if (config.value) {
+      try {
+        await webProxyRequest(config.value, "MKCOL", REMOTE_PATHS.eventsDir);
+      } catch {
+        /* already exists */
+      }
+    }
+
+    const events = await getUnpushedEvents();
+    if (events.length === 0) return { pushed: 0, failed: 0 };
+
+    let pushed = 0;
+    let failed = 0;
+    const pushedIds: string[] = [];
+    for (const event of events) {
+      const path = `${REMOTE_PATHS.eventsDir}${event.eventId}.json`;
+      const ok = await pushFile(path, JSON.stringify(event, null, 2));
+      if (ok) {
+        pushed++;
+        pushedIds.push(event.eventId);
+      } else {
+        failed++;
+      }
+    }
+    if (pushedIds.length > 0) {
+      await removePushedEvents(pushedIds);
+    }
+    return { pushed, failed };
+  }
+
+  /**
+   * 从 WebDAV 拉取所有远程事件（PROPFIND + GET 每个文件）
+   * 返回解析后的事件数组或 fatal 错误。
+   */
+  async function pullRemoteEvents(): Promise<
+    { kind: "ok"; events: OutboxEvent[] } | { kind: "fatal"; error: string }
+  > {
+    const listRes = await listEvents();
+    if (listRes.kind === "fatal") return listRes;
+    if (listRes.names.length === 0) return { kind: "ok", events: [] };
+
+    const events: OutboxEvent[] = [];
+    for (const name of listRes.names) {
+      const path = `${REMOTE_PATHS.eventsDir}${name}`;
+      const res = await pullFile(path);
+      // 单个事件文件 fatal 不中断整体拉取，只记录
+      if (res.kind === "fatal") {
+        console.warn(`[WebDAV] 拉取事件 ${name} 失败: ${res.error}`);
+        continue;
+      }
+      if (res.kind === "missing") continue;
+      try {
+        const parsed = JSON.parse(res.content) as OutboxEvent;
+        if (parsed && parsed.eventId && parsed.type && parsed.timestamp) {
+          events.push(parsed);
+        }
+      } catch (err) {
+        console.warn(`[WebDAV] 解析事件 ${name} 失败:`, err);
+      }
+    }
+    return { kind: "ok", events };
+  }
+
+  /**
+   * 完整事件同步：push 本地 outbox → pull 远程 → consume。
+   *
+   * 这是多端并发安全的同步模式——
+   * 两端同时同步各自写入不同 eventId 文件，互不覆盖。
+   */
+  async function syncEvents(): Promise<SyncEventsResult> {
+    if (!config.value) {
+      return {
+        pushed: 0,
+        pulled: 0,
+        processed: 0,
+        errors: 0,
+        error: "WebDAV 未配置",
+      };
+    }
+    if (!isAvailable.value) {
+      return {
+        pushed: 0,
+        pulled: 0,
+        processed: 0,
+        errors: 0,
+        error: isTauri() ? "WebDAV 不可用" : "请先配置 Worker 代理 URL",
+      };
+    }
+
+    isSyncing.value = true;
+    syncError.value = null;
+
+    try {
+      // Step 1: 推送本地事件
+      const { pushed, failed } = await pushLocalEvents();
+
+      // Step 2: 拉取远程事件
+      const pullRes = await pullRemoteEvents();
+      if (pullRes.kind === "fatal") {
+        return {
+          pushed,
+          pulled: 0,
+          processed: 0,
+          errors: failed,
+          error: `拉取远端事件失败：${pullRes.error}`,
+        };
+      }
+
+      // Step 3: 消费事件（幂等 + 版本保护）
+      const consumed = await consumeEventsFrom(pullRes.events);
+
+      saveLastSync(new Date().toISOString());
+      return {
+        pushed,
+        pulled: consumed.pulled,
+        processed: consumed.processed,
+        errors: failed + consumed.errors,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "事件同步失败";
+      syncError.value = msg;
+      return { pushed: 0, pulled: 0, processed: 0, errors: 0, error: msg };
+    } finally {
+      isSyncing.value = false;
+    }
+  }
 
   /** 同步墓碑（必须先于实体同步执行） */
   async function syncTombstones(): Promise<SyncTombstonesResult> {
@@ -692,6 +1026,8 @@ export function useWebDavSync() {
     setConfig,
     clearConfig,
     testConnection,
+    // Phase 2: 事件流同步（推荐入口——多端并发安全）
+    syncEvents: () => serialized(() => syncEvents()),
     // 所有同步函数通过 serialized 锁串行化，防止并发读写冲突
     syncTombstones: () => serialized(() => syncTombstones()),
     syncReflections: (items: Reflection[], tombstones: Tombstone[] = []) =>

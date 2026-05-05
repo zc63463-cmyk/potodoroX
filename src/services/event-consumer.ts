@@ -3,11 +3,17 @@
 // 从 GitHub 拉取 outbox 事件 → 按 eventId 去重 → 幂等写入本地
 // ============================================================
 
-import type { OutboxEvent } from './outbox'
-import { filterUnprocessed, markProcessed, markTombstone, getTombstone, removeTombstone } from './outbox'
-import { db } from './database'
-import { isConfigured, pullEvents } from './github'
-import type { Task, Reflection, Session } from '@/types'
+import type { OutboxEvent } from "./outbox";
+import {
+  filterUnprocessed,
+  markProcessed,
+  markTombstone,
+  getTombstone,
+  removeTombstone,
+} from "./outbox";
+import { db } from "./database";
+import { isConfigured, pullEvents } from "./github";
+import type { Task, Reflection, Session } from "@/types";
 
 // ============================================================
 // 实体版本保护
@@ -20,10 +26,10 @@ import type { Task, Reflection, Session } from '@/types'
  * 因此先替换空格为 T 确保标准化
  */
 export function parseTime(ts: string): number {
-  const normalized = ts.replace(' ', 'T')
-  const ms = new Date(normalized).getTime()
+  const normalized = ts.replace(" ", "T");
+  const ms = new Date(normalized).getTime();
   // 解析失败时返回 0，让版本比较保守地放行（不会错误阻止新事件）
-  return Number.isNaN(ms) ? 0 : ms
+  return Number.isNaN(ms) ? 0 : ms;
 }
 
 /**
@@ -31,7 +37,7 @@ export function parseTime(ts: string): number {
  * @returns true if localTs is strictly after eventTs (local is newer)
  */
 export function isNewerThan(localTs: string, eventTs: string): boolean {
-  return parseTime(localTs) > parseTime(eventTs)
+  return parseTime(localTs) > parseTime(eventTs);
 }
 
 /**
@@ -43,56 +49,56 @@ export function isNewerThan(localTs: string, eventTs: string): boolean {
  * 2. 版本领先：如果本地实体 updatedAt > 事件时间戳，跳过覆盖
  */
 async function shouldSkipDueToVersion(event: OutboxEvent): Promise<boolean> {
-  const eventType = event.type
-  const entityId = event.entityId
-  const entityType = event.entityType
+  const eventType = event.type;
+  const entityId = event.entityId;
+  const entityType = event.entityType;
 
   // 删除事件总是执行（它们是最终的墓碑）
-  if (eventType.endsWith('.deleted')) return false
+  if (eventType.endsWith(".deleted")) return false;
 
   // 1. 检查墓碑：是否有更近的删除
-  const tombstone = await getTombstone(entityType, entityId)
+  const tombstone = await getTombstone(entityType, entityId);
   if (tombstone && isNewerThan(tombstone.deletedAt, event.timestamp)) {
     console.log(
       `[EventConsumer] 跳过 ${eventType} ${entityId}: ` +
-      `墓碑时间 ${tombstone.deletedAt} > 事件时间 ${event.timestamp}`
-    )
-    return true
+        `墓碑时间 ${tombstone.deletedAt} > 事件时间 ${event.timestamp}`
+    );
+    return true;
   }
 
   // 2. 版本比较：从本地获取最新实体
   try {
     switch (entityType) {
-      case 'task': {
-        const task = await db.getTask(entityId)
+      case "task": {
+        const task = await db.getTask(entityId);
         if (task && isNewerThan(task.updatedAt, event.timestamp)) {
           console.log(
             `[EventConsumer] 跳过 ${eventType} ${entityId}: ` +
-            `本地 updatedAt ${task.updatedAt} > 事件时间 ${event.timestamp}`
-          )
-          return true
+              `本地 updatedAt ${task.updatedAt} > 事件时间 ${event.timestamp}`
+          );
+          return true;
         }
-        break
+        break;
       }
-      case 'reflection': {
-        const reflection = await db.getReflection(entityId)
+      case "reflection": {
+        const reflection = await db.getReflection(entityId);
         if (reflection && isNewerThan(reflection.updatedAt, event.timestamp)) {
           console.log(
             `[EventConsumer] 跳过 ${eventType} ${entityId}: ` +
-            `本地 updatedAt ${reflection.updatedAt} > 事件时间 ${event.timestamp}`
-          )
-          return true
+              `本地 updatedAt ${reflection.updatedAt} > 事件时间 ${event.timestamp}`
+          );
+          return true;
         }
-        break
+        break;
       }
       // Session 是 append-only（只有 created），无需版本保护
     }
   } catch {
     // 查询失败时，允许事件通过处理
-    return false
+    return false;
   }
 
-  return false
+  return false;
 }
 
 // ============================================================
@@ -108,51 +114,51 @@ async function processEvent(event: OutboxEvent): Promise<void> {
   // 版本保护检查
   if (await shouldSkipDueToVersion(event)) {
     // 跳过的事件仍然标记为已处理，避免重复检查
-    return
+    return;
   }
 
   switch (event.type) {
     // ---- Task 事件 ----
-    case 'task.created':
-    case 'task.updated': {
-      const task = event.payload as Task
-      await db.upsertTask(task)
+    case "task.created":
+    case "task.updated": {
+      const task = event.payload as Task;
+      await db.upsertTask(task);
       // 创建/更新成功后清除墓碑（实体已重新存在）
-      await removeTombstone('task', event.entityId)
-      break
+      await removeTombstone("task", event.entityId);
+      break;
     }
-    case 'task.deleted': {
-      const { id } = event.payload as { id: string }
-      await db.deleteTask(id)
+    case "task.deleted": {
+      const { id } = event.payload as { id: string };
+      await db.deleteTask(id);
       // 记录墓碑（使用删除事件的时间戳，而非消费端本地时间）
-      await markTombstone('task', id, event.timestamp)
-      break
+      await markTombstone("task", id, event.timestamp);
+      break;
     }
 
     // ---- Reflection 事件 ----
-    case 'reflection.created':
-    case 'reflection.updated': {
-      const reflection = event.payload as Reflection
-      await db.upsertReflection(reflection)
-      await removeTombstone('reflection', event.entityId)
-      break
+    case "reflection.created":
+    case "reflection.updated": {
+      const reflection = event.payload as Reflection;
+      await db.upsertReflection(reflection);
+      await removeTombstone("reflection", event.entityId);
+      break;
     }
-    case 'reflection.deleted': {
-      const { id } = event.payload as { id: string }
-      await db.deleteReflection(id)
-      await markTombstone('reflection', id, event.timestamp)
-      break
+    case "reflection.deleted": {
+      const { id } = event.payload as { id: string };
+      await db.deleteReflection(id);
+      await markTombstone("reflection", id, event.timestamp);
+      break;
     }
 
     // ---- Session 事件 ----
-    case 'session.created': {
-      const session = event.payload as Session
-      await db.upsertSession(session)
-      break
+    case "session.created": {
+      const session = event.payload as Session;
+      await db.upsertSession(session);
+      break;
     }
 
     default:
-      console.warn('[EventConsumer] 未知事件类型:', event.type)
+      console.warn("[EventConsumer] 未知事件类型:", event.type);
   }
 }
 
@@ -162,50 +168,68 @@ async function processEvent(event: OutboxEvent): Promise<void> {
  * 版本安全：通过 shouldSkipDueToVersion 自动保护
  */
 export async function consumeEvents(): Promise<{
-  pulled: number
-  processed: number
-  errors: number
+  pulled: number;
+  processed: number;
+  errors: number;
 }> {
   if (!isConfigured()) {
-    return { pulled: 0, processed: 0, errors: 0 }
+    return { pulled: 0, processed: 0, errors: 0 };
   }
 
   // 1. 拉取远程 outbox 事件
-  const remoteEvents = await pullEvents()
+  const remoteEvents = await pullEvents();
 
+  // 2. 委托给 transport-agnostic 的消费函数
+  return consumeEventsFrom(remoteEvents);
+}
+
+/**
+ * 消费任意来源（GitHub / WebDAV / ...）的事件数组
+ * 幂等安全：已处理的事件会自动跳过（按 eventId 去重）
+ * 版本安全：通过 shouldSkipDueToVersion 自动保护
+ *
+ * 与传输无关的纯消费逻辑——供 WebDAV / GitHub / 测试等共享。
+ */
+export async function consumeEventsFrom(remoteEvents: OutboxEvent[]): Promise<{
+  pulled: number;
+  processed: number;
+  errors: number;
+}> {
   if (!remoteEvents || remoteEvents.length === 0) {
-    return { pulled: 0, processed: 0, errors: 0 }
+    return { pulled: 0, processed: 0, errors: 0 };
   }
 
-  // 2. 按时间戳排序（先发生的先处理）
-  remoteEvents.sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+  // 1. 按时间戳排序（先发生的先处理，使用 parseTime 避免字典序 bug）
+  const sorted = [...remoteEvents].sort(
+    (a, b) => parseTime(a.timestamp) - parseTime(b.timestamp)
+  );
 
-  // 3. 过滤出未处理的事件
-  const unprocessed = await filterUnprocessed(remoteEvents)
+  // 2. 过滤出未处理的事件
+  const unprocessed = await filterUnprocessed(sorted);
 
-  // 4. 逐个处理（含版本保护校验）
-  let processed = 0
-  let errors = 0
+  // 3. 逐个处理（含版本保护校验）
+  let processed = 0;
+  let errors = 0;
 
   for (const event of unprocessed) {
     try {
-      await processEvent(event)
-      await markProcessed(event.eventId)
-      processed++
+      await processEvent(event);
+      await markProcessed(event.eventId);
+      processed++;
     } catch (err) {
-      console.error(`[EventConsumer] 处理事件失败 ${event.eventId}:`, err)
-      errors++
+      console.error(`[EventConsumer] 处理事件失败 ${event.eventId}:`, err);
+      errors++;
     }
   }
 
   console.log(
     `[EventConsumer] 完成: 远程 ${remoteEvents.length} 个事件, ` +
-    `新处理 ${processed} 个, 失败 ${errors} 个`
-  )
+      `新处理 ${processed} 个, 失败 ${errors} 个`
+  );
 
   return {
     pulled: remoteEvents.length,
     processed,
     errors,
-  }
+  };
 }

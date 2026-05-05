@@ -7,12 +7,15 @@
 // - 墓碑阻止已删除实体复活
 // - 旧更新不覆盖新本地
 // - serialized() 全局串行锁
+// - PROPFIND XML 解析（Phase 2 事件流）
 // ============================================================
 
 import { describe, it, expect } from "vitest";
 import {
   mergeWithTombstones,
   mergeTombstones,
+  parsePropfindHrefs,
+  extractFileNamesFromHrefs,
   __webdavSerialized,
 } from "./useWebDavSync";
 import type { Tombstone } from "@/services/outbox";
@@ -241,5 +244,92 @@ describe("__webdavSerialized", () => {
     await Promise.all([fail, ok]);
     expect(results).toContain("fail-handled");
     expect(results).toContain("ok");
+  });
+});
+
+// ============================================================
+// Phase 2: PROPFIND XML 解析（事件流同步）
+// ============================================================
+
+describe("parsePropfindHrefs", () => {
+  it("解析标准 DAV: 命名空间的 multistatus 响应", () => {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response>
+    <d:href>/dav/pomodorox/events/</d:href>
+    <d:propstat><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/dav/pomodorox/events/abc123.json</d:href>
+    <d:propstat><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/dav/pomodorox/events/def456.json</d:href>
+    <d:propstat><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+</d:multistatus>`;
+    const hrefs = parsePropfindHrefs(xml);
+    expect(hrefs).toHaveLength(3);
+    expect(hrefs).toContain("/dav/pomodorox/events/");
+    expect(hrefs).toContain("/dav/pomodorox/events/abc123.json");
+    expect(hrefs).toContain("/dav/pomodorox/events/def456.json");
+  });
+
+  it("URL-decode 中文/特殊字符", () => {
+    const xml = `<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response><d:href>/dav/%E4%B8%AD%E6%96%87/event.json</d:href></d:response>
+</d:multistatus>`;
+    const hrefs = parsePropfindHrefs(xml);
+    expect(hrefs).toEqual(["/dav/中文/event.json"]);
+  });
+
+  it("空字符串返回空数组", () => {
+    expect(parsePropfindHrefs("")).toEqual([]);
+    expect(parsePropfindHrefs("   ")).toEqual([]);
+  });
+
+  it("损坏的 XML 仍能通过正则回退提取", () => {
+    // DOMParser 可能生成 parse error 但仍允许回退
+    const xml = `<d:href>abc.json</d:href> garbage <d:href>def.json</d:href>`;
+    const hrefs = parsePropfindHrefs(xml);
+    expect(hrefs.length).toBeGreaterThanOrEqual(2);
+    expect(hrefs.some((h) => h.endsWith("abc.json"))).toBe(true);
+    expect(hrefs.some((h) => h.endsWith("def.json"))).toBe(true);
+  });
+});
+
+describe("extractFileNamesFromHrefs", () => {
+  it("只返回目标目录下的第一层 JSON 文件", () => {
+    const hrefs = [
+      "/dav/pomodorox/events/", // 目录本身
+      "/dav/pomodorox/events/abc.json",
+      "/dav/pomodorox/events/def.json",
+      "/dav/pomodorox/events/nested/deep.json", // 更深层级
+      "/dav/pomodorox/events/readme.txt", // 非目标后缀
+      "/dav/other/events/xyz.json", // 其他目录
+    ];
+    const names = extractFileNamesFromHrefs(
+      hrefs,
+      "pomodorox/events/",
+      ".json"
+    );
+    expect(names).toEqual(["abc.json", "def.json"]);
+  });
+
+  it("目录路径不带尾斜杠也可以工作", () => {
+    const hrefs = ["/dav/pomodorox/events/x.json"];
+    const names = extractFileNamesFromHrefs(hrefs, "pomodorox/events", ".json");
+    expect(names).toEqual(["x.json"]);
+  });
+
+  it("无 suffix 过滤返回所有第一层文件", () => {
+    const hrefs = [
+      "/dav/pomodorox/events/a.json",
+      "/dav/pomodorox/events/b.txt",
+      "/dav/pomodorox/events/",
+    ];
+    const names = extractFileNamesFromHrefs(hrefs, "pomodorox/events/");
+    expect(names).toEqual(["a.json", "b.txt"]);
   });
 });

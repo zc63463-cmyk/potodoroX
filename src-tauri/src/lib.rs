@@ -78,6 +78,42 @@ fn webdav_mkcol(url: &str, username: &str, password: &str, path: &str) -> Result
     }
 }
 
+/// WebDAV PROPFIND Depth:1 列出目录内容，返回原始 XML 文本
+#[tauri::command]
+fn webdav_list(url: &str, username: &str, password: &str, path: &str) -> Result<String, String> {
+    let full_url = format!("{}/{}", url.trim_end_matches('/'), path.trim_start_matches('/'));
+    let result = ureq::request("PROPFIND", &full_url)
+        .set("Authorization", &format!("Basic {}", base64_encode(&format!("{}:{}", username, password))))
+        .set("Depth", "1")
+        .set("Content-Type", "application/xml")
+        .send("");
+
+    match result {
+        Ok(resp) => {
+            resp.into_body()
+                .read_to_string()
+                .map_err(|e| format!("Read PROPFIND body failed: {}", e))
+        }
+        // 404 Not Found - 目录不存在（首次使用）：返回空字符串，调用方视为空列表
+        Err(ureq::Error::Status(404, _)) => Ok(String::new()),
+        Err(e) => Err(format!("PROPFIND failed: {}", e)),
+    }
+}
+
+/// WebDAV DELETE 删除文件（幂等，404 视为成功）
+#[tauri::command]
+fn webdav_delete(url: &str, username: &str, password: &str, path: &str) -> Result<String, String> {
+    let full_url = format!("{}/{}", url.trim_end_matches('/'), path.trim_start_matches('/'));
+    let result = ureq::request("DELETE", &full_url)
+        .set("Authorization", &format!("Basic {}", base64_encode(&format!("{}:{}", username, password))))
+        .call();
+    match result {
+        Ok(resp) => Ok(format!("DELETE {}", resp.status())),
+        Err(ureq::Error::Status(404, _)) => Ok(String::from("DELETE 404 (already gone)")),
+        Err(e) => Err(format!("DELETE failed: {}", e)),
+    }
+}
+
 fn base64_encode(input: &str) -> String {
     use base64::{Engine as _, engine::general_purpose};
     general_purpose::STANDARD.encode(input)
@@ -91,7 +127,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![greet, webdav_put, webdav_get, webdav_test, webdav_mkcol])
+        .invoke_handler(tauri::generate_handler![greet, webdav_put, webdav_get, webdav_test, webdav_mkcol, webdav_list, webdav_delete])
         .setup(|app| {
             // Create the tray menu
             let show_i = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;

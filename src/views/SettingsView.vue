@@ -7,13 +7,11 @@ import { useSettingsStore } from "@/stores/settings";
 import { useSyncStore } from "@/stores/sync";
 import { useTaskStore } from "@/stores/task";
 import { useTimerStore } from "@/stores/timer";
-import type { SyncTypeResult } from "@/composables/useWebDavSync";
 import { useWebDavSync } from "@/composables/useWebDavSync";
 import { isTauri } from "@/utils/platform";
 import type { ImportReflection } from "@/utils/importReflection";
 import { parseImportFile } from "@/utils/importReflection";
-import type { ThemeName, Reflection, Session, Task } from "@/types";
-import { db } from "@/services/database";
+import type { ThemeName } from "@/types";
 
 // ---- Stores ----
 const settingsStore = useSettingsStore();
@@ -608,116 +606,40 @@ async function testWebDavConnection() {
   }
 }
 
-/** WebDAV 执行同步 */
+/** WebDAV 执行同步（Phase 2：基于事件流，多端并发安全） */
 async function syncWebDav() {
   saveWebDavConfig();
 
-  // Step 1: 先同步墓碑（删除标记）
-  const tombstoneResult = await webDav.syncTombstones();
-  if (tombstoneResult.error) {
-    appStore.showToast(`墓碑同步失败：${tombstoneResult.error}`, "error");
+  // 事件流同步：push 本地 outbox → pull 远程事件 → 幂等消费
+  // 每个 CRUD 操作对应一个不可变事件文件，两端同时同步不会互相覆盖。
+  const result = await webDav.syncEvents();
+
+  // 刷新本地 store（事件消费已写入 DB，需要重新加载）
+  try {
+    const reflectionStore = useReflectionStore();
+    const sessionStore = useSessionStore();
+    const taskStore = useTaskStore();
+    await Promise.all([
+      reflectionStore.loadReflections(),
+      sessionStore.loadAllSessions(),
+      taskStore.loadTasks(),
+    ]);
+  } catch (err) {
+    console.error("[SettingsView] 刷新本地 store 失败:", err);
+  }
+
+  if (result.error) {
+    appStore.showToast(`同步失败：${result.error}`, "error");
     return;
   }
-  const tombstones = tombstoneResult.merged;
 
-  // Step 2: 并行同步实体（携带墓碑过滤）
-  const tasks: Promise<SyncTypeResult>[] = [];
-
-  if (syncTypes.value.includes("reflections")) {
-    const reflectionStore = useReflectionStore();
-    await reflectionStore.loadReflections();
-    tasks.push(webDav.syncReflections(reflectionStore.reflections, tombstones));
-  }
-
-  if (syncTypes.value.includes("sessions")) {
-    const sessionStore = useSessionStore();
-    await sessionStore.loadAllSessions();
-    tasks.push(webDav.syncSessions(sessionStore.sessions, tombstones));
-  }
-
-  if (syncTypes.value.includes("tasks")) {
-    const taskStore = useTaskStore();
-    await taskStore.loadTasks();
-    tasks.push(webDav.syncTasks(taskStore.tasks, tombstones));
-  }
-
-  const results = await Promise.allSettled(tasks);
-
-  const success: PromiseFulfilledResult<SyncTypeResult>[] = [];
-  const failures: Array<
-    PromiseRejectedResult | PromiseFulfilledResult<SyncTypeResult>
-  > = [];
-
-  results.forEach((r) => {
-    if (r.status === "fulfilled") {
-      if (r.value.error) {
-        failures.push(r);
-      } else {
-        success.push(r);
-      }
-    } else {
-      failures.push(r);
-    }
-  });
-
-  // Step 3: 写回合并后的数据到本地数据库 + 删除被墓碑覆盖的本地实体
-  for (const r of success) {
-    try {
-      // 删除被墓碑覆盖的本地实体
-      if (r.value.toDeleteLocal && r.value.toDeleteLocal.length > 0) {
-        for (const id of r.value.toDeleteLocal) {
-          if (r.value.type === "reflections") await db.deleteReflection(id);
-          else if (r.value.type === "sessions") await db.deleteSession(id);
-          else if (r.value.type === "tasks") await db.deleteTask(id);
-        }
-      }
-
-      // 写回合并实体
-      if (!r.value.merged) continue;
-
-      if (r.value.type === "reflections") {
-        const reflectionStore = useReflectionStore();
-        for (const reflection of r.value.merged as Reflection[]) {
-          await db.upsertReflection(reflection);
-        }
-        await reflectionStore.loadReflections();
-      } else if (r.value.type === "sessions") {
-        const sessionStore = useSessionStore();
-        for (const session of r.value.merged as Session[]) {
-          await db.upsertSession(session);
-        }
-        await sessionStore.loadAllSessions();
-      } else if (r.value.type === "tasks") {
-        const taskStore = useTaskStore();
-        for (const task of r.value.merged as Task[]) {
-          await db.upsertTask(task);
-        }
-        await taskStore.loadTasks();
-      }
-    } catch (err) {
-      console.error(`写回 ${r.value.type} 数据失败:`, err);
-    }
-  }
-
-  if (failures.length === 0) {
-    const parts = success
-      .map((r) => `${r.value.type} 推${r.value.pushed}/拉${r.value.pulled}`)
-      .join("，");
-    appStore.showToast(`同步完成：${parts}`, "success");
-  } else if (success.length > 0) {
-    const successParts = success
-      .map((r) => `${r.value.type} 推${r.value.pushed}/拉${r.value.pulled}`)
-      .join("，");
-    const failParts = failures
-      .map((r) => (r.status === "rejected" ? r.reason.message : r.value.error))
-      .join("；");
-    appStore.showToast(`同步完成：${successParts}；${failParts}`, "success");
-  } else {
-    const failParts = failures
-      .map((r) => (r.status === "rejected" ? r.reason.message : r.value.error))
-      .join("；");
-    appStore.showToast(`同步失败：${failParts}`, "error");
-  }
+  const summary = `推 ${result.pushed}，拉 ${result.pulled}，处理 ${result.processed}${
+    result.errors > 0 ? `，失败 ${result.errors}` : ""
+  }`;
+  appStore.showToast(
+    `同步完成：${summary}`,
+    result.errors > 0 ? "warning" : "success"
+  );
 }
 
 /** 加载数据库统计 */
