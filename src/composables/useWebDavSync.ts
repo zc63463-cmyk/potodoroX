@@ -9,6 +9,11 @@ import { ref, computed } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "@/utils/platform";
 import type { Reflection, Session, Task } from "@/types";
+import {
+  getAllTombstones,
+  upsertTombstones,
+  type Tombstone,
+} from "@/services/outbox";
 
 interface WebDavConfig {
   url: string;
@@ -23,6 +28,15 @@ export interface SyncTypeResult<T = unknown> {
   pushed: number;
   pulled: number;
   merged?: T;
+  /** 本地需要删除的实体 ID（被远端墓碑覆盖） */
+  toDeleteLocal?: string[];
+  error?: string;
+}
+
+export interface SyncTombstonesResult {
+  pushed: number;
+  pulled: number;
+  merged: Tombstone[];
   error?: string;
 }
 
@@ -32,6 +46,7 @@ const REMOTE_PATHS = {
   reflections: "pomodorox/reflections.json",
   sessions: "pomodorox/sessions.json",
   tasks: "pomodorox/tasks.json",
+  tombstones: "pomodorox/tombstones.json",
 } as const;
 
 const config = ref<WebDavConfig | null>(loadConfig());
@@ -255,33 +270,129 @@ export function useWebDavSync() {
     }
   }
 
-  /** 按 id 合并本地和远程数据，保留 updatedAt 更新的版本 */
-  function mergeById<T extends { id: string }>(
+  /**
+   * 应用墓碑过滤的合并：
+   * - 跳过 tombstone.deletedAt >= entity.updatedAt 的条目
+   * - 返回需从本地删除的 ID（本地有但被远端墓碑覆盖）
+   */
+  function mergeWithTombstones<T extends { id: string; updatedAt: string }>(
+    entityType: string,
     local: T[],
     remote: T[],
-    getTimestamp: (e: T) => string
-  ): { merged: T[]; pulled: number } {
+    tombstones: Tombstone[]
+  ): { merged: T[]; pulled: number; toDeleteLocal: string[] } {
+    const tsMap = new Map<string, string>();
+    tombstones
+      .filter((t) => t.entityType === entityType)
+      .forEach((t) => tsMap.set(t.entityId, t.deletedAt));
+
     const merged = new Map<string, T>();
-    local.forEach((item) => merged.set(item.id, item));
+    const toDeleteLocal: string[] = [];
+
+    local.forEach((item) => {
+      const ts = tsMap.get(item.id);
+      if (ts && ts >= item.updatedAt) {
+        toDeleteLocal.push(item.id);
+        return;
+      }
+      merged.set(item.id, item);
+    });
 
     let pulled = 0;
     remote.forEach((item) => {
-      const localItem = merged.get(item.id);
-      if (!localItem) {
+      const ts = tsMap.get(item.id);
+      if (ts && ts >= item.updatedAt) return;
+      const existing = merged.get(item.id);
+      if (!existing) {
         merged.set(item.id, item);
         pulled++;
-      } else if (getTimestamp(item) > getTimestamp(localItem)) {
+      } else if (item.updatedAt > existing.updatedAt) {
         merged.set(item.id, item);
         pulled++;
       }
     });
 
-    return { merged: Array.from(merged.values()), pulled };
+    return { merged: Array.from(merged.values()), pulled, toDeleteLocal };
+  }
+
+  /** 合并墓碑列表（按 entityType+entityId 保留最新 deletedAt） */
+  function mergeTombstones(
+    local: Tombstone[],
+    remote: Tombstone[]
+  ): { merged: Tombstone[]; pulled: number } {
+    const map = new Map<string, Tombstone>();
+    const keyOf = (t: Tombstone) => `${t.entityType}:${t.entityId}`;
+    local.forEach((t) => map.set(keyOf(t), t));
+
+    let pulled = 0;
+    remote.forEach((t) => {
+      const k = keyOf(t);
+      const existing = map.get(k);
+      if (!existing) {
+        map.set(k, t);
+        pulled++;
+      } else if (t.deletedAt > existing.deletedAt) {
+        map.set(k, t);
+        pulled++;
+      }
+    });
+
+    return { merged: Array.from(map.values()), pulled };
+  }
+
+  /** 同步墓碑（必须先于实体同步执行） */
+  async function syncTombstones(): Promise<SyncTombstonesResult> {
+    if (!config.value) {
+      return { pushed: 0, pulled: 0, merged: [], error: "WebDAV 未配置" };
+    }
+    if (!isAvailable.value) {
+      return {
+        pushed: 0,
+        pulled: 0,
+        merged: [],
+        error: isTauri() ? "WebDAV 不可用" : "请先配置 Worker 代理 URL",
+      };
+    }
+
+    try {
+      await ensureRemoteDir();
+
+      const local = await getAllTombstones();
+      const content = await pullFile(REMOTE_PATHS.tombstones);
+      let remote: Tombstone[] = [];
+      if (content) {
+        try {
+          const data = JSON.parse(content);
+          if (Array.isArray(data)) remote = data as Tombstone[];
+        } catch {
+          /* ignore */
+        }
+      }
+
+      const { merged, pulled } = mergeTombstones(local, remote);
+
+      // 写回本地墓碑
+      await upsertTombstones(merged);
+
+      const pushOk = await pushFile(
+        REMOTE_PATHS.tombstones,
+        JSON.stringify(merged, null, 2)
+      );
+      if (!pushOk) {
+        return { pushed: 0, pulled, merged, error: "推送墓碑到 WebDAV 失败" };
+      }
+
+      return { pushed: merged.length, pulled, merged };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "墓碑同步失败";
+      return { pushed: 0, pulled: 0, merged: [], error: msg };
+    }
   }
 
   /** 同步反思 */
   async function syncReflections(
-    items: Reflection[]
+    items: Reflection[],
+    tombstones: Tombstone[] = []
   ): Promise<SyncTypeResult<Reflection[]>> {
     if (!config.value) {
       return {
@@ -317,7 +428,12 @@ export function useWebDavSync() {
         }
       }
 
-      const { merged, pulled } = mergeById(items, remote, (e) => e.updatedAt);
+      const { merged, pulled, toDeleteLocal } = mergeWithTombstones(
+        "reflection",
+        items,
+        remote,
+        tombstones
+      );
       const pushOk = await pushFile(
         REMOTE_PATHS.reflections,
         JSON.stringify(merged, null, 2)
@@ -334,7 +450,7 @@ export function useWebDavSync() {
       }
 
       saveLastSync(new Date().toISOString());
-      return { type: "reflections", pushed, pulled, merged };
+      return { type: "reflections", pushed, pulled, merged, toDeleteLocal };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "同步失败";
       syncError.value = msg;
@@ -346,7 +462,8 @@ export function useWebDavSync() {
 
   /** 同步会话 */
   async function syncSessions(
-    items: Session[]
+    items: Session[],
+    tombstones: Tombstone[] = []
   ): Promise<SyncTypeResult<Session[]>> {
     if (!config.value) {
       return { type: "sessions", pushed: 0, pulled: 0, error: "WebDAV 未配置" };
@@ -377,7 +494,12 @@ export function useWebDavSync() {
         }
       }
 
-      const { merged, pulled } = mergeById(items, remote, (e) => e.updatedAt);
+      const { merged, pulled, toDeleteLocal } = mergeWithTombstones(
+        "session",
+        items,
+        remote,
+        tombstones
+      );
       const pushOk = await pushFile(
         REMOTE_PATHS.sessions,
         JSON.stringify(merged, null, 2)
@@ -394,7 +516,7 @@ export function useWebDavSync() {
       }
 
       saveLastSync(new Date().toISOString());
-      return { type: "sessions", pushed, pulled, merged };
+      return { type: "sessions", pushed, pulled, merged, toDeleteLocal };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "同步失败";
       syncError.value = msg;
@@ -405,7 +527,10 @@ export function useWebDavSync() {
   }
 
   /** 同步任务 */
-  async function syncTasks(items: Task[]): Promise<SyncTypeResult<Task[]>> {
+  async function syncTasks(
+    items: Task[],
+    tombstones: Tombstone[] = []
+  ): Promise<SyncTypeResult<Task[]>> {
     if (!config.value) {
       return { type: "tasks", pushed: 0, pulled: 0, error: "WebDAV 未配置" };
     }
@@ -435,7 +560,12 @@ export function useWebDavSync() {
         }
       }
 
-      const { merged, pulled } = mergeById(items, remote, (e) => e.updatedAt);
+      const { merged, pulled, toDeleteLocal } = mergeWithTombstones(
+        "task",
+        items,
+        remote,
+        tombstones
+      );
       const pushOk = await pushFile(
         REMOTE_PATHS.tasks,
         JSON.stringify(merged, null, 2)
@@ -452,7 +582,7 @@ export function useWebDavSync() {
       }
 
       saveLastSync(new Date().toISOString());
-      return { type: "tasks", pushed, pulled, merged };
+      return { type: "tasks", pushed, pulled, merged, toDeleteLocal };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "同步失败";
       syncError.value = msg;
@@ -472,6 +602,7 @@ export function useWebDavSync() {
     setConfig,
     clearConfig,
     testConnection,
+    syncTombstones,
     syncReflections,
     syncSessions,
     syncTasks,

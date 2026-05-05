@@ -2,80 +2,93 @@
 // PomodoroX - 反思 Store
 // ============================================================
 
-import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import type { Reflection, CreateReflectionInput, UpdateReflectionInput, ReflectionFilter } from '@/types'
-import { db } from '@/services/database'
-import { formatDate } from '@/utils/format'
-import { useSyncStore } from '@/stores/sync'
+import { defineStore } from "pinia";
+import { ref, computed } from "vue";
+import type {
+  Reflection,
+  CreateReflectionInput,
+  UpdateReflectionInput,
+  ReflectionFilter,
+} from "@/types";
+import { db } from "@/services/database";
+import { formatDate } from "@/utils/format";
+import { useSyncStore } from "@/stores/sync";
+import { markTombstone } from "@/services/outbox";
 
-async function recordEvent(type: 'reflection.created' | 'reflection.updated' | 'reflection.deleted', id: string, payload: unknown) {
+async function recordEvent(
+  type: "reflection.created" | "reflection.updated" | "reflection.deleted",
+  id: string,
+  payload: unknown
+) {
   try {
-    const syncStore = useSyncStore()
-    await syncStore.recordEvent(type, id, payload)
+    const syncStore = useSyncStore();
+    await syncStore.recordEvent(type, id, payload);
   } catch (err) {
-    console.error('[ReflectionStore] 同步事件写入失败（业务操作已成功）:', err)
+    console.error("[ReflectionStore] 同步事件写入失败（业务操作已成功）:", err);
   }
 }
 
-export const useReflectionStore = defineStore('reflection', () => {
+export const useReflectionStore = defineStore("reflection", () => {
   // ---- 状态 ----
   /** 所有反思列表 */
-  const reflections = ref<Reflection[]>([])
+  const reflections = ref<Reflection[]>([]);
 
   /** 当前筛选条件 */
-  const filter = ref<ReflectionFilter>({})
+  const filter = ref<ReflectionFilter>({});
 
   /** 是否正在加载 */
-  const loading = ref(false)
+  const loading = ref(false);
 
   // ---- 计算属性 ----
 
   /** 筛选后的反思列表 */
   const filteredReflections = computed(() => {
-    let result = [...reflections.value]
+    let result = [...reflections.value];
 
     if (filter.value.dateFrom) {
-      result = result.filter((r) => r.date >= filter.value.dateFrom!)
+      result = result.filter((r) => r.date >= filter.value.dateFrom!);
     }
     if (filter.value.dateTo) {
-      result = result.filter((r) => r.date <= filter.value.dateTo!)
+      result = result.filter((r) => r.date <= filter.value.dateTo!);
     }
     if (filter.value.mood) {
-      result = result.filter((r) => r.mood === filter.value.mood)
+      result = result.filter((r) => r.mood === filter.value.mood);
     }
     if (filter.value.tag) {
-      result = result.filter((r) => r.tags.includes(filter.value.tag!))
+      result = result.filter((r) => r.tags.includes(filter.value.tag!));
     }
 
     // 按日期倒序
-    result.sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))
+    result.sort(
+      (a, b) =>
+        b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)
+    );
 
-    return result
-  })
+    return result;
+  });
 
   /** 所有唯一标签 */
   const allTags = computed(() => {
-    const tags = new Set<string>()
-    reflections.value.forEach((r) => r.tags.forEach((tag) => tags.add(tag)))
-    return Array.from(tags).sort()
-  })
+    const tags = new Set<string>();
+    reflections.value.forEach((r) => r.tags.forEach((tag) => tags.add(tag)));
+    return Array.from(tags).sort();
+  });
 
   /** 心情分布统计 */
   const moodDistribution = computed(() => {
-    const dist = new Map<string, number>()
+    const dist = new Map<string, number>();
     reflections.value.forEach((r) => {
-      dist.set(r.mood, (dist.get(r.mood) || 0) + 1)
-    })
-    return dist
-  })
+      dist.set(r.mood, (dist.get(r.mood) || 0) + 1);
+    });
+    return dist;
+  });
 
   /** 今日反思 */
   const todayReflections = computed(() => {
-    const today = new Date()
-    const dateStr = formatDate(today)
-    return reflections.value.filter((r) => r.date === dateStr)
-  })
+    const today = new Date();
+    const dateStr = formatDate(today);
+    return reflections.value.filter((r) => r.date === dateStr);
+  });
 
   // ---- 方法 ----
 
@@ -83,48 +96,53 @@ export const useReflectionStore = defineStore('reflection', () => {
    * 加载所有反思
    */
   async function loadReflections(): Promise<void> {
-    loading.value = true
+    loading.value = true;
     try {
-      reflections.value = await db.getAllReflections()
+      reflections.value = await db.getAllReflections();
     } catch (err) {
-      console.error('[ReflectionStore] 加载反思失败:', err)
+      console.error("[ReflectionStore] 加载反思失败:", err);
     } finally {
-      loading.value = false
+      loading.value = false;
     }
   }
 
   /**
    * 创建新反思
    */
-  async function createReflection(input: CreateReflectionInput): Promise<Reflection | null> {
+  async function createReflection(
+    input: CreateReflectionInput
+  ): Promise<Reflection | null> {
     try {
-      const reflection = await db.createReflection(input)
-      reflections.value.unshift(reflection)
-      await recordEvent('reflection.created', reflection.id, reflection)
-      return reflection
+      const reflection = await db.createReflection(input);
+      reflections.value.unshift(reflection);
+      await recordEvent("reflection.created", reflection.id, reflection);
+      return reflection;
     } catch (err) {
-      console.error('[ReflectionStore] 创建反思失败:', err)
-      return null
+      console.error("[ReflectionStore] 创建反思失败:", err);
+      return null;
     }
   }
 
   /**
    * 更新反思
    */
-  async function updateReflection(id: string, input: UpdateReflectionInput): Promise<Reflection | null> {
+  async function updateReflection(
+    id: string,
+    input: UpdateReflectionInput
+  ): Promise<Reflection | null> {
     try {
-      const updated = await db.updateReflection(id, input)
+      const updated = await db.updateReflection(id, input);
       if (updated) {
-        const index = reflections.value.findIndex((r) => r.id === id)
+        const index = reflections.value.findIndex((r) => r.id === id);
         if (index !== -1) {
-          reflections.value[index] = updated
+          reflections.value[index] = updated;
         }
-        await recordEvent('reflection.updated', id, updated)
+        await recordEvent("reflection.updated", id, updated);
       }
-      return updated
+      return updated;
     } catch (err) {
-      console.error('[ReflectionStore] 更新反思失败:', err)
-      return null
+      console.error("[ReflectionStore] 更新反思失败:", err);
+      return null;
     }
   }
 
@@ -133,15 +151,16 @@ export const useReflectionStore = defineStore('reflection', () => {
    */
   async function deleteReflection(id: string): Promise<boolean> {
     try {
-      const success = await db.deleteReflection(id)
+      const success = await db.deleteReflection(id);
       if (success) {
-        reflections.value = reflections.value.filter((r) => r.id !== id)
-        await recordEvent('reflection.deleted', id, { id })
+        reflections.value = reflections.value.filter((r) => r.id !== id);
+        await markTombstone("reflection", id);
+        await recordEvent("reflection.deleted", id, { id });
       }
-      return success
+      return success;
     } catch (err) {
-      console.error('[ReflectionStore] 删除反思失败:', err)
-      return false
+      console.error("[ReflectionStore] 删除反思失败:", err);
+      return false;
     }
   }
 
@@ -149,32 +168,35 @@ export const useReflectionStore = defineStore('reflection', () => {
    * 根据 ID 获取反思
    */
   function getReflectionById(id: string): Reflection | undefined {
-    return reflections.value.find((r) => r.id === id)
+    return reflections.value.find((r) => r.id === id);
   }
 
   /**
    * 设置筛选条件
    */
   function setFilter(newFilter: Partial<ReflectionFilter>): void {
-    filter.value = { ...filter.value, ...newFilter }
+    filter.value = { ...filter.value, ...newFilter };
   }
 
   /**
    * 清除筛选条件
    */
   function clearFilter(): void {
-    filter.value = {}
+    filter.value = {};
   }
 
   /**
    * 获取指定日期范围的反思
    */
-  async function getReflectionsByDateRange(start: string, end: string): Promise<Reflection[]> {
+  async function getReflectionsByDateRange(
+    start: string,
+    end: string
+  ): Promise<Reflection[]> {
     try {
-      return await db.getReflectionsByDateRange(start, end)
+      return await db.getReflectionsByDateRange(start, end);
     } catch (err) {
-      console.error('[ReflectionStore] 获取日期范围反思失败:', err)
-      return []
+      console.error("[ReflectionStore] 获取日期范围反思失败:", err);
+      return [];
     }
   }
 
@@ -197,5 +219,5 @@ export const useReflectionStore = defineStore('reflection', () => {
     setFilter,
     clearFilter,
     getReflectionsByDateRange,
-  }
-})
+  };
+});

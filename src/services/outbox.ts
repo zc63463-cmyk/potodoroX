@@ -232,6 +232,36 @@ export async function removeTombstone(
   await del(`${TOMBSTONE_PREFIX}${entityType}-${entityId}`);
 }
 
+/** 墓碑记录类型（导出供其他模块使用） */
+export type Tombstone = TombstoneRecord;
+
+/**
+ * 获取所有本地墓碑
+ */
+export async function getAllTombstones(): Promise<TombstoneRecord[]> {
+  const allKeys = await keys();
+  const tombstoneKeys = allKeys.filter((k) =>
+    String(k).startsWith(TOMBSTONE_PREFIX)
+  );
+  const result: TombstoneRecord[] = [];
+  for (const key of tombstoneKeys) {
+    const record = await get<TombstoneRecord>(String(key));
+    if (record) result.push(record);
+  }
+  return result;
+}
+
+/**
+ * 批量写入墓碑（同步合并用）
+ */
+export async function upsertTombstones(
+  tombstones: TombstoneRecord[]
+): Promise<void> {
+  for (const t of tombstones) {
+    await set(`${TOMBSTONE_PREFIX}${t.entityType}-${t.entityId}`, sanitize(t));
+  }
+}
+
 /**
  * 清除所有 outbox 数据（仅测试用）
  */

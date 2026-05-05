@@ -611,24 +611,34 @@ async function testWebDavConnection() {
 /** WebDAV 执行同步 */
 async function syncWebDav() {
   saveWebDavConfig();
+
+  // Step 1: 先同步墓碑（删除标记）
+  const tombstoneResult = await webDav.syncTombstones();
+  if (tombstoneResult.error) {
+    appStore.showToast(`墓碑同步失败：${tombstoneResult.error}`, "error");
+    return;
+  }
+  const tombstones = tombstoneResult.merged;
+
+  // Step 2: 并行同步实体（携带墓碑过滤）
   const tasks: Promise<SyncTypeResult>[] = [];
 
   if (syncTypes.value.includes("reflections")) {
     const reflectionStore = useReflectionStore();
     await reflectionStore.loadReflections();
-    tasks.push(webDav.syncReflections(reflectionStore.reflections));
+    tasks.push(webDav.syncReflections(reflectionStore.reflections, tombstones));
   }
 
   if (syncTypes.value.includes("sessions")) {
     const sessionStore = useSessionStore();
     await sessionStore.loadAllSessions();
-    tasks.push(webDav.syncSessions(sessionStore.sessions));
+    tasks.push(webDav.syncSessions(sessionStore.sessions, tombstones));
   }
 
   if (syncTypes.value.includes("tasks")) {
     const taskStore = useTaskStore();
     await taskStore.loadTasks();
-    tasks.push(webDav.syncTasks(taskStore.tasks));
+    tasks.push(webDav.syncTasks(taskStore.tasks, tombstones));
   }
 
   const results = await Promise.allSettled(tasks);
@@ -650,11 +660,21 @@ async function syncWebDav() {
     }
   });
 
-  // 写回合并后的数据到本地数据库
+  // Step 3: 写回合并后的数据到本地数据库 + 删除被墓碑覆盖的本地实体
   for (const r of success) {
-    if (!r.value.merged) continue;
-
     try {
+      // 删除被墓碑覆盖的本地实体
+      if (r.value.toDeleteLocal && r.value.toDeleteLocal.length > 0) {
+        for (const id of r.value.toDeleteLocal) {
+          if (r.value.type === "reflections") await db.deleteReflection(id);
+          else if (r.value.type === "sessions") await db.deleteSession(id);
+          else if (r.value.type === "tasks") await db.deleteTask(id);
+        }
+      }
+
+      // 写回合并实体
+      if (!r.value.merged) continue;
+
       if (r.value.type === "reflections") {
         const reflectionStore = useReflectionStore();
         for (const reflection of r.value.merged as Reflection[]) {
