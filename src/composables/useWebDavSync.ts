@@ -88,7 +88,7 @@ async function webProxyRequest(
       ? cfg.proxyUrl.slice(0, -1)
       : cfg.proxyUrl
     : "/api/webdav-proxy";
-  const reqUrl = `${proxy}/?url=${encodeURIComponent(targetUrl)}`;
+  const reqUrl = `${proxy}?url=${encodeURIComponent(targetUrl)}`;
   const auth = btoa(`${cfg.username}:${cfg.password}`);
   const headers: Record<string, string> = {
     Authorization: `Basic ${auth}`,
