@@ -49,6 +49,74 @@ function createTimeoutFetch(): typeof fetch {
   }
 }
 
+/** 判断是否为"资源不存在"错误 */
+function isNotFoundError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const status = (err as any).status
+  if (status === 404) return true
+  const msg = String((err as any).message || '')
+  return msg.includes('404') || msg.includes('Not Found')
+}
+
+/** 判断是否为可重试错误（超时 / 5xx / 网络中断） */
+function isRetryableError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const status = (err as any).status
+  if (status && status >= 500) return true
+  const msg = String((err as any).message || '')
+  return (
+    msg.includes('timeout') ||
+    msg.includes('Timeout') ||
+    msg.includes('ETIMEDOUT') ||
+    msg.includes('ECONNRESET') ||
+    msg.includes('fetch failed') ||
+    msg.includes('aborted')
+  )
+}
+
+/** 将 Octokit 错误转为用户友好的提示 */
+function friendlyErrorMessage(err: unknown): string {
+  if (!err || typeof err !== 'object') return '未知错误'
+  const status = (err as any).status
+  if (status === 401 || status === 403) {
+    return 'GitHub Token 无效或已过期，请在设置中重新配置 Personal Access Token'
+  }
+  if (status === 404) return '远程文件或仓库不存在，请检查仓库名和路径'
+  if (status === 409) return '文件冲突（可能同时被其他设备修改），请稍后重试'
+  if (status === 422) return '请求参数错误，请检查仓库配置'
+  if (status >= 500) return 'GitHub 服务器暂时不可用，请稍后重试'
+  const msg = String((err as any).message || '')
+  if (msg.includes('timeout') || msg.includes('Timeout') || msg.includes('ETIMEDOUT')) {
+    return '连接 GitHub 超时，请检查网络或稍后重试'
+  }
+  if (msg.includes('fetch failed') || msg.includes('aborted')) {
+    return '网络请求失败，请检查网络连接'
+  }
+  return msg || '未知错误'
+}
+
+/**
+ * 带自动重试的包装器
+ * 对 timeout / 5xx 自动重试 3 次，指数退避（1s / 2s / 4s）
+ */
+async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
+  let lastErr: unknown
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      return await fn()
+    } catch (err) {
+      lastErr = err
+      if (!isRetryableError(err)) throw err
+      if (attempt < 3) {
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 8000)
+        console.warn(`[GitHub] ${label} 失败（第 ${attempt} 次），${delay}ms 后重试...`)
+        await new Promise((r) => setTimeout(r, delay))
+      }
+    }
+  }
+  throw lastErr
+}
+
 /**
  * 将 UTF-8 字符串安全编码为 Base64
  * 替代已废弃的 btoa(unescape(encodeURIComponent(...))) 方案
@@ -146,30 +214,41 @@ export async function pushTasks(tasks: Task[], month: string): Promise<SyncResul
     // 尝试获取文件 SHA（如果已存在）
     let sha: string | undefined
     try {
-      const response = await client.rest.repos.getContent({
-        owner: config.owner,
-        repo: config.repo,
-        path,
-      })
+      const response = await withRetry(
+        () =>
+          client.rest.repos.getContent({
+            owner: config.owner,
+            repo: config.repo,
+            path,
+          }),
+        '获取任务文件信息',
+      )
       if (!Array.isArray(response.data) && 'sha' in response.data) {
         sha = response.data.sha
       }
-    } catch {
+    } catch (err) {
+      if (!isNotFoundError(err)) {
+        console.warn('[GitHub] 获取任务 SHA 异常:', friendlyErrorMessage(err))
+      }
       // 文件不存在，这是正常的
     }
 
-    await client.rest.repos.createOrUpdateFileContents({
-      owner: config.owner,
-      repo: config.repo,
-      path,
-      message: `sync: 更新 ${month} 任务数据`,
-      content: utf8ToBase64(content),
-      sha,
-    })
+    await withRetry(
+      () =>
+        client.rest.repos.createOrUpdateFileContents({
+          owner: config.owner,
+          repo: config.repo,
+          path,
+          message: `sync: 更新 ${month} 任务数据`,
+          content: utf8ToBase64(content),
+          sha,
+        }),
+      '推送任务数据',
+    )
 
     return { success: true, message: `成功推送 ${tasks.length} 个任务` }
   } catch (err) {
-    const message = err instanceof Error ? err.message : '未知错误'
+    const message = friendlyErrorMessage(err)
     console.error('[GitHub] 推送任务失败:', message)
     return { success: false, message: `推送任务失败: ${message}` }
   }
@@ -188,11 +267,15 @@ export async function pullTasks(month: string): Promise<SyncResult & { tasks?: T
     const client = ensureOctokit()
     const path = `${GITHUB_SYNC_DIR}/${month}/tasks.json`
 
-    const response = await client.rest.repos.getContent({
-      owner: config.owner,
-      repo: config.repo,
-      path,
-    })
+    const response = await withRetry(
+      () =>
+        client.rest.repos.getContent({
+          owner: config.owner,
+          repo: config.repo,
+          path,
+        }),
+      '拉取任务数据',
+    )
 
     if (Array.isArray(response.data)) {
       return { success: false, message: '路径是目录而非文件' }
@@ -206,11 +289,10 @@ export async function pullTasks(month: string): Promise<SyncResult & { tasks?: T
 
     return { success: false, message: '无法解析响应数据' }
   } catch (err) {
-    const message = err instanceof Error ? err.message : '未知错误'
-    // 404 表示文件不存在，不是错误
-    if (message.includes('404') || message.includes('Not Found')) {
+    if (isNotFoundError(err)) {
       return { success: true, message: '远程无任务数据', tasks: [] }
     }
+    const message = friendlyErrorMessage(err)
     console.error('[GitHub] 拉取任务失败:', message)
     return { success: false, message: `拉取任务失败: ${message}` }
   }
@@ -229,11 +311,15 @@ export async function pullReflections(month: string): Promise<SyncResult & { ref
     const client = ensureOctokit()
     const path = `${GITHUB_SYNC_DIR}/${month}/reflections.json`
 
-    const response = await client.rest.repos.getContent({
-      owner: config.owner,
-      repo: config.repo,
-      path,
-    })
+    const response = await withRetry(
+      () =>
+        client.rest.repos.getContent({
+          owner: config.owner,
+          repo: config.repo,
+          path,
+        }),
+      '拉取反思数据',
+    )
 
     if (Array.isArray(response.data)) {
       return { success: false, message: '路径是目录而非文件' }
@@ -247,10 +333,10 @@ export async function pullReflections(month: string): Promise<SyncResult & { ref
 
     return { success: false, message: '无法解析响应数据' }
   } catch (err) {
-    const message = err instanceof Error ? err.message : '未知错误'
-    if (message.includes('404') || message.includes('Not Found')) {
+    if (isNotFoundError(err)) {
       return { success: true, message: '远程无反思数据', reflections: [] }
     }
+    const message = friendlyErrorMessage(err)
     console.error('[GitHub] 拉取反思失败:', message)
     return { success: false, message: `拉取反思失败: ${message}` }
   }
@@ -269,11 +355,15 @@ export async function pullSessions(month: string): Promise<SyncResult & { sessio
     const client = ensureOctokit()
     const path = `${GITHUB_SYNC_DIR}/${month}/sessions.json`
 
-    const response = await client.rest.repos.getContent({
-      owner: config.owner,
-      repo: config.repo,
-      path,
-    })
+    const response = await withRetry(
+      () =>
+        client.rest.repos.getContent({
+          owner: config.owner,
+          repo: config.repo,
+          path,
+        }),
+      '拉取会话数据',
+    )
 
     if (Array.isArray(response.data)) {
       return { success: false, message: '路径是目录而非文件' }
@@ -287,10 +377,10 @@ export async function pullSessions(month: string): Promise<SyncResult & { sessio
 
     return { success: false, message: '无法解析响应数据' }
   } catch (err) {
-    const message = err instanceof Error ? err.message : '未知错误'
-    if (message.includes('404') || message.includes('Not Found')) {
+    if (isNotFoundError(err)) {
       return { success: true, message: '远程无会话数据', sessions: [] }
     }
+    const message = friendlyErrorMessage(err)
     console.error('[GitHub] 拉取会话失败:', message)
     return { success: false, message: `拉取会话失败: ${message}` }
   }
@@ -313,30 +403,41 @@ export async function pushReflections(reflections: Reflection[], month: string):
 
     let sha: string | undefined
     try {
-      const response = await client.rest.repos.getContent({
-        owner: config.owner,
-        repo: config.repo,
-        path,
-      })
+      const response = await withRetry(
+        () =>
+          client.rest.repos.getContent({
+            owner: config.owner,
+            repo: config.repo,
+            path,
+          }),
+        '获取反思文件信息',
+      )
       if (!Array.isArray(response.data) && 'sha' in response.data) {
         sha = response.data.sha
       }
-    } catch {
+    } catch (err) {
+      if (!isNotFoundError(err)) {
+        console.warn('[GitHub] 获取反思 SHA 异常:', friendlyErrorMessage(err))
+      }
       // 文件不存在
     }
 
-    await client.rest.repos.createOrUpdateFileContents({
-      owner: config.owner,
-      repo: config.repo,
-      path,
-      message: `sync: 更新 ${month} 反思数据`,
-      content: utf8ToBase64(content),
-      sha,
-    })
+    await withRetry(
+      () =>
+        client.rest.repos.createOrUpdateFileContents({
+          owner: config.owner,
+          repo: config.repo,
+          path,
+          message: `sync: 更新 ${month} 反思数据`,
+          content: utf8ToBase64(content),
+          sha,
+        }),
+      '推送反思数据',
+    )
 
     return { success: true, message: `成功推送 ${reflections.length} 条反思` }
   } catch (err) {
-    const message = err instanceof Error ? err.message : '未知错误'
+    const message = friendlyErrorMessage(err)
     console.error('[GitHub] 推送反思失败:', message)
     return { success: false, message: `推送反思失败: ${message}` }
   }
@@ -359,30 +460,41 @@ export async function pushSessions(sessions: Session[], month: string): Promise<
 
     let sha: string | undefined
     try {
-      const response = await client.rest.repos.getContent({
-        owner: config.owner,
-        repo: config.repo,
-        path,
-      })
+      const response = await withRetry(
+        () =>
+          client.rest.repos.getContent({
+            owner: config.owner,
+            repo: config.repo,
+            path,
+          }),
+        '获取会话文件信息',
+      )
       if (!Array.isArray(response.data) && 'sha' in response.data) {
         sha = response.data.sha
       }
-    } catch {
+    } catch (err) {
+      if (!isNotFoundError(err)) {
+        console.warn('[GitHub] 获取会话 SHA 异常:', friendlyErrorMessage(err))
+      }
       // 文件不存在
     }
 
-    await client.rest.repos.createOrUpdateFileContents({
-      owner: config.owner,
-      repo: config.repo,
-      path,
-      message: `sync: 更新 ${month} 会话数据`,
-      content: utf8ToBase64(content),
-      sha,
-    })
+    await withRetry(
+      () =>
+        client.rest.repos.createOrUpdateFileContents({
+          owner: config.owner,
+          repo: config.repo,
+          path,
+          message: `sync: 更新 ${month} 会话数据`,
+          content: utf8ToBase64(content),
+          sha,
+        }),
+      '推送会话数据',
+    )
 
     return { success: true, message: `成功推送 ${sessions.length} 条会话记录` }
   } catch (err) {
-    const message = err instanceof Error ? err.message : '未知错误'
+    const message = friendlyErrorMessage(err)
     console.error('[GitHub] 推送会话失败:', message)
     return { success: false, message: `推送会话失败: ${message}` }
   }
@@ -409,30 +521,41 @@ export async function pushMarkdown(
 
     let sha: string | undefined
     try {
-      const response = await client.rest.repos.getContent({
-        owner: config.owner,
-        repo: config.repo,
-        path,
-      })
+      const response = await withRetry(
+        () =>
+          client.rest.repos.getContent({
+            owner: config.owner,
+            repo: config.repo,
+            path,
+          }),
+        '获取报告文件信息',
+      )
       if (!Array.isArray(response.data) && 'sha' in response.data) {
         sha = response.data.sha
       }
-    } catch {
+    } catch (err) {
+      if (!isNotFoundError(err)) {
+        console.warn('[GitHub] 获取报告 SHA 异常:', friendlyErrorMessage(err))
+      }
       // 文件不存在
     }
 
-    await client.rest.repos.createOrUpdateFileContents({
-      owner: config.owner,
-      repo: config.repo,
-      path,
-      message: `report: 更新报告 ${filename}`,
-      content: utf8ToBase64(content),
-      sha,
-    })
+    await withRetry(
+      () =>
+        client.rest.repos.createOrUpdateFileContents({
+          owner: config.owner,
+          repo: config.repo,
+          path,
+          message: `report: 更新报告 ${filename}`,
+          content: utf8ToBase64(content),
+          sha,
+        }),
+      '推送报告',
+    )
 
     return { success: true, message: `成功推送 ${filename}` }
   } catch (err) {
-    const message = err instanceof Error ? err.message : '未知错误'
+    const message = friendlyErrorMessage(err)
     console.error('[GitHub] 推送 Markdown 失败:', message)
     return { success: false, message: `推送失败: ${message}` }
   }
@@ -453,13 +576,17 @@ export async function getSyncStatus(): Promise<SyncResult> {
 
   try {
     const client = ensureOctokit()
-    await client.rest.repos.get({
-      owner: config.owner,
-      repo: config.repo,
-    })
+    await withRetry(
+      () =>
+        client.rest.repos.get({
+          owner: config.owner,
+          repo: config.repo,
+        }),
+      '检查仓库连接',
+    )
     return { success: true, message: 'GitHub 连接正常' }
   } catch (err) {
-    const message = err instanceof Error ? err.message : '未知错误'
+    const message = friendlyErrorMessage(err)
     return { success: false, message: `GitHub 连接失败: ${message}` }
   }
 }
@@ -510,24 +637,50 @@ export async function pushEvent(event: OutboxEvent): Promise<SyncResult> {
     const path = `${GITHUB_SYNC_DIR}/outbox/${event.eventId}.json`
     const content = JSON.stringify(event, null, 2)
 
-    // 不传入 SHA → 如果文件已存在则自动失败（GitHub API 返回 409）
-    await client.rest.repos.createOrUpdateFileContents({
-      owner: config.owner,
-      repo: config.repo,
-      path,
-      message: `event: ${event.type} (${event.entityId})`,
-      content: utf8ToBase64(content),
-    })
+    // 先获取 SHA（断网重试时远端可能已存在）
+    let sha: string | undefined
+    try {
+      const response = await withRetry(
+        () =>
+          client.rest.repos.getContent({
+            owner: config.owner,
+            repo: config.repo,
+            path,
+          }),
+        '获取事件文件信息',
+      )
+      if (!Array.isArray(response.data) && 'sha' in response.data) {
+        sha = response.data.sha
+      }
+    } catch (err) {
+      if (!isNotFoundError(err)) {
+        console.warn('[GitHub] 获取事件 SHA 异常:', friendlyErrorMessage(err))
+      }
+      // 文件不存在，首次推送
+    }
+
+    await withRetry(
+      () =>
+        client.rest.repos.createOrUpdateFileContents({
+          owner: config.owner,
+          repo: config.repo,
+          path,
+          message: `event: ${event.type} (${event.entityId})`,
+          content: utf8ToBase64(content),
+          sha,
+        }),
+      '推送事件',
+    )
 
     return { success: true, message: `事件 ${event.eventId} 推送成功` }
   } catch (err) {
-    // 409 = 文件已存在（不同设备同时推送同一事件，或断网重试时远端已存在）
+    // 409 = 文件已存在（SHA 不匹配时 GitHub API 返回 409）
     // 视为幂等成功——事件已在 GitHub 上，无需重推
     if (err && typeof err === 'object' && 'status' in err && (err as any).status === 409) {
       return { success: true, message: `事件 ${event.eventId} 已存在（幂等跳过）` }
     }
 
-    const message = err instanceof Error ? err.message : '未知错误'
+    const message = friendlyErrorMessage(err)
     return { success: false, message: `事件推送失败: ${message}` }
   }
 }
@@ -570,18 +723,25 @@ export async function pullEvents(): Promise<OutboxEvent[]> {
     // 列出 outbox/ 目录内容
     let items: { name: string; path: string }[] = []
     try {
-      const response = await client.rest.repos.getContent({
-        owner: config.owner,
-        repo: config.repo,
-        path: dir,
-      })
+      const response = await withRetry(
+        () =>
+          client.rest.repos.getContent({
+            owner: config.owner,
+            repo: config.repo,
+            path: dir,
+          }),
+        '列出事件目录',
+      )
 
       if (Array.isArray(response.data)) {
         items = response.data
           .filter((item) => item.name.endsWith('.json'))
           .map((item) => ({ name: item.name, path: item.path }))
       }
-    } catch {
+    } catch (err) {
+      if (!isNotFoundError(err)) {
+        console.warn('[GitHub] 列出事件目录异常:', friendlyErrorMessage(err))
+      }
       // outbox/ 目录不存在（首次使用或没有事件）
       return []
     }
@@ -597,20 +757,24 @@ export async function pullEvents(): Promise<OutboxEvent[]> {
     const events: OutboxEvent[] = []
     for (const item of items) {
       try {
-        const response = await client.rest.repos.getContent({
-          owner: config.owner,
-          repo: config.repo,
-          path: item.path,
-        })
+        const response = await withRetry(
+          () =>
+            client.rest.repos.getContent({
+              owner: config.owner,
+              repo: config.repo,
+              path: item.path,
+            }),
+          `拉取事件 ${item.name}`,
+        )
 
         if (!Array.isArray(response.data) && 'content' in response.data) {
           const content = base64ToUtf8(response.data.content)
           const event = JSON.parse(content) as OutboxEvent
           events.push(event)
         }
-      } catch {
+      } catch (err) {
         // 单个事件文件拉取失败，跳过
-        console.warn(`[GitHub] 拉取事件 ${item.name} 失败，跳过`)
+        console.warn(`[GitHub] 拉取事件 ${item.name} 失败，跳过:`, friendlyErrorMessage(err))
       }
     }
 
