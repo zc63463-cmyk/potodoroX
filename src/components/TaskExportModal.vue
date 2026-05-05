@@ -23,7 +23,8 @@ const emit = defineEmits<{
 
 // ---- 状态 ----
 const exportFormat = ref<"markdown" | "csv" | "json">("markdown");
-const exportType = ref<"task" | "daily" | "weekly">("task");
+const exportType = ref<"task" | "daily" | "weekly" | "biweekly">("task");
+const selectedTaskId = ref<string | null>(null);
 const useCurrentFilters = ref(true);
 const dateFrom = ref("");
 const dateTo = ref("");
@@ -32,8 +33,24 @@ const dateTo = ref("");
 const canExport = computed(() => {
   if (useCurrentFilters.value) return true;
   if (exportType.value === "daily") return !!dateFrom.value;
-  if (exportType.value === "weekly") return !!dateFrom.value && !!dateTo.value;
+  if (exportType.value === "weekly" || exportType.value === "biweekly")
+    return !!dateFrom.value && !!dateTo.value;
   return true;
+});
+
+const filteredTasks = computed(() => {
+  if (selectedTaskId.value) {
+    const task = props.tasks.find((t) => t.id === selectedTaskId.value);
+    return task ? [task] : [];
+  }
+  return props.tasks;
+});
+
+const filteredSessions = computed(() => {
+  if (selectedTaskId.value) {
+    return props.sessions.filter((s) => s.taskId === selectedTaskId.value);
+  }
+  return props.sessions;
 });
 
 // ---- 方法 ----
@@ -65,10 +82,10 @@ async function handleExport() {
         : undefined;
 
     const content = exportAdvancedReport({
-      type: exportType.value,
+      type: exportType.value as any,
       format: exportFormat.value,
-      tasks: props.tasks,
-      sessions: props.sessions,
+      tasks: filteredTasks.value,
+      sessions: filteredSessions.value,
       reflections: [],
       dateRange,
       filters,
@@ -99,6 +116,10 @@ async function handleExport() {
 function resetCustomFilters() {
   dateFrom.value = "";
   dateTo.value = "";
+}
+
+function resetTaskSelection() {
+  selectedTaskId.value = null;
 }
 </script>
 
@@ -160,7 +181,26 @@ function resetCustomFilters() {
                 <option value="task">任务报告</option>
                 <option value="daily">日报</option>
                 <option value="weekly">周报</option>
+                <option value="biweekly">半月报 (15天)</option>
               </select>
+            </div>
+
+            <!-- 指定任务 -->
+            <div class="form-group">
+              <label class="form-label">指定任务 (可选)</label>
+              <select v-model="selectedTaskId" class="form-select">
+                <option value="">全部任务</option>
+                <option v-for="task in tasks" :key="task.id" :value="task.id">
+                  {{ task.title }}
+                </option>
+              </select>
+              <button
+                v-if="selectedTaskId"
+                class="reset-btn"
+                @click="resetTaskSelection"
+              >
+                清除任务选择
+              </button>
             </div>
 
             <!-- 筛选选项 -->
@@ -193,11 +233,12 @@ function resetCustomFilters() {
                 />
                 <span class="date-separator">-</span>
                 <input
-                  v-if="exportType === 'weekly'"
                   v-model="dateTo"
                   type="date"
                   class="form-input"
-                  placeholder="结束日期"
+                  :placeholder="
+                    exportType === 'daily' ? '结束日期 (可选)' : '结束日期'
+                  "
                 />
               </div>
               <button class="reset-btn" @click="resetCustomFilters">
@@ -209,11 +250,11 @@ function resetCustomFilters() {
             <div class="export-stats">
               <div class="stat-item">
                 <span class="stat-label">任务数量:</span>
-                <span class="stat-value">{{ tasks.length }}</span>
+                <span class="stat-value">{{ filteredTasks.length }}</span>
               </div>
               <div class="stat-item">
                 <span class="stat-label">会话数量:</span>
-                <span class="stat-value">{{ sessions.length }}</span>
+                <span class="stat-value">{{ filteredSessions.length }}</span>
               </div>
             </div>
           </div>
