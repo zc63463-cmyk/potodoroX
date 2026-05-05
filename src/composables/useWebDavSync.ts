@@ -317,6 +317,47 @@ async function webProxyRequest(
   });
 }
 
+/**
+ * 严格校验远端拉回的事件对象是否是合法的 `OutboxEvent`。
+ *
+ * 必须同时满足：
+ * 1. 基本字段 `eventId` / `type` / `entityType` / `entityId` / `timestamp` 均为非空字符串
+ * 2. `type` 形如 `task.created` / `reflection.updated` / `session.updated` 等已知类型
+ * 3. `type` 前缀与 `entityType` 一致（防止篡改绕过墓碑/版本保护）
+ * 4. `payload` 为对象
+ *
+ * 校验失败的事件应被跳过并计入 `parseErrors`。
+ */
+export function isValidOutboxEvent(raw: unknown): raw is OutboxEvent {
+  if (!raw || typeof raw !== "object") return false;
+  const e = raw as Record<string, unknown>;
+  if (typeof e.eventId !== "string" || e.eventId.length === 0) return false;
+  if (typeof e.type !== "string" || e.type.length === 0) return false;
+  if (typeof e.entityType !== "string" || e.entityType.length === 0)
+    return false;
+  if (typeof e.entityId !== "string" || e.entityId.length === 0) return false;
+  if (typeof e.timestamp !== "string" || e.timestamp.length === 0) return false;
+  if (e.payload === null || typeof e.payload !== "object") return false;
+
+  const allowedTypes = new Set<string>([
+    "task.created",
+    "task.updated",
+    "task.deleted",
+    "reflection.created",
+    "reflection.updated",
+    "reflection.deleted",
+    "session.created",
+    "session.updated",
+  ]);
+  if (!allowedTypes.has(e.type)) return false;
+
+  // type 前缀必须与 entityType 对齐：task.* ↔ task, reflection.* ↔ reflection, session.* ↔ session
+  const prefix = e.type.split(".")[0];
+  if (prefix !== e.entityType) return false;
+
+  return true;
+}
+
 export function useWebDavSync() {
   const isAvailable = computed(() => {
     if (isTauri()) return true;
@@ -702,12 +743,12 @@ export function useWebDavSync() {
       }
       if (res.kind === "missing") continue;
       try {
-        const parsed = JSON.parse(res.content) as OutboxEvent;
-        if (parsed && parsed.eventId && parsed.type && parsed.timestamp) {
+        const parsed = JSON.parse(res.content);
+        if (isValidOutboxEvent(parsed)) {
           events.push(parsed);
         } else {
           parseErrors++;
-          console.warn(`[WebDAV] 事件 ${name} 字段缺失，跳过`);
+          console.warn(`[WebDAV] 事件 ${name} 字段缺失或非法，跳过`);
         }
       } catch (err) {
         parseErrors++;

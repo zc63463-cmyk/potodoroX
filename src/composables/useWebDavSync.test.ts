@@ -16,6 +16,7 @@ import {
   mergeTombstones,
   parsePropfindHrefs,
   extractFileNamesFromHrefs,
+  isValidOutboxEvent,
   __webdavSerialized,
 } from "./useWebDavSync";
 import type { Tombstone } from "@/services/outbox";
@@ -331,5 +332,78 @@ describe("extractFileNamesFromHrefs", () => {
     ];
     const names = extractFileNamesFromHrefs(hrefs, "pomodorox/events/");
     expect(names).toEqual(["a.json", "b.txt"]);
+  });
+});
+
+// ============================================================
+// isValidOutboxEvent：远端事件字段完整性校验（防止损坏事件绕过版本/墓碑保护）
+// ============================================================
+
+describe("isValidOutboxEvent", () => {
+  const good = {
+    eventId: "evt-1",
+    type: "task.updated",
+    entityType: "task",
+    entityId: "task-1",
+    payload: { id: "task-1", title: "x", updatedAt: "2026-05-04 10:00:00" },
+    timestamp: "2026-05-04T10:00:00.000Z",
+  };
+
+  it("完整合法事件通过校验", () => {
+    expect(isValidOutboxEvent(good)).toBe(true);
+  });
+
+  it("非对象（null / 字符串 / 数组非事件形状）均拒绝", () => {
+    expect(isValidOutboxEvent(null)).toBe(false);
+    expect(isValidOutboxEvent("evt")).toBe(false);
+    expect(isValidOutboxEvent(123)).toBe(false);
+  });
+
+  it.each([
+    ["eventId"],
+    ["type"],
+    ["entityType"],
+    ["entityId"],
+    ["timestamp"],
+    ["payload"],
+  ])("缺失关键字段 %s 应拒绝", (key) => {
+    const bad: Record<string, unknown> = { ...good };
+    delete bad[key];
+    expect(isValidOutboxEvent(bad)).toBe(false);
+  });
+
+  it("空字符串字段拒绝", () => {
+    expect(isValidOutboxEvent({ ...good, eventId: "" })).toBe(false);
+    expect(isValidOutboxEvent({ ...good, entityId: "" })).toBe(false);
+  });
+
+  it("未知事件类型拒绝（防止任意 type 绕过消费者 default 分支）", () => {
+    expect(isValidOutboxEvent({ ...good, type: "task.archived" })).toBe(false);
+    expect(
+      isValidOutboxEvent({ ...good, type: "malicious", entityType: "task" })
+    ).toBe(false);
+  });
+
+  it("type 前缀与 entityType 不一致拒绝（防止 task.updated 伪装成 session 绕过版本保护）", () => {
+    expect(
+      isValidOutboxEvent({
+        ...good,
+        type: "task.updated",
+        entityType: "session",
+      })
+    ).toBe(false);
+    expect(
+      isValidOutboxEvent({
+        ...good,
+        type: "reflection.deleted",
+        entityType: "task",
+      })
+    ).toBe(false);
+  });
+
+  it("payload 为 null 或原始值拒绝", () => {
+    expect(isValidOutboxEvent({ ...good, payload: null })).toBe(false);
+    expect(isValidOutboxEvent({ ...good, payload: "string" })).toBe(false);
+    expect(isValidOutboxEvent({ ...good, payload: 42 })).toBe(false);
   });
 });
