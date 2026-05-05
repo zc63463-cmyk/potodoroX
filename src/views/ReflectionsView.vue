@@ -35,6 +35,8 @@ function handleBeforeUnload(e: BeforeUnloadEvent) {
   }
 }
 const browseActiveTag = ref<string | null>(null);
+const browseDateFrom = ref<string | null>(null);
+const browseDateTo = ref<string | null>(null);
 const showDetailModal = ref(false);
 const selectedReflectionForModal = ref<Reflection | null>(null);
 
@@ -197,8 +199,28 @@ function cancelDelete() {
 
 function handleBrowserFilter(tag: string | null) {
   browseActiveTag.value = tag;
-  if (tag) {
-    reflectionStore.setFilter({ tag });
+  updateStoreFilter();
+}
+
+function handleDateRangeFilter(dateFrom: string | null, dateTo: string | null) {
+  browseDateFrom.value = dateFrom;
+  browseDateTo.value = dateTo;
+  updateStoreFilter();
+}
+
+function updateStoreFilter() {
+  const filter: any = {};
+  if (browseActiveTag.value) {
+    filter.tag = browseActiveTag.value;
+  }
+  if (browseDateFrom.value) {
+    filter.dateFrom = browseDateFrom.value;
+  }
+  if (browseDateTo.value) {
+    filter.dateTo = browseDateTo.value;
+  }
+  if (Object.keys(filter).length > 0) {
+    reflectionStore.setFilter(filter);
   } else {
     reflectionStore.clearFilter();
   }
@@ -387,7 +409,10 @@ onUnmounted(() => {
         :reflections="reflectionStore.filteredReflections"
         :all-tags="reflectionStore.allTags"
         :active-tag="browseActiveTag"
+        :date-from="null"
+        :date-to="null"
         @filter-by-tag="handleBrowserFilter"
+        @filter-by-date-range="handleDateRangeFilter"
         @open-detail="openDetailModal"
         @delete-reflection="requestDelete"
       />

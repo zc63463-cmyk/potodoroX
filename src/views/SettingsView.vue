@@ -53,9 +53,10 @@ const isTestingWebDav = ref(false);
 const webDavTestResult = ref<{ success: boolean; message: string } | null>(
   null
 );
-const syncTypes = ref<Array<"reflections" | "sessions">>([
+const syncTypes = ref<Array<"reflections" | "sessions" | "tasks">>([
   "reflections",
   "sessions",
+  "tasks",
 ]);
 
 // 初始化 WebDAV 配置
@@ -623,6 +624,12 @@ async function syncWebDav() {
     tasks.push(webDav.syncSessions(sessionStore.sessions));
   }
 
+  if (syncTypes.value.includes("tasks")) {
+    const taskStore = useTaskStore();
+    await taskStore.loadTasks();
+    tasks.push(webDav.syncTasks(taskStore.tasks));
+  }
+
   const results = await Promise.allSettled(tasks);
 
   const success: PromiseFulfilledResult<SyncTypeResult>[] = [];
@@ -952,6 +959,10 @@ onMounted(async () => {
               <label class="checkbox-item">
                 <input type="checkbox" value="sessions" v-model="syncTypes" />
                 <span>番茄记录</span>
+              </label>
+              <label class="checkbox-item">
+                <input type="checkbox" value="tasks" v-model="syncTypes" />
+                <span>任务</span>
               </label>
             </div>
           </div>

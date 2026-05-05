@@ -8,7 +8,7 @@
 import { ref, computed } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "@/utils/platform";
-import type { Reflection, Session } from "@/types";
+import type { Reflection, Session, Task } from "@/types";
 
 interface WebDavConfig {
   url: string;
@@ -19,7 +19,7 @@ interface WebDavConfig {
 }
 
 export interface SyncTypeResult {
-  type: "reflections" | "sessions";
+  type: "reflections" | "sessions" | "tasks";
   pushed: number;
   pulled: number;
   error?: string;
@@ -30,6 +30,7 @@ const LAST_SYNC_KEY = "webdav-last-sync";
 const REMOTE_PATHS = {
   reflections: "pomodorox/reflections.json",
   sessions: "pomodorox/sessions.json",
+  tasks: "pomodorox/tasks.json",
 } as const;
 
 const config = ref<WebDavConfig | null>(loadConfig());
@@ -398,6 +399,64 @@ export function useWebDavSync() {
     }
   }
 
+  /** 同步任务 */
+  async function syncTasks(items: Task[]): Promise<SyncTypeResult> {
+    if (!config.value) {
+      return { type: "tasks", pushed: 0, pulled: 0, error: "WebDAV 未配置" };
+    }
+    if (!isAvailable.value) {
+      return {
+        type: "tasks",
+        pushed: 0,
+        pulled: 0,
+        error: isTauri() ? "WebDAV 不可用" : "请先配置 Worker 代理 URL",
+      };
+    }
+
+    isSyncing.value = true;
+    syncError.value = null;
+
+    try {
+      await ensureRemoteDir();
+
+      const content = await pullFile(REMOTE_PATHS.tasks);
+      let remote: Task[] = [];
+      if (content) {
+        try {
+          const data = JSON.parse(content);
+          if (Array.isArray(data)) remote = data as Task[];
+        } catch {
+          // 解析失败，视为无远程数据
+        }
+      }
+
+      const { merged, pulled } = mergeById(items, remote, (e) => e.updatedAt);
+      const pushOk = await pushFile(
+        REMOTE_PATHS.tasks,
+        JSON.stringify(merged, null, 2)
+      );
+      const pushed = merged.length;
+
+      if (!pushOk) {
+        return {
+          type: "tasks",
+          pushed: 0,
+          pulled,
+          error: "推送数据到 WebDAV 失败",
+        };
+      }
+
+      saveLastSync(new Date().toISOString());
+      return { type: "tasks", pushed, pulled };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "同步失败";
+      syncError.value = msg;
+      return { type: "tasks", pushed: 0, pulled: 0, error: msg };
+    } finally {
+      isSyncing.value = false;
+    }
+  }
+
   return {
     config,
     isAvailable,
@@ -410,5 +469,6 @@ export function useWebDavSync() {
     testConnection,
     syncReflections,
     syncSessions,
+    syncTasks,
   };
 }
