@@ -20,7 +20,7 @@ const CORS_HEADERS = {
   'Access-Control-Max-Age': '86400',
 }
 
-module.exports = async function handler(request, response) {
+export default async function handler(request, response) {
   // 处理 CORS 预检
   if (request.method === 'OPTIONS') {
     Object.entries(CORS_HEADERS).forEach(([key, value]) => {
