@@ -337,7 +337,12 @@ export function isValidOutboxEvent(raw: unknown): raw is OutboxEvent {
     return false;
   if (typeof e.entityId !== "string" || e.entityId.length === 0) return false;
   if (typeof e.timestamp !== "string" || e.timestamp.length === 0) return false;
-  if (e.payload === null || typeof e.payload !== "object") return false;
+  if (
+    e.payload === null ||
+    typeof e.payload !== "object" ||
+    Array.isArray(e.payload)
+  )
+    return false;
 
   const allowedTypes = new Set<string>([
     "task.created",

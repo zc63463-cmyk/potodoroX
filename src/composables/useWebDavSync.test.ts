@@ -406,4 +406,10 @@ describe("isValidOutboxEvent", () => {
     expect(isValidOutboxEvent({ ...good, payload: "string" })).toBe(false);
     expect(isValidOutboxEvent({ ...good, payload: 42 })).toBe(false);
   });
+
+  it("payload 为数组拒绝（typeof [] === 'object' 的边界情形）", () => {
+    // 防止 upsertTask([]) 产出 undefined id 的脏记录
+    expect(isValidOutboxEvent({ ...good, payload: [] })).toBe(false);
+    expect(isValidOutboxEvent({ ...good, payload: [{ id: "x" }] })).toBe(false);
+  });
 });
