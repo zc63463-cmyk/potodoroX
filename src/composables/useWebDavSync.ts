@@ -310,6 +310,7 @@ async function webProxyRequest(
   const auth = btoa(`${cfg.username}:${cfg.password}`);
   const headers: Record<string, string> = {
     Authorization: `Basic ${auth}`,
+    "X-HTTP-Method-Override": method,
   };
 
   let finalBody: string | undefined = body;
@@ -330,7 +331,7 @@ async function webProxyRequest(
   }
 
   return fetch(reqUrl, {
-    method,
+    method: "POST",
     headers,
     body: finalBody,
   });
