@@ -41,7 +41,7 @@ PomodoroX 是个人时间管理工具，核心数据三类：
 
 - **Task**（任务）：可创建、编辑、删除
 - **Reflection**（反思）：可创建、编辑、删除
-- **Session**（番茄记录）：append-only 业务语义（用户不会"删除"一次番茄，但会补充 plan/completion）
+- **Session**（番茄记录）：可创建、编辑、删除（删除时若是 work + completed，联动让任务的 `actualPomodoros` 减 1）
 
 需求约束：
 
@@ -164,9 +164,10 @@ graph TD
 | `api/webdav-proxy.js`                          |  183 | Vercel Node.js 代理                                 | `default async handler`                                                                                                                                                                            |
 | `src/views/SettingsView.vue`                   | 2477 | 配置面板 + 触发同步                                 | 调用 `useWebDavSync`                                                                                                                                                                               |
 | `src/stores/{task,reflection,session,sync}.ts` |    — | 业务 store + 写入 outbox                            | 各 store 的业务方法 + `useSyncStore.recordEvent`                                                                                                                                                   |
-| `src/composables/useWebDavSync.test.ts`        |    — | 31 用例                                             | 纯函数 + 校验器 + 串行锁                                                                                                                                                                           |
-| `src/services/event-consumer.test.ts`          |    — | 20 用例                                             | 处理器 + 版本保护 + session.updated                                                                                                                                                                |
+| `src/composables/useWebDavSync.test.ts`        |    — | 33 用例                                             | 纯函数 + 校验器（含 session.deleted）+ 串行锁                                                                                                                                                      |
+| `src/services/event-consumer.test.ts`          |    — | 22 用例                                             | 处理器 + 版本保护 + session.updated/deleted + 墓碑保护                                                                                                                                             |
 | `src/services/outbox.test.ts`                  |    — | 6 用例                                              | 事件读写 + 墓碑                                                                                                                                                                                    |
+| `src/stores/session.test.ts`                   |    — | 7 用例                                              | deleteSession 联动 task.actualPomodoros 回退 + 边界                                                                                                                                                |
 
 ### 3.3 调用方向
 
@@ -199,7 +200,8 @@ type OutboxEventType =
   | "reflection.updated"
   | "reflection.deleted"
   | "session.created"
-  | "session.updated";
+  | "session.updated"
+  | "session.deleted";
 
 interface OutboxEvent {
   eventId: string; // UUID v4，全局唯一
@@ -780,34 +782,38 @@ interface WebDavConfig {
 
 ## 14. 测试覆盖矩阵
 
-### 14.1 单测分布（138 用例）
+### 14.1 单测分布（149 用例）
 
-| 测试文件                 |  用例数 | 覆盖维度                                                                                                                                            |
-| ------------------------ | ------: | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `useWebDavSync.test.ts`  |      31 | mergeWithTombstones、mergeTombstones、parsePropfindHrefs、extractFileNamesFromHrefs、`__webdavSerialized` 串行锁、`isValidOutboxEvent` 全部拒绝路径 |
-| `event-consumer.test.ts` |      20 | consumeEvents / consumeEventsFrom、墓碑保护、版本保护、session.updated、事件失败隔离、按 timestamp 排序                                             |
-| `outbox.test.ts`         |       6 | writeEvent、getUnpushedEvents、墓碑增删                                                                                                             |
-| `database.test.ts`       |      17 | MemoryStore / SQLite CRUD                                                                                                                           |
-| `export.test.ts`         |      39 | 导出与日期筛选                                                                                                                                      |
-| `github.test.ts`         |       6 | GitHub Issue Sync 路径                                                                                                                              |
-| `format.test.ts`         |      15 | 时间/日期格式化                                                                                                                                     |
-| 其他                     |       4 | constants / tauri 工具                                                                                                                              |
-| **合计**                 | **138** |                                                                                                                                                     |
+| 测试文件                 |  用例数 | 覆盖维度                                                                                                                                                                  |
+| ------------------------ | ------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `useWebDavSync.test.ts`  |      33 | mergeWithTombstones、mergeTombstones、parsePropfindHrefs、extractFileNamesFromHrefs、`__webdavSerialized` 串行锁、`isValidOutboxEvent` 全部拒绝路径（含 session.deleted） |
+| `event-consumer.test.ts` |      22 | consumeEvents / consumeEventsFrom、墓碑保护、版本保护、session.updated/deleted、事件失败隔离、按 timestamp 排序                                                           |
+| `session.test.ts`        |       7 | sessionStore.deleteSession 联动 task.actualPomodoros 回退、break/incomplete/无 taskId 不触发回退、taskStore 缺失时回退到 db.getTask                                       |
+| `outbox.test.ts`         |       6 | writeEvent、getUnpushedEvents、墓碑增删                                                                                                                                   |
+| `database.test.ts`       |      17 | MemoryStore / SQLite CRUD                                                                                                                                                 |
+| `export.test.ts`         |      39 | 导出与日期筛选                                                                                                                                                            |
+| `github.test.ts`         |       6 | GitHub Issue Sync 路径                                                                                                                                                    |
+| `format.test.ts`         |      15 | 时间/日期格式化                                                                                                                                                           |
+| 其他                     |       4 | constants / tauri 工具                                                                                                                                                    |
+| **合计**                 | **149** |                                                                                                                                                                           |
 
 ### 14.2 边界场景覆盖
 
-| 场景                              | 测试                                          | 状态 |
-| --------------------------------- | --------------------------------------------- | :--: |
-| 远端事件字段缺失                  | useWebDavSync.test.ts × 6 个 it.each          |  ✅  |
-| `payload: []` 数组                | useWebDavSync.test.ts                         |  ✅  |
-| `type` 与 `entityType` 不一致     | useWebDavSync.test.ts                         |  ✅  |
-| 时间字符串混合格式比较            | event-consumer.test.ts、useWebDavSync.test.ts |  ✅  |
-| 单事件 throw 不影响后续           | event-consumer.test.ts                        |  ✅  |
-| 墓碑保护拒绝旧 created            | event-consumer.test.ts                        |  ✅  |
-| session.updated upsert + 版本保护 | event-consumer.test.ts                        |  ✅  |
-| 事件按 timestamp 排序（混合格式） | event-consumer.test.ts                        |  ✅  |
-| PROPFIND XML DOMParser + 正则降级 | useWebDavSync.test.ts                         |  ✅  |
-| 串行锁失败不打断后续              | useWebDavSync.test.ts                         |  ✅  |
+| 场景                                           | 测试                                          | 状态 |
+| ---------------------------------------------- | --------------------------------------------- | :--: |
+| 远端事件字段缺失                               | useWebDavSync.test.ts × 6 个 it.each          |  ✅  |
+| `payload: []` 数组                             | useWebDavSync.test.ts                         |  ✅  |
+| `type` 与 `entityType` 不一致                  | useWebDavSync.test.ts                         |  ✅  |
+| 时间字符串混合格式比较                         | event-consumer.test.ts、useWebDavSync.test.ts |  ✅  |
+| 单事件 throw 不影响后续                        | event-consumer.test.ts                        |  ✅  |
+| 墓碑保护拒绝旧 created                         | event-consumer.test.ts                        |  ✅  |
+| session.updated upsert + 版本保护              | event-consumer.test.ts                        |  ✅  |
+| session.deleted 触发 db.deleteSession + 写墓碑 | event-consumer.test.ts                        |  ✅  |
+| session 删除后 created 迟到被墓碑跳过          | event-consumer.test.ts                        |  ✅  |
+| sessionStore.deleteSession 计数回退            | session.test.ts                               |  ✅  |
+| 事件按 timestamp 排序（混合格式）              | event-consumer.test.ts                        |  ✅  |
+| PROPFIND XML DOMParser + 正则降级              | useWebDavSync.test.ts                         |  ✅  |
+| 串行锁失败不打断后续                           | useWebDavSync.test.ts                         |  ✅  |
 
 ### 14.3 未覆盖场景（残余风险）
 

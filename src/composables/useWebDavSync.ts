@@ -372,6 +372,7 @@ export function isValidOutboxEvent(raw: unknown): raw is OutboxEvent {
     "reflection.deleted",
     "session.created",
     "session.updated",
+    "session.deleted",
   ]);
   if (!allowedTypes.has(e.type)) return false;
 

@@ -9,9 +9,10 @@ import type { Session, CreateSessionInput } from "@/types";
 import { db } from "@/services/database";
 import { formatDate } from "@/utils/format";
 import { useSyncStore } from "@/stores/sync";
+import { useTaskStore } from "@/stores/task";
 
 async function recordEvent(
-  type: "session.created" | "session.updated",
+  type: "session.created" | "session.updated" | "session.deleted",
   id: string,
   payload: unknown
 ) {
@@ -129,6 +130,59 @@ export const useSessionStore = defineStore("session", () => {
     }
   }
 
+  /**
+   * 删除会话
+   * - 写 session.deleted 事件 + 墓碑（通过 consumer 联动）
+   * - 若 session 是 work + completed 且关联了任务，则联动让 task.actualPomodoros - 1
+   *   （会同时产生 task.updated 事件以保持多端一致）
+   *
+   * @returns 是否成功删除
+   */
+  async function deleteSession(id: string): Promise<boolean> {
+    try {
+      // 先从 db 读取以获得删除前的快照（taskId / completed / type）
+      const target = await db.getSession(id);
+      if (!target) return false;
+
+      // 业务先：删除 db 与内存
+      const ok = await db.deleteSession(id);
+      if (!ok) return false;
+      const idx = sessions.value.findIndex((s) => s.id === id);
+      if (idx !== -1) sessions.value.splice(idx, 1);
+
+      // 事件后（失败仅日志、不回滚业务，遵循 I-9/I-10）
+      await recordEvent("session.deleted", id, { id });
+
+      // 联动回退任务番茄计数（仅 work + completed + 有 taskId）
+      if (target.type === "work" && target.completed && target.taskId) {
+        try {
+          const taskStore = useTaskStore();
+          const task =
+            taskStore.getTaskById(target.taskId) ??
+            (await db.getTask(target.taskId));
+          if (task) {
+            const next = Math.max(0, (task.actualPomodoros ?? 0) - 1);
+            if (next !== task.actualPomodoros) {
+              await taskStore.updateTask(target.taskId, {
+                actualPomodoros: next,
+              });
+            }
+          }
+        } catch (err) {
+          console.error(
+            "[SessionStore] 回退 task.actualPomodoros 失败（session 已删除）:",
+            err
+          );
+        }
+      }
+
+      return true;
+    } catch (err) {
+      console.error("[SessionStore] 删除会话失败:", err);
+      return false;
+    }
+  }
+
   return {
     // 状态
     sessions,
@@ -140,6 +194,7 @@ export const useSessionStore = defineStore("session", () => {
     loadAllSessions,
     addSession,
     updateSession,
+    deleteSession,
     getSessionsByDateRange,
     getSessionsByTask,
     getUnsyncedSessions,

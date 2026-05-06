@@ -28,7 +28,8 @@ export type OutboxEventType =
   | "reflection.updated"
   | "reflection.deleted"
   | "session.created"
-  | "session.updated";
+  | "session.updated"
+  | "session.deleted";
 
 /** Outbox 事件结构 */
 export interface OutboxEvent {

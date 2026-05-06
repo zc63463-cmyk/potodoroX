@@ -162,6 +162,13 @@ async function processEvent(event: OutboxEvent): Promise<ProcessEventResult> {
     case "session.updated": {
       const session = event.payload as Session;
       await db.upsertSession(session);
+      await removeTombstone("session", event.entityId);
+      break;
+    }
+    case "session.deleted": {
+      const { id } = event.payload as { id: string };
+      await db.deleteSession(id);
+      await markTombstone("session", id, event.timestamp);
       break;
     }
 

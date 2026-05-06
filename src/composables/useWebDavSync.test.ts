@@ -414,6 +414,22 @@ describe("isValidOutboxEvent", () => {
     expect(isValidOutboxEvent({ ...good, payload: [] })).toBe(false);
     expect(isValidOutboxEvent({ ...good, payload: [{ id: "x" }] })).toBe(false);
   });
+
+  it("session.deleted 事件类型通过校验（与 task.deleted / reflection.deleted 同构）", () => {
+    const sessionDeleted = {
+      eventId: "evt-sd",
+      type: "session.deleted",
+      entityType: "session",
+      entityId: "sess-1",
+      payload: { id: "sess-1" },
+      timestamp: "2026-05-06T10:00:00.000Z",
+    };
+    expect(isValidOutboxEvent(sessionDeleted)).toBe(true);
+    // 前缀错配仍被拒
+    expect(isValidOutboxEvent({ ...sessionDeleted, entityType: "task" })).toBe(
+      false
+    );
+  });
 });
 
 describe("renderReadableStatus", () => {

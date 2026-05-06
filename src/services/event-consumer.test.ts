@@ -16,6 +16,7 @@ const mockDb = vi.hoisted(() => ({
   deleteReflection: vi.fn(),
   getSession: vi.fn(),
   upsertSession: vi.fn(),
+  deleteSession: vi.fn(),
 }));
 
 const mockGithub = vi.hoisted(() => ({
@@ -363,6 +364,51 @@ describe("consumeEventsFrom", () => {
     });
     const r = await consumeEventsFrom([ev]);
     expect(r.processed).toBe(1); // 标记为已处理
+    expect(mockDb.upsertSession).not.toHaveBeenCalled();
+  });
+
+  it("session.deleted 事件应触发 deleteSession 并写入 session 墓碑", async () => {
+    const ev = makeEvent({
+      eventId: "evt-sd-1",
+      type: "session.deleted",
+      entityType: "session",
+      entityId: "sess-del",
+      timestamp: "2026-05-06T10:00:00.000Z",
+      payload: { id: "sess-del" },
+    });
+    const r = await consumeEventsFrom([ev]);
+    expect(r.processed).toBe(1);
+    expect(mockDb.deleteSession).toHaveBeenCalledWith("sess-del");
+    expect(mockOutbox.markTombstone).toHaveBeenCalledWith(
+      "session",
+      "sess-del",
+      "2026-05-06T10:00:00.000Z"
+    );
+  });
+
+  it("session 墓碑保护：删除后到达的 session.created 应被跳过（实体不复活）", async () => {
+    mockOutbox.getTombstone.mockImplementation(
+      async (entityType: string, entityId: string) => {
+        if (entityType === "session" && entityId === "sess-del") {
+          return {
+            entityType: "session",
+            entityId: "sess-del",
+            deletedAt: "2026-05-06T12:00:00.000Z",
+          };
+        }
+        return null;
+      }
+    );
+    const ev = makeEvent({
+      eventId: "evt-sc-late",
+      type: "session.created",
+      entityType: "session",
+      entityId: "sess-del",
+      timestamp: "2026-05-06T10:00:00.000Z", // 早于墓碑
+      payload: { id: "sess-del", updatedAt: "2026-05-06 10:00:00" },
+    });
+    const r = await consumeEventsFrom([ev]);
+    expect(r.processed).toBe(1); // 跳过仍计入 processed
     expect(mockDb.upsertSession).not.toHaveBeenCalled();
   });
 });
