@@ -310,7 +310,6 @@ async function webProxyRequest(
   const auth = btoa(`${cfg.username}:${cfg.password}`);
   const headers: Record<string, string> = {
     Authorization: `Basic ${auth}`,
-    "X-HTTP-Method-Override": method,
   };
 
   let finalBody: string | undefined = body;
@@ -330,9 +329,28 @@ async function webProxyRequest(
     headers["Content-Type"] = "application/json";
   }
 
+  const directResponse = await fetch(reqUrl, {
+    method,
+    headers,
+    body: finalBody,
+  });
+
+  // Some Vercel edges/browsers reject WebDAV extension methods before the
+  // serverless function can proxy them. If the 405 did not come from upstream,
+  // retry through a normal POST and let the proxy forward the real method.
+  if (
+    directResponse.status !== 405 ||
+    directResponse.headers.get("X-Upstream-Status")
+  ) {
+    return directResponse;
+  }
+
   return fetch(reqUrl, {
     method: "POST",
-    headers,
+    headers: {
+      ...headers,
+      "X-HTTP-Method-Override": method,
+    },
     body: finalBody,
   });
 }
