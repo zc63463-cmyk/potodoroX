@@ -329,6 +329,18 @@ async function webProxyRequest(
     headers["Content-Type"] = "application/json";
   }
 
+  const shouldTunnelMethod = method === "PROPFIND" || method === "MKCOL";
+  if (shouldTunnelMethod) {
+    return fetch(reqUrl, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "X-HTTP-Method-Override": method,
+      },
+      body: finalBody,
+    });
+  }
+
   const directResponse = await fetch(reqUrl, {
     method,
     headers,
