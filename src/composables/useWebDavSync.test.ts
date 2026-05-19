@@ -20,6 +20,13 @@ import {
   renderReadableStatus,
   type ReadableSyncSummary,
   __webdavSerialized,
+  detectConflicts,
+  resolveConflictsLWW,
+  applyConflictResolution,
+  generateConflictBackupPath,
+  buildConflictBackupContent,
+  hasUnsyncedChanges,
+  type ConflictRecord,
 } from "./useWebDavSync";
 import type { Tombstone } from "@/services/outbox";
 
@@ -465,5 +472,345 @@ describe("renderReadableStatus", () => {
     expect(md).toContain("Tombstone newer: 2");
     expect(md).toContain("Remote parse errors: 1");
     expect(md).toContain("readable files are diagnostics only");
+  });
+});
+
+// ============================================================
+// 冲突检测与处理（Phase 1 快照同步增强）
+// ============================================================
+
+type ConflictEntity = { id: string; updatedAt: string; value: string };
+
+describe("detectConflicts", () => {
+  const lastSync = "2026-05-01T10:00:00.000Z";
+
+  it("lastSyncAt 为空时不检测冲突（首次同步）", () => {
+    const local: ConflictEntity[] = [
+      { id: "a", updatedAt: "2026-05-02T10:00:00.000Z", value: "local" },
+    ];
+    const remote: ConflictEntity[] = [
+      { id: "a", updatedAt: "2026-05-02T12:00:00.000Z", value: "remote" },
+    ];
+    expect(detectConflicts(local, remote, null)).toEqual([]);
+  });
+
+  it("仅本地在 lastSyncAt 后更新 → 不视为冲突", () => {
+    const local: ConflictEntity[] = [
+      { id: "a", updatedAt: "2026-05-02T10:00:00.000Z", value: "local" },
+    ];
+    const remote: ConflictEntity[] = [
+      { id: "a", updatedAt: "2026-04-30T10:00:00.000Z", value: "remote" },
+    ];
+    expect(detectConflicts(local, remote, lastSync)).toEqual([]);
+  });
+
+  it("仅远程在 lastSyncAt 后更新 → 不视为冲突", () => {
+    const local: ConflictEntity[] = [
+      { id: "a", updatedAt: "2026-04-30T10:00:00.000Z", value: "local" },
+    ];
+    const remote: ConflictEntity[] = [
+      { id: "a", updatedAt: "2026-05-02T10:00:00.000Z", value: "remote" },
+    ];
+    expect(detectConflicts(local, remote, lastSync)).toEqual([]);
+  });
+
+  it("双方在 lastSyncAt 后都更新 → 检测到冲突", () => {
+    const local: ConflictEntity[] = [
+      { id: "a", updatedAt: "2026-05-02T10:00:00.000Z", value: "local" },
+    ];
+    const remote: ConflictEntity[] = [
+      { id: "a", updatedAt: "2026-05-02T12:00:00.000Z", value: "remote" },
+    ];
+    const conflicts = detectConflicts(local, remote, lastSync);
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].entityId).toBe("a");
+    expect(conflicts[0].local.value).toBe("local");
+    expect(conflicts[0].remote.value).toBe("remote");
+  });
+
+  it("双方在 lastSyncAt 前都更新 → 不视为冲突", () => {
+    const local: ConflictEntity[] = [
+      { id: "a", updatedAt: "2026-04-30T10:00:00.000Z", value: "local" },
+    ];
+    const remote: ConflictEntity[] = [
+      { id: "a", updatedAt: "2026-04-29T10:00:00.000Z", value: "remote" },
+    ];
+    expect(detectConflicts(local, remote, lastSync)).toEqual([]);
+  });
+
+  it("混合时间格式也能正确检测冲突", () => {
+    const local: ConflictEntity[] = [
+      { id: "a", updatedAt: "2026-05-02 15:00:00", value: "local" },
+    ];
+    const remote: ConflictEntity[] = [
+      { id: "a", updatedAt: "2026-05-02T12:00:00.000Z", value: "remote" },
+    ];
+    expect(detectConflicts(local, remote, lastSync)).toHaveLength(1);
+  });
+
+  it("远程没有的实体不产生冲突", () => {
+    const local: ConflictEntity[] = [
+      { id: "a", updatedAt: "2026-05-02T10:00:00.000Z", value: "local" },
+    ];
+    const remote: ConflictEntity[] = [];
+    expect(detectConflicts(local, remote, lastSync)).toEqual([]);
+  });
+
+  it("本地没有的实体不产生冲突", () => {
+    const local: ConflictEntity[] = [];
+    const remote: ConflictEntity[] = [
+      { id: "a", updatedAt: "2026-05-02T10:00:00.000Z", value: "remote" },
+    ];
+    expect(detectConflicts(local, remote, lastSync)).toEqual([]);
+  });
+});
+
+describe("resolveConflictsLWW", () => {
+  it("本地更新较晚 → local wins", () => {
+    const conflicts = [
+      {
+        entityId: "a",
+        local: {
+          id: "a",
+          updatedAt: "2026-05-02T15:00:00.000Z",
+          value: "local",
+        },
+        remote: {
+          id: "a",
+          updatedAt: "2026-05-02T10:00:00.000Z",
+          value: "remote",
+        },
+      },
+    ];
+    const result = resolveConflictsLWW(conflicts);
+    expect(result[0].winner).toBe("local");
+    expect(result[0].reason).toContain("local updatedAt");
+  });
+
+  it("远程更新较晚 → remote wins", () => {
+    const conflicts = [
+      {
+        entityId: "a",
+        local: {
+          id: "a",
+          updatedAt: "2026-05-02T09:00:00.000Z",
+          value: "local",
+        },
+        remote: {
+          id: "a",
+          updatedAt: "2026-05-02T14:00:00.000Z",
+          value: "remote",
+        },
+      },
+    ];
+    const result = resolveConflictsLWW(conflicts);
+    expect(result[0].winner).toBe("remote");
+    expect(result[0].reason).toContain("remote updatedAt");
+  });
+
+  it("时间戳相等 → local wins（>= 规则）", () => {
+    const conflicts = [
+      {
+        entityId: "a",
+        local: {
+          id: "a",
+          updatedAt: "2026-05-02T10:00:00.000Z",
+          value: "local",
+        },
+        remote: {
+          id: "a",
+          updatedAt: "2026-05-02T10:00:00.000Z",
+          value: "remote",
+        },
+      },
+    ];
+    const result = resolveConflictsLWW(conflicts);
+    expect(result[0].winner).toBe("local");
+  });
+
+  it("混合时间格式正确比较", () => {
+    // 使用跨日期比较，避免同一日期下本地时区与 UTC 转换歧义
+    const conflicts = [
+      {
+        entityId: "a",
+        local: { id: "a", updatedAt: "2026-05-03 08:00:00", value: "local" },
+        remote: {
+          id: "a",
+          updatedAt: "2026-05-02T10:00:00.000Z",
+          value: "remote",
+        },
+      },
+    ];
+    const result = resolveConflictsLWW(conflicts);
+    expect(result[0].winner).toBe("local");
+  });
+});
+
+describe("applyConflictResolution", () => {
+  it("无冲突时远程数组不变", () => {
+    const remote = [
+      { id: "a", updatedAt: "2026-05-02T10:00:00.000Z", value: "remote" },
+    ];
+    expect(applyConflictResolution(remote, [])).toEqual(remote);
+  });
+
+  it("local wins 的冲突用本地版本替换远程", () => {
+    const remote = [
+      { id: "a", updatedAt: "2026-05-02T10:00:00.000Z", value: "remote" },
+      { id: "b", updatedAt: "2026-05-02T10:00:00.000Z", value: "remote-b" },
+    ];
+    const records: ConflictRecord<ConflictEntity>[] = [
+      {
+        entityId: "a",
+        local: {
+          id: "a",
+          updatedAt: "2026-05-02T15:00:00.000Z",
+          value: "local",
+        },
+        remote: remote[0],
+        winner: "local",
+        reason: "local newer",
+      },
+    ];
+    const resolved = applyConflictResolution(remote, records);
+    expect(resolved[0].value).toBe("local");
+    expect(resolved[1].value).toBe("remote-b");
+  });
+
+  it("remote wins 的冲突保持远程版本不变", () => {
+    const remote = [
+      { id: "a", updatedAt: "2026-05-02T15:00:00.000Z", value: "remote" },
+    ];
+    const records: ConflictRecord<ConflictEntity>[] = [
+      {
+        entityId: "a",
+        local: {
+          id: "a",
+          updatedAt: "2026-05-02T10:00:00.000Z",
+          value: "local",
+        },
+        remote: remote[0],
+        winner: "remote",
+        reason: "remote newer",
+      },
+    ];
+    const resolved = applyConflictResolution(remote, records);
+    expect(resolved[0].value).toBe("remote");
+  });
+
+  it("混合胜负的多个冲突", () => {
+    const remote = [
+      { id: "a", updatedAt: "2026-05-02T10:00:00.000Z", value: "r-a" },
+      { id: "b", updatedAt: "2026-05-02T10:00:00.000Z", value: "r-b" },
+    ];
+    const records: ConflictRecord<ConflictEntity>[] = [
+      {
+        entityId: "a",
+        local: { id: "a", updatedAt: "2026-05-02T15:00:00.000Z", value: "l-a" },
+        remote: remote[0],
+        winner: "local",
+        reason: "local newer",
+      },
+      {
+        entityId: "b",
+        local: { id: "b", updatedAt: "2026-05-02T08:00:00.000Z", value: "l-b" },
+        remote: remote[1],
+        winner: "remote",
+        reason: "remote newer",
+      },
+    ];
+    const resolved = applyConflictResolution(remote, records);
+    expect(resolved.find((r) => r.id === "a")?.value).toBe("l-a");
+    expect(resolved.find((r) => r.id === "b")?.value).toBe("r-b");
+  });
+});
+
+describe("generateConflictBackupPath", () => {
+  it("标准路径生成带时间戳的备份名", () => {
+    const path = generateConflictBackupPath(
+      "pomodorox/tasks.json",
+      "2026-05-19T14:30:00.000Z"
+    );
+    expect(path).toBe("pomodorox/tasks.conflict-2026-05-19T14-30-00-000Z.json");
+  });
+
+  it("无扩展名路径也能工作", () => {
+    const path = generateConflictBackupPath(
+      "pomodorox/tasks",
+      "2026-05-19T14:30:00.000Z"
+    );
+    expect(path).toBe("pomodorox/tasks.conflict-2026-05-19T14-30-00-000Z");
+  });
+
+  it("保留多重扩展名", () => {
+    const path = generateConflictBackupPath(
+      "pomodorox/data.tar.gz",
+      "2026-05-19T14:30:00.000Z"
+    );
+    expect(path).toBe(
+      "pomodorox/data.tar.conflict-2026-05-19T14-30-00-000Z.gz"
+    );
+  });
+});
+
+describe("buildConflictBackupContent", () => {
+  it("生成包含元数据和冲突记录的 JSON", () => {
+    const records: ConflictRecord<ConflictEntity>[] = [
+      {
+        entityId: "a",
+        local: {
+          id: "a",
+          updatedAt: "2026-05-02T15:00:00.000Z",
+          value: "local",
+        },
+        remote: {
+          id: "a",
+          updatedAt: "2026-05-02T10:00:00.000Z",
+          value: "remote",
+        },
+        winner: "local",
+        reason: "local newer",
+      },
+    ];
+    const content = buildConflictBackupContent(records, {
+      generatedAt: "2026-05-19T14:00:00.000Z",
+      originalPath: "pomodorox/tasks.json",
+    });
+    const parsed = JSON.parse(content);
+    expect(parsed.generatedAt).toBe("2026-05-19T14:00:00.000Z");
+    expect(parsed.originalPath).toBe("pomodorox/tasks.json");
+    expect(parsed.conflictCount).toBe(1);
+    expect(parsed.conflicts[0].entityId).toBe("a");
+    expect(parsed.conflicts[0].winner).toBe("local");
+    expect(parsed.conflicts[0].local.value).toBe("local");
+    expect(parsed.conflicts[0].remote.value).toBe("remote");
+  });
+});
+
+describe("hasUnsyncedChanges", () => {
+  it("空数组返回 false", () => {
+    expect(hasUnsyncedChanges([])).toBe(false);
+  });
+
+  it("全部已同步返回 false", () => {
+    expect(hasUnsyncedChanges([{ synced: true }, { synced: true }])).toBe(
+      false
+    );
+  });
+
+  it("存在未同步项返回 true", () => {
+    expect(hasUnsyncedChanges([{ synced: true }, { synced: false }])).toBe(
+      true
+    );
+  });
+
+  it("全部未同步返回 true", () => {
+    expect(hasUnsyncedChanges([{ synced: false }, { synced: false }])).toBe(
+      true
+    );
+  });
+
+  it("缺少 synced 字段视为 undefined（不计入未同步）", () => {
+    expect(hasUnsyncedChanges([{}, {}])).toBe(false);
   });
 });

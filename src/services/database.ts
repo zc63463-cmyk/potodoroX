@@ -13,6 +13,7 @@ import type {
   Session,
   CreateSessionInput,
   SyncStatus,
+  ConflictLogEntry,
 } from "@/types";
 import { generateId } from "@/utils/id";
 import { formatDateTime } from "@/utils/format";
@@ -42,6 +43,7 @@ class MemoryStore {
     entityId: string;
     syncedAt: string;
   }[] = [];
+  private conflictLog: ConflictLogEntry[] = [];
 
   /** IndexedDB Key 常量 */
   private static readonly STORAGE_KEY = "pomodorox-memorystore";
@@ -73,6 +75,7 @@ class MemoryStore {
         reflections: Array.from(this.reflections.entries()),
         sessions: Array.from(this.sessions.entries()),
         syncLog: this.syncLog,
+        conflictLog: this.conflictLog,
       };
       // 净化数据：移除 Vue Proxy 等不可克隆对象，防止 DataCloneError
       const sanitized = JSON.parse(JSON.stringify(data));
@@ -98,6 +101,7 @@ class MemoryStore {
           entityId: string;
           syncedAt: string;
         }[];
+        conflictLog?: ConflictLogEntry[];
       }>(MemoryStore.STORAGE_KEY);
       if (!data) return;
       if (data.tasks) {
@@ -118,6 +122,7 @@ class MemoryStore {
         );
       }
       if (data.syncLog) this.syncLog = data.syncLog;
+      if (data.conflictLog) this.conflictLog = data.conflictLog;
       console.log("[MemoryStore] 已从 IndexedDB 恢复数据");
     } catch (err) {
       // 兼容旧版 localStorage 数据：尝试从 localStorage 迁移
@@ -146,6 +151,7 @@ class MemoryStore {
             );
           }
           if (data.syncLog) this.syncLog = data.syncLog;
+          if (data.conflictLog) this.conflictLog = data.conflictLog;
           // 迁移到 IndexedDB 后删除旧数据
           localStorage.removeItem(MemoryStore.STORAGE_KEY);
           await this.saveToLocalStorage();
@@ -436,11 +442,31 @@ class MemoryStore {
     });
   }
 
+  async recordSyncConflict(
+    entry: Omit<ConflictLogEntry, "id">
+  ): Promise<ConflictLogEntry> {
+    const id = generateId();
+    const full: ConflictLogEntry = { ...entry, id };
+    this.conflictLog.push(full);
+    if (this.autoSaveEnabled) await this.saveToLocalStorage();
+    return full;
+  }
+
+  async getSyncConflicts(): Promise<ConflictLogEntry[]> {
+    return [...this.conflictLog];
+  }
+
+  async clearSyncConflicts(): Promise<void> {
+    this.conflictLog = [];
+    if (this.autoSaveEnabled) await this.saveToLocalStorage();
+  }
+
   async clearAll(): Promise<void> {
     this.tasks.clear();
     this.reflections.clear();
     this.sessions.clear();
     this.syncLog = [];
+    this.conflictLog = [];
     if (this.autoSaveEnabled) await this.saveToLocalStorage();
   }
 }
@@ -514,6 +540,19 @@ class SqliteDatabase {
           entity_type TEXT NOT NULL,
           entity_id TEXT NOT NULL,
           synced_at TEXT NOT NULL
+        )
+      `);
+      await db.execute(`
+        CREATE TABLE IF NOT EXISTS conflict_log (
+          id TEXT PRIMARY KEY,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          local_updated_at TEXT NOT NULL,
+          remote_updated_at TEXT NOT NULL,
+          resolved_at TEXT NOT NULL,
+          resolution TEXT NOT NULL,
+          local_snapshot TEXT NOT NULL,
+          remote_snapshot TEXT NOT NULL
         )
       `);
       // 执行迁移（新增字段等）
@@ -1122,12 +1161,58 @@ class SqliteDatabase {
     );
   }
 
+  async recordSyncConflict(
+    entry: Omit<ConflictLogEntry, "id">
+  ): Promise<ConflictLogEntry> {
+    const db = await this.getDb();
+    const id = generateId();
+    await db.execute(
+      `INSERT INTO conflict_log (id, entity_type, entity_id, local_updated_at, remote_updated_at, resolved_at, resolution, local_snapshot, remote_snapshot)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        entry.entityType,
+        entry.entityId,
+        entry.localUpdatedAt,
+        entry.remoteUpdatedAt,
+        entry.resolvedAt,
+        entry.resolution,
+        entry.localSnapshot,
+        entry.remoteSnapshot,
+      ]
+    );
+    return { ...entry, id };
+  }
+
+  async getSyncConflicts(): Promise<ConflictLogEntry[]> {
+    const rows = await this.queryRows(
+      "SELECT * FROM conflict_log ORDER BY resolved_at DESC"
+    );
+    return rows.map((r) => ({
+      id: r.id as string,
+      entityType: r.entity_type as ConflictLogEntry["entityType"],
+      entityId: r.entity_id as string,
+      localUpdatedAt: r.local_updated_at as string,
+      remoteUpdatedAt: r.remote_updated_at as string,
+      resolvedAt: r.resolved_at as string,
+      resolution: r.resolution as ConflictLogEntry["resolution"],
+      localSnapshot: r.local_snapshot as string,
+      remoteSnapshot: r.remote_snapshot as string,
+    }));
+  }
+
+  async clearSyncConflicts(): Promise<void> {
+    const db = await this.getDb();
+    await db.execute("DELETE FROM conflict_log");
+  }
+
   async clearAll(): Promise<void> {
     const db = await this.getDb();
     await db.execute("DELETE FROM sessions");
     await db.execute("DELETE FROM reflections");
     await db.execute("DELETE FROM tasks");
     await db.execute("DELETE FROM sync_log");
+    await db.execute("DELETE FROM conflict_log");
   }
 }
 
@@ -1171,6 +1256,11 @@ interface DatabaseService {
   markSessionSynced(id: string): Promise<void>;
   getSyncStatus(): Promise<SyncStatus>;
   recordSync(entityType: string, entityId: string): Promise<void>;
+  recordSyncConflict(
+    entry: Omit<ConflictLogEntry, "id">
+  ): Promise<ConflictLogEntry>;
+  getSyncConflicts(): Promise<ConflictLogEntry[]>;
+  clearSyncConflicts(): Promise<void>;
   clearAll(): Promise<void>;
 }
 
@@ -1257,6 +1347,10 @@ export const db: DatabaseService = {
   getSyncStatus: () => ensureDb().then((d) => d.getSyncStatus()),
   recordSync: (entityType, entityId) =>
     ensureDb().then((d) => d.recordSync(entityType, entityId)),
+  recordSyncConflict: (entry) =>
+    ensureDb().then((d) => d.recordSyncConflict(entry)),
+  getSyncConflicts: () => ensureDb().then((d) => d.getSyncConflicts()),
+  clearSyncConflicts: () => ensureDb().then((d) => d.clearSyncConflicts()),
   clearAll: () => ensureDb().then((d) => d.clearAll()),
 };
 

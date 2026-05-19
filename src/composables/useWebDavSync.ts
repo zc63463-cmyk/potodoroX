@@ -19,6 +19,7 @@ import {
   type OutboxEvent,
   type Tombstone,
 } from "@/services/outbox";
+import type { ConflictLogEntry } from "@/types";
 import {
   consumeEventsFrom,
   parseTime,
@@ -171,6 +172,157 @@ export function mergeTombstones(
   });
 
   return { merged: Array.from(map.values()), pulled };
+}
+
+// ============================================================
+// 冲突检测与处理（Phase 1 快照同步增强）
+// ============================================================
+
+/** 单个实体冲突记录 */
+export interface ConflictRecord<T> {
+  entityId: string;
+  local: T;
+  remote: T;
+  winner: "local" | "remote";
+  reason: string;
+}
+
+/** 冲突检测 + LWW 解决后的结果 */
+export interface ConflictResolutionResult<T> {
+  /** 解决冲突后的远程数组（用于后续合并） */
+  resolvedRemote: T[];
+  /** 检测到的冲突记录 */
+  conflicts: ConflictRecord<T>[];
+}
+
+/**
+ * 检测本地与远程之间的真正冲突：
+ * 双方都在 lastSyncAt 之后发生了更新，才视为冲突。
+ * 若 lastSyncAt 为空（首次同步），则不检测冲突，全部按正常合并处理。
+ */
+export function detectConflicts<T extends { id: string; updatedAt: string }>(
+  local: T[],
+  remote: T[],
+  lastSyncAt: string | null
+): Array<{ entityId: string; local: T; remote: T }> {
+  if (!lastSyncAt) return [];
+  const lastSyncMs = parseTime(lastSyncAt);
+  if (!lastSyncMs) return [];
+
+  const localMap = new Map<string, T>();
+  local.forEach((item) => localMap.set(item.id, item));
+
+  const conflicts: Array<{ entityId: string; local: T; remote: T }> = [];
+  remote.forEach((r) => {
+    const l = localMap.get(r.id);
+    if (!l) return;
+    const localMs = parseTime(l.updatedAt);
+    const remoteMs = parseTime(r.updatedAt);
+    if (localMs > lastSyncMs && remoteMs > lastSyncMs) {
+      conflicts.push({ entityId: r.id, local: l, remote: r });
+    }
+  });
+  return conflicts;
+}
+
+/**
+ * 对检测到的冲突执行 Last-Write-Wins 解决：
+ * - 比较 local.updatedAt 与 remote.updatedAt
+ * - 返回每条冲突的获胜方与原因
+ */
+export function resolveConflictsLWW<
+  T extends { id: string; updatedAt: string },
+>(
+  conflicts: Array<{ entityId: string; local: T; remote: T }>
+): ConflictRecord<T>[] {
+  return conflicts.map(({ entityId, local, remote }) => {
+    const localMs = parseTime(local.updatedAt);
+    const remoteMs = parseTime(remote.updatedAt);
+    if (localMs >= remoteMs) {
+      return {
+        entityId,
+        local,
+        remote,
+        winner: "local" as const,
+        reason: `local updatedAt (${local.updatedAt}) >= remote updatedAt (${remote.updatedAt})`,
+      };
+    }
+    return {
+      entityId,
+      local,
+      remote,
+      winner: "remote" as const,
+      reason: `remote updatedAt (${remote.updatedAt}) > local updatedAt (${local.updatedAt})`,
+    };
+  });
+}
+
+/**
+ * 将冲突解决应用到远程数组：
+ * 对于本地获胜的冲突，用本地版本替换远程版本，
+ * 确保后续 mergeWithTombstones 不会再次覆盖。
+ */
+export function applyConflictResolution<T extends { id: string }>(
+  remote: T[],
+  conflictRecords: ConflictRecord<T>[]
+): T[] {
+  if (conflictRecords.length === 0) return remote;
+  const winnerMap = new Map<string, T>();
+  conflictRecords.forEach((c) => {
+    if (c.winner === "local") {
+      winnerMap.set(c.entityId, c.local);
+    }
+  });
+  return remote.map(
+    (r) => winnerMap.get((r as unknown as { id: string }).id) ?? r
+  );
+}
+
+/**
+ * 生成冲突备份文件路径：
+ * originalPath = "pomodorox/tasks.json" → "pomodorox/tasks.conflict-2026-05-19T12-30-00-000Z.json"
+ */
+export function generateConflictBackupPath(
+  originalPath: string,
+  timestamp: string
+): string {
+  const ts = timestamp.replace(/[:.]/g, "-");
+  const idx = originalPath.lastIndexOf(".");
+  if (idx === -1) return `${originalPath}.conflict-${ts}`;
+  const base = originalPath.slice(0, idx);
+  const ext = originalPath.slice(idx);
+  return `${base}.conflict-${ts}${ext}`;
+}
+
+/**
+ * 构建冲突备份 JSON 内容（包含所有冲突记录的完整快照）
+ */
+export function buildConflictBackupContent<T>(
+  records: ConflictRecord<T>[],
+  meta: { generatedAt: string; originalPath: string }
+): string {
+  const payload = {
+    generatedAt: meta.generatedAt,
+    originalPath: meta.originalPath,
+    conflictCount: records.length,
+    conflicts: records.map((r) => ({
+      entityId: r.entityId,
+      winner: r.winner,
+      reason: r.reason,
+      local: r.local,
+      remote: r.remote,
+    })),
+  };
+  return JSON.stringify(payload, null, 2);
+}
+
+/**
+ * 检查实体列表中是否存在未同步的变更（synced === false）
+ */
+export function hasUnsyncedChanges(
+  items: Array<{ synced?: boolean }>
+): boolean {
+  return items.some((item) => item.synced === false);
 }
 
 /** 暴露全局串行锁（仅测试用） */
@@ -1207,6 +1359,71 @@ export function useWebDavSync() {
     }
   }
 
+  /**
+   * 快照同步通用冲突处理：
+   * 1. 检测冲突（双方都在 lastSyncAt 后更新）
+   * 2. LWW 解决冲突，生成备份内容
+   * 3. 推送备份文件到 WebDAV
+   * 4. 将冲突记录写入本地数据库
+   *
+   * 返回解决后的远程数组 + 冲突数量。
+   */
+  async function handleSnapshotConflicts<
+    T extends { id: string; updatedAt: string },
+  >(
+    entityType: "task" | "reflection" | "session",
+    local: T[],
+    remote: T[],
+    remotePath: string
+  ): Promise<{ resolvedRemote: T[]; conflictCount: number }> {
+    const rawConflicts = detectConflicts(local, remote, lastSyncAt.value);
+    if (rawConflicts.length === 0) {
+      return { resolvedRemote: remote, conflictCount: 0 };
+    }
+
+    const conflictRecords = resolveConflictsLWW(rawConflicts);
+    const resolvedRemote = applyConflictResolution(remote, conflictRecords);
+
+    // 推送冲突备份到 WebDAV（失败不影响主同步）
+    try {
+      const backupPath = generateConflictBackupPath(
+        remotePath,
+        new Date().toISOString()
+      );
+      const backupContent = buildConflictBackupContent(conflictRecords, {
+        generatedAt: new Date().toISOString(),
+        originalPath: remotePath,
+      });
+      const backupOk = await pushFile(backupPath, backupContent);
+      if (!backupOk) {
+        console.warn("[WebDAV] 冲突备份推送失败:", backupPath);
+      }
+    } catch (err) {
+      console.warn("[WebDAV] 冲突备份异常:", err);
+    }
+
+    // 写入本地冲突日志（失败不影响主同步）
+    try {
+      for (const record of conflictRecords) {
+        const entry: Omit<ConflictLogEntry, "id"> = {
+          entityType,
+          entityId: record.entityId,
+          localUpdatedAt: record.local.updatedAt,
+          remoteUpdatedAt: record.remote.updatedAt,
+          resolvedAt: new Date().toISOString(),
+          resolution: record.winner === "local" ? "local_wins" : "remote_wins",
+          localSnapshot: JSON.stringify(record.local),
+          remoteSnapshot: JSON.stringify(record.remote),
+        };
+        await db.recordSyncConflict(entry);
+      }
+    } catch (err) {
+      console.warn("[WebDAV] 冲突日志写入失败:", err);
+    }
+
+    return { resolvedRemote, conflictCount: conflictRecords.length };
+  }
+
   /** 同步反思 */
   async function syncReflections(
     items: Reflection[],
@@ -1244,7 +1461,16 @@ export function useWebDavSync() {
           error: `拉取失败（已中止推送）：${pullRes.error}`,
         };
       }
-      const remote: Reflection[] = pullRes.data;
+      let remote: Reflection[] = pullRes.data;
+
+      // 冲突检测与解决
+      const { resolvedRemote, conflictCount } = await handleSnapshotConflicts(
+        "reflection",
+        items,
+        remote,
+        REMOTE_PATHS.reflections
+      );
+      remote = resolvedRemote;
 
       const { merged, pulled, toDeleteLocal } = mergeWithTombstones(
         "reflection",
@@ -1252,20 +1478,26 @@ export function useWebDavSync() {
         remote,
         tombstones
       );
-      const pushOk = await pushFile(
-        REMOTE_PATHS.reflections,
-        JSON.stringify(merged, null, 2)
-      );
-      const pushed = merged.length;
 
-      if (!pushOk) {
-        return {
-          type: "reflections",
-          pushed: 0,
-          pulled,
-          error: "推送数据到 WebDAV 失败",
-        };
+      // 增量优化：若本地无变更、无冲突、无远端新数据，跳过推送
+      const shouldSkipPush =
+        !hasUnsyncedChanges(items) && conflictCount === 0 && pulled === 0;
+
+      if (!shouldSkipPush) {
+        const pushOk = await pushFile(
+          REMOTE_PATHS.reflections,
+          JSON.stringify(merged, null, 2)
+        );
+        if (!pushOk) {
+          return {
+            type: "reflections",
+            pushed: 0,
+            pulled,
+            error: "推送数据到 WebDAV 失败",
+          };
+        }
       }
+      const pushed = shouldSkipPush ? 0 : merged.length;
 
       saveLastSync(new Date().toISOString());
       return { type: "reflections", pushed, pulled, merged, toDeleteLocal };
@@ -1310,7 +1542,16 @@ export function useWebDavSync() {
           error: `拉取失败（已中止推送）：${pullRes.error}`,
         };
       }
-      const remote: Session[] = pullRes.data;
+      let remote: Session[] = pullRes.data;
+
+      // 冲突检测与解决
+      const { resolvedRemote, conflictCount } = await handleSnapshotConflicts(
+        "session",
+        items,
+        remote,
+        REMOTE_PATHS.sessions
+      );
+      remote = resolvedRemote;
 
       const { merged, pulled, toDeleteLocal } = mergeWithTombstones(
         "session",
@@ -1318,20 +1559,26 @@ export function useWebDavSync() {
         remote,
         tombstones
       );
-      const pushOk = await pushFile(
-        REMOTE_PATHS.sessions,
-        JSON.stringify(merged, null, 2)
-      );
-      const pushed = merged.length;
 
-      if (!pushOk) {
-        return {
-          type: "sessions",
-          pushed: 0,
-          pulled,
-          error: "推送数据到 WebDAV 失败",
-        };
+      // 增量优化：若本地无变更、无冲突、无远端新数据，跳过推送
+      const shouldSkipPush =
+        !hasUnsyncedChanges(items) && conflictCount === 0 && pulled === 0;
+
+      if (!shouldSkipPush) {
+        const pushOk = await pushFile(
+          REMOTE_PATHS.sessions,
+          JSON.stringify(merged, null, 2)
+        );
+        if (!pushOk) {
+          return {
+            type: "sessions",
+            pushed: 0,
+            pulled,
+            error: "推送数据到 WebDAV 失败",
+          };
+        }
       }
+      const pushed = shouldSkipPush ? 0 : merged.length;
 
       saveLastSync(new Date().toISOString());
       return { type: "sessions", pushed, pulled, merged, toDeleteLocal };
@@ -1376,7 +1623,16 @@ export function useWebDavSync() {
           error: `拉取失败（已中止推送）：${pullRes.error}`,
         };
       }
-      const remote: Task[] = pullRes.data;
+      let remote: Task[] = pullRes.data;
+
+      // 冲突检测与解决
+      const { resolvedRemote, conflictCount } = await handleSnapshotConflicts(
+        "task",
+        items,
+        remote,
+        REMOTE_PATHS.tasks
+      );
+      remote = resolvedRemote;
 
       const { merged, pulled, toDeleteLocal } = mergeWithTombstones(
         "task",
@@ -1384,20 +1640,26 @@ export function useWebDavSync() {
         remote,
         tombstones
       );
-      const pushOk = await pushFile(
-        REMOTE_PATHS.tasks,
-        JSON.stringify(merged, null, 2)
-      );
-      const pushed = merged.length;
 
-      if (!pushOk) {
-        return {
-          type: "tasks",
-          pushed: 0,
-          pulled,
-          error: "推送数据到 WebDAV 失败",
-        };
+      // 增量优化：若本地无变更、无冲突、无远端新数据，跳过推送
+      const shouldSkipPush =
+        !hasUnsyncedChanges(items) && conflictCount === 0 && pulled === 0;
+
+      if (!shouldSkipPush) {
+        const pushOk = await pushFile(
+          REMOTE_PATHS.tasks,
+          JSON.stringify(merged, null, 2)
+        );
+        if (!pushOk) {
+          return {
+            type: "tasks",
+            pushed: 0,
+            pulled,
+            error: "推送数据到 WebDAV 失败",
+          };
+        }
       }
+      const pushed = shouldSkipPush ? 0 : merged.length;
 
       saveLastSync(new Date().toISOString());
       return { type: "tasks", pushed, pulled, merged, toDeleteLocal };

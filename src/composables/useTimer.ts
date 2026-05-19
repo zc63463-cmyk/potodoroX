@@ -83,6 +83,7 @@ export function useTimer(options: UseTimerOptions) {
 
   /** 剩余时间百分比 */
   const progress = computed(() => {
+    if (currentTotalDuration.value === 0 && remaining.value === 0) return 0;
     const total = currentTotalDuration.value || getTotalDuration();
     if (total <= 0) return 0;
     return Math.max(
@@ -112,6 +113,7 @@ export function useTimer(options: UseTimerOptions) {
     currentTaskId.value = taskId;
     remaining.value = getTotalDuration();
     currentTotalDuration.value = getTotalDuration();
+    isRunning.value = false;
     isPaused.value = false;
     sessionFastForwardCount.value = 0;
     sessionFastForwardSeconds.value = 0;
@@ -143,6 +145,7 @@ export function useTimer(options: UseTimerOptions) {
       remaining.value = duration;
       currentTotalDuration.value = duration;
     } else {
+      remaining.value = getTotalDuration();
       currentTotalDuration.value = getTotalDuration();
     }
 
@@ -171,6 +174,7 @@ export function useTimer(options: UseTimerOptions) {
     if (!isRunning.value || isPaused.value) return;
 
     isPaused.value = true;
+    isRunning.value = false;
     stopTimer();
     // 保存剩余时间
     remaining.value = Math.max(0, (targetEndTime - Date.now()) / 1000);
@@ -201,6 +205,8 @@ export function useTimer(options: UseTimerOptions) {
     isRunning.value = false;
     isPaused.value = false;
     sessionStartTime = "";
+    currentSessionPlan.value = "";
+    currentTaskId.value = null;
     sessionFastForwardCount.value = 0;
     sessionFastForwardSeconds.value = 0;
   }
@@ -212,6 +218,8 @@ export function useTimer(options: UseTimerOptions) {
     sessionFastForwardCount.value = 0;
     sessionFastForwardSeconds.value = 0;
     stopTimer();
+    isRunning.value = false;
+    isPaused.value = false;
     options.onComplete?.({
       completed: false,
       sessionType: sessionType.value,

@@ -177,3 +177,16 @@ export interface SortOption {
 
 /** Toast 通知类型 */
 export type ToastType = "success" | "error" | "warning" | "info";
+
+/** 同步冲突日志条目 */
+export interface ConflictLogEntry {
+  id: string;
+  entityType: "task" | "reflection" | "session";
+  entityId: string;
+  localUpdatedAt: string;
+  remoteUpdatedAt: string;
+  resolvedAt: string;
+  resolution: "local_wins" | "remote_wins" | "manual";
+  localSnapshot: string;
+  remoteSnapshot: string;
+}
