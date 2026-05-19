@@ -17,7 +17,7 @@ import type {
 } from "@/types";
 import { generateId } from "@/utils/id";
 import { formatDateTime } from "@/utils/format";
-import { DB_FILENAME } from "@/utils/constants";
+import { DB_FILENAME, SCHEMA_VERSION } from "@/utils/constants";
 import { isTauriAvailable } from "@/utils/tauri";
 import { get, set } from "idb-keyval";
 
@@ -27,6 +27,70 @@ type SqlValue = string | number | null | Uint8Array;
 interface Database {
   execute(sql: string, bind?: SqlValue[]): Promise<number>;
   select<T>(sql: string, bind?: SqlValue[]): Promise<T[]>;
+}
+
+// ============================================================
+// 内存数据迁移
+// ============================================================
+
+/**
+ * 迁移 MemoryStore 的序列化数据
+ * 根据 _schemaVersion 字段，逐级升级到最新版本
+ */
+export function migrateMemoryData(
+  data: Record<string, unknown>
+): Record<string, unknown> {
+  let version = (data._schemaVersion as number) ?? 0;
+
+  if (version < 1) {
+    // v0 -> v1：给 task/session 加 plan/completion 默认值
+    if (data.tasks) {
+      data.tasks = (data.tasks as [string, unknown][]).map(([id, t]) => [
+        id,
+        {
+          ...(t as Record<string, unknown>),
+          plan: (t as Record<string, string>).plan ?? "",
+          completion: (t as Record<string, string>).completion ?? "",
+        },
+      ]);
+    }
+    if (data.sessions) {
+      data.sessions = (data.sessions as [string, unknown][]).map(([id, s]) => [
+        id,
+        {
+          ...(s as Record<string, unknown>),
+          plan: (s as Record<string, string>).plan ?? "",
+          completion: (s as Record<string, string>).completion ?? "",
+        },
+      ]);
+    }
+    version = 1;
+  }
+
+  if (version < 2) {
+    // v1 -> v2：给 session 补 updated_at；确保 conflictLog 存在
+    if (data.sessions) {
+      data.sessions = (data.sessions as [string, unknown][]).map(([id, s]) => {
+        const sess = s as Record<string, string>;
+        return [
+          id,
+          {
+            ...sess,
+            updatedAt:
+              sess.updatedAt ??
+              sess.endedAt ??
+              sess.startedAt ??
+              formatDateTime(new Date()),
+          },
+        ];
+      });
+    }
+    if (!data.conflictLog) data.conflictLog = [];
+    version = 2;
+  }
+
+  data._schemaVersion = version;
+  return data;
 }
 
 // ============================================================
@@ -71,6 +135,7 @@ class MemoryStore {
   private async _doSaveToLocalStorage(): Promise<void> {
     try {
       const data = {
+        _schemaVersion: SCHEMA_VERSION,
         tasks: Array.from(this.tasks.entries()),
         reflections: Array.from(this.reflections.entries()),
         sessions: Array.from(this.sessions.entries()),
@@ -92,6 +157,7 @@ class MemoryStore {
   private async loadFromLocalStorage(): Promise<void> {
     try {
       const data = await get<{
+        _schemaVersion?: number;
         tasks: [string, Task][];
         reflections: [string, Reflection][];
         sessions: [string, Session][];
@@ -104,25 +170,24 @@ class MemoryStore {
         conflictLog?: ConflictLogEntry[];
       }>(MemoryStore.STORAGE_KEY);
       if (!data) return;
-      if (data.tasks) {
-        this.tasks = new Map(
-          data.tasks.map(([id, t]) => [
-            id,
-            { ...t, plan: t.plan ?? "", completion: t.completion ?? "" },
-          ])
+      const migrated = migrateMemoryData(data as Record<string, unknown>);
+      if (migrated.tasks)
+        this.tasks = new Map(migrated.tasks as [string, Task][]);
+      if (migrated.reflections)
+        this.reflections = new Map(
+          migrated.reflections as [string, Reflection][]
         );
-      }
-      if (data.reflections) this.reflections = new Map(data.reflections);
-      if (data.sessions) {
-        this.sessions = new Map(
-          data.sessions.map(([id, s]) => [
-            id,
-            { ...s, plan: s.plan ?? "", completion: s.completion ?? "" },
-          ])
-        );
-      }
-      if (data.syncLog) this.syncLog = data.syncLog;
-      if (data.conflictLog) this.conflictLog = data.conflictLog;
+      if (migrated.sessions)
+        this.sessions = new Map(migrated.sessions as [string, Session][]);
+      if (migrated.syncLog)
+        this.syncLog = migrated.syncLog as {
+          id: string;
+          entityType: string;
+          entityId: string;
+          syncedAt: string;
+        }[];
+      if (migrated.conflictLog)
+        this.conflictLog = migrated.conflictLog as ConflictLogEntry[];
       console.log("[MemoryStore] 已从 IndexedDB 恢复数据");
     } catch (err) {
       // 兼容旧版 localStorage 数据：尝试从 localStorage 迁移
@@ -133,25 +198,24 @@ class MemoryStore {
             : null;
         if (raw) {
           const data = JSON.parse(raw);
-          if (data.tasks) {
-            this.tasks = new Map(
-              data.tasks.map(([id, t]: [string, Task]) => [
-                id,
-                { ...t, plan: t.plan ?? "", completion: t.completion ?? "" },
-              ])
+          const migrated = migrateMemoryData(data);
+          if (migrated.tasks)
+            this.tasks = new Map(migrated.tasks as [string, Task][]);
+          if (migrated.reflections)
+            this.reflections = new Map(
+              migrated.reflections as [string, Reflection][]
             );
-          }
-          if (data.reflections) this.reflections = new Map(data.reflections);
-          if (data.sessions) {
-            this.sessions = new Map(
-              data.sessions.map(([id, s]: [string, Session]) => [
-                id,
-                { ...s, plan: s.plan ?? "", completion: s.completion ?? "" },
-              ])
-            );
-          }
-          if (data.syncLog) this.syncLog = data.syncLog;
-          if (data.conflictLog) this.conflictLog = data.conflictLog;
+          if (migrated.sessions)
+            this.sessions = new Map(migrated.sessions as [string, Session][]);
+          if (migrated.syncLog)
+            this.syncLog = migrated.syncLog as {
+              id: string;
+              entityType: string;
+              entityId: string;
+              syncedAt: string;
+            }[];
+          if (migrated.conflictLog)
+            this.conflictLog = migrated.conflictLog as ConflictLogEntry[];
           // 迁移到 IndexedDB 后删除旧数据
           localStorage.removeItem(MemoryStore.STORAGE_KEY);
           await this.saveToLocalStorage();
@@ -567,11 +631,50 @@ class SqliteDatabase {
 
   /**
    * 运行数据库迁移
-   * 使用 PRAGMA table_info 检查列是否存在，避免重复添加
+   * 版本号驱动 + PRAGMA 兜底检测，保证安全升级
    */
   private async runMigrations(): Promise<void> {
     const db = await this.getDb();
 
+    // 1. 创建 schema_version 表
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS schema_version (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        version INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT ''
+      )
+    `);
+
+    // 2. 读取当前版本
+    const rows = await db.select<{ version: number }>(
+      `SELECT version FROM schema_version WHERE id = 1`
+    );
+    let currentVersion = rows[0]?.version ?? 0;
+
+    // 3. 版本号驱动迁移
+    if (currentVersion < 1) {
+      // v1 是初始建表，已在 init() 的 CREATE TABLE IF NOT EXISTS 中完成
+      currentVersion = 1;
+    }
+
+    if (currentVersion < 2) {
+      await this.runV2Migrations(db);
+      currentVersion = 2;
+    }
+
+    // 4. 写入版本号
+    await db.execute(
+      `INSERT OR REPLACE INTO schema_version (id, version, updated_at) VALUES (1, ?, ?)`,
+      [currentVersion, formatDateTime(new Date())]
+    );
+
+    console.log(`[DB] Schema 版本: v${currentVersion}`);
+  }
+
+  /**
+   * v2 迁移：新增 plan / completion / updated_at 字段
+   */
+  private async runV2Migrations(db: Database): Promise<void> {
     const columnExists = async (
       table: string,
       column: string
@@ -600,7 +703,6 @@ class SqliteDatabase {
     }
     if (!(await columnExists("sessions", "updated_at"))) {
       await db.execute(`ALTER TABLE sessions ADD COLUMN updated_at TEXT`);
-      // 回填旧行的 updated_at，优先用 ended_at，次之 started_at
       await db.execute(
         `UPDATE sessions SET updated_at = COALESCE(ended_at, started_at) WHERE updated_at IS NULL`
       );

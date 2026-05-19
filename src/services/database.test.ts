@@ -4,7 +4,7 @@
 // ============================================================
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { initDatabase } from "@/services/database";
+import { initDatabase, migrateMemoryData } from "@/services/database";
 import type { Task, Reflection, Session } from "@/types";
 
 // ============================================================
@@ -403,5 +403,108 @@ describe("跨环境兼容性", () => {
     expect(settingsKey).toMatch(/^pomodorox-/);
     // 两个 key 不相同
     expect(memKey).not.toBe(settingsKey);
+  });
+});
+
+// ============================================================
+// 5. 数据迁移测试
+// ============================================================
+
+describe("migrateMemoryData", () => {
+  it("v0 -> v1：给 task/session 补 plan/completion 默认值", () => {
+    const oldData = {
+      tasks: [["t1", { title: "旧任务" }]],
+      sessions: [
+        [
+          "s1",
+          { type: "work", duration: 1500, startedAt: "2026-01-01 10:00:00" },
+        ],
+      ],
+      syncLog: [],
+    };
+    const migrated = migrateMemoryData(oldData);
+    expect(migrated._schemaVersion).toBe(2);
+    const task = (migrated.tasks as [string, unknown][])[0][1] as Record<
+      string,
+      string
+    >;
+    expect(task.plan).toBe("");
+    expect(task.completion).toBe("");
+    const session = (migrated.sessions as [string, unknown][])[0][1] as Record<
+      string,
+      string
+    >;
+    expect(session.plan).toBe("");
+    expect(session.completion).toBe("");
+  });
+
+  it("v0 -> v1：保留已有 plan/completion 不被覆盖", () => {
+    const oldData = {
+      tasks: [
+        ["t1", { title: "任务", plan: "已有规划", completion: "已有总结" }],
+      ],
+      sessions: [],
+      syncLog: [],
+    };
+    const migrated = migrateMemoryData(oldData);
+    const task = (migrated.tasks as [string, unknown][])[0][1] as Record<
+      string,
+      string
+    >;
+    expect(task.plan).toBe("已有规划");
+    expect(task.completion).toBe("已有总结");
+  });
+
+  it("v1 -> v2：给 session 补 updatedAt 并添加 conflictLog", () => {
+    const oldData = {
+      _schemaVersion: 1,
+      tasks: [],
+      sessions: [
+        [
+          "s1",
+          { type: "work", duration: 1500, startedAt: "2026-01-01 10:00:00" },
+        ],
+      ],
+      syncLog: [],
+    };
+    const migrated = migrateMemoryData(oldData);
+    expect(migrated._schemaVersion).toBe(2);
+    const session = (migrated.sessions as [string, unknown][])[0][1] as Record<
+      string,
+      string
+    >;
+    expect(session.updatedAt).toBe("2026-01-01 10:00:00");
+    expect(migrated.conflictLog).toEqual([]);
+  });
+
+  it("v2 数据不再修改", () => {
+    const modernData = {
+      _schemaVersion: 2,
+      tasks: [["t1", { title: "现代任务", plan: "plan", completion: "" }]],
+      sessions: [
+        [
+          "s1",
+          {
+            type: "work",
+            duration: 1500,
+            startedAt: "2026-01-01 10:00:00",
+            updatedAt: "2026-01-01 10:25:00",
+          },
+        ],
+      ],
+      syncLog: [],
+      conflictLog: [{ id: "c1", entityType: "task" }],
+    };
+    const migrated = migrateMemoryData(modernData);
+    expect(migrated._schemaVersion).toBe(2);
+    expect(migrated.tasks).toEqual(modernData.tasks);
+    expect(migrated.sessions).toEqual(modernData.sessions);
+    expect(migrated.conflictLog).toEqual(modernData.conflictLog);
+  });
+
+  it("空对象也能正常迁移", () => {
+    const migrated = migrateMemoryData({});
+    expect(migrated._schemaVersion).toBe(2);
+    expect(migrated.conflictLog).toEqual([]);
   });
 });
