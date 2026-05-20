@@ -447,22 +447,54 @@ export function extractFileNamesFromHrefs(
   return names;
 }
 
+/** UTF-8 安全的 btoa，避免非 Latin1 字符导致 InvalidCharacterError */
+function utf8Btoa(str: string): string {
+  const bytes = new TextEncoder().encode(str);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
 /** 简单编码密码（降低明文暴露风险，非安全加密） */
+const ENCODED_MARKER = "v2:";
 function encodePassword(pwd: string): string {
   try {
-    return btoa(encodeURIComponent(pwd));
+    return ENCODED_MARKER + btoa(encodeURIComponent(pwd));
   } catch {
     return pwd;
   }
 }
 
 function decodePassword(pwd: string): string {
-  try {
-    return decodeURIComponent(atob(pwd));
-  } catch {
-    // 解码失败说明是旧明文或异常值，直接返回原值
-    return pwd;
+  if (typeof pwd !== "string" || !pwd) return pwd;
+
+  // 新格式："v2:" + base64，精确识别
+  if (pwd.startsWith(ENCODED_MARKER)) {
+    try {
+      return decodeURIComponent(atob(pwd.slice(ENCODED_MARKER.length)));
+    } catch {
+      return pwd.slice(ENCODED_MARKER.length);
+    }
   }
+
+  // 旧编码格式（无前缀）：仅当密码看起来像有效 base64 时才尝试解码
+  // 避免把 "myPassword" 之类的明文误交给 atob（可能产生垃圾字节导致坚果云 400）
+  if (/^[A-Za-z0-9+/]+=*$/.test(pwd)) {
+    try {
+      const decoded = decodeURIComponent(atob(pwd));
+      // 如果解码后和原值明显不同，大概率是旧编码格式
+      if (decoded && decoded !== pwd && decoded.length > 0) {
+        return decoded;
+      }
+    } catch {
+      // base64 解码失败，保持原值——几乎可以确定就是明文密码
+    }
+  }
+
+  // 明文密码（旧版或首次设置），直接返回
+  return pwd;
 }
 
 function loadConfig(): WebDavConfig | null {
@@ -492,8 +524,9 @@ function loadConfig(): WebDavConfig | null {
 }
 
 /**
- * ⚠️ 安全说明：密码使用 base64(encodeURIComponent) 进行"编码"而非"加密"。
- * 这只能降低肉眼直接读取的风险，任何获得本地存储的人都可以通过 atob() 还原明文。
+ * ⚠️ 安全说明：密码使用 "v2:" 前缀 + base64(encodeURIComponent) 编码。
+ * 前缀用于区分新旧格式，避免旧明文密码被误解码为垃圾字节。
+ * 这只能降低肉眼直接读取的风险，任何获得本地存储的人都可以还原明文。
  * 浏览器端无法提供真正的安全存储；如需更高安全性，请在 Tauri 桌面端使用系统钥匙串。
  */
 function saveConfig(cfg: WebDavConfig | null): void {
@@ -557,7 +590,7 @@ async function webProxyRequest(
   // base64 编码 target URL，绕过 Vercel WAF 对 ?url=https://... 的拦截
   const encodedTarget = encodeURIComponent(btoa(targetUrl));
   const reqUrl = `${proxy}?t=${encodedTarget}`;
-  const auth = btoa(`${cfg.username}:${cfg.password}`);
+  const auth = utf8Btoa(`${cfg.username}:${cfg.password}`);
   const headers: Record<string, string> = {
     Authorization: `Basic ${auth}`,
   };
