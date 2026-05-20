@@ -30,7 +30,7 @@ export const useTimerStore = defineStore("timer", () => {
   const pendingCompletionForTaskId = ref<string | null>(null);
 
   /** 是否正在完成会话（防止竞态） */
-  let isCompleting = false;
+  const isCompleting = ref(false);
 
   // ---- 计时引擎 ----
   const timer = useTimer({
@@ -87,8 +87,8 @@ export const useTimerStore = defineStore("timer", () => {
    * 计时完成后的业务处理（持久化 + 统计 + 自动切换）
    */
   async function handleTimerComplete(data: TimerCompleteData) {
-    if (isCompleting) return;
-    isCompleting = true;
+    if (isCompleting.value) return;
+    isCompleting.value = true;
 
     // 重置快进状态
     sessionFastForwardCount.value = 0;
@@ -181,7 +181,7 @@ export const useTimerStore = defineStore("timer", () => {
       timer.setSessionType(timer.sessionType.value);
     }
 
-    isCompleting = false;
+    isCompleting.value = false;
   }
 
   /**
