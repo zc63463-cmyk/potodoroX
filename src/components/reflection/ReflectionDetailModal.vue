@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
-import MarkdownPreview from "@/components/MarkdownPreview.vue";
+import MarkdownPreview from "@/components/shared/MarkdownPreview.vue";
 import type { Reflection } from "@/types";
 import { formatFriendlyDate, getWeekdayName } from "@/utils/format";
 import { downloadReflection } from "@/utils/exportReflection";

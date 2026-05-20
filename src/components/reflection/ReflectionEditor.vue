@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick } from "vue";
-import MarkdownPreview from "@/components/MarkdownPreview.vue";
+import MarkdownPreview from "@/components/shared/MarkdownPreview.vue";
 import type { Mood, Task } from "@/types";
 import { MOODS } from "@/utils/constants";
 import { formatFriendlyDate, getWeekdayName } from "@/utils/format";
