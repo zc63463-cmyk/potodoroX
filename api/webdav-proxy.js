@@ -78,15 +78,23 @@ export default async function handler(request, response) {
       );
   }
 
-  // 解析目标 URL
-  const target = url.searchParams.get("url");
+  // 解析目标 URL（支持 base64 编码参数 t，绕过 WAF 的 https:// 检测）
+  let target = url.searchParams.get("url");
+  const encoded = url.searchParams.get("t");
+  if (!target && encoded) {
+    try {
+      target = Buffer.from(encoded, "base64").toString("utf-8");
+    } catch {
+      target = null;
+    }
+  }
   if (!target) {
     Object.entries(CORS_HEADERS).forEach(([key, value]) => {
       response.setHeader(key, value);
     });
     return response
       .status(400)
-      .json({ error: "Missing required query parameter: url" });
+      .json({ error: "Missing required query parameter: url or t" });
   }
 
   let targetUrl;
@@ -194,10 +202,11 @@ export default async function handler(request, response) {
   }
 
   try {
-    // Node.js 18+ 内置 fetch，带 30s 超时和手动重定向（防 SSRF）
+    // Node.js 18+ 内置 fetch，带 30s 超时
+    // 内部跟随 3xx 重定向（避免浏览器 fetch 自动跟随导致 URL 解析异常）
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
-    const proxyResponse = await fetch(targetUrl.toString(), {
+    let proxyResponse = await fetch(targetUrl.toString(), {
       method: upstreamMethod,
       headers: forwardHeaders,
       body: bodyText,
@@ -206,20 +215,50 @@ export default async function handler(request, response) {
     });
     clearTimeout(timeout);
 
+    // 内部跟随 3xx 重定向（最多 5 次，防循环）
+    let redirectCount = 0;
+    const MAX_REDIRECTS = 5;
+    while (
+      proxyResponse.status >= 300 &&
+      proxyResponse.status < 400 &&
+      redirectCount < MAX_REDIRECTS
+    ) {
+      const location = proxyResponse.headers.get("location");
+      if (!location) break;
+      // 解析绝对/相对 Location
+      const redirectUrl = new URL(location, targetUrl.toString());
+      // 只允许同 host 重定向（防 SSRF）
+      if (!ALLOWED_HOSTS.includes(redirectUrl.hostname)) {
+        Object.entries(CORS_HEADERS).forEach(([key, value]) => {
+          response.setHeader(key, value);
+        });
+        return response.status(403).json({
+          error: "Redirect target host not allowed",
+          location: location,
+        });
+      }
+      const redirectController = new AbortController();
+      const redirectTimeout = setTimeout(
+        () => redirectController.abort(),
+        30000
+      );
+      proxyResponse = await fetch(redirectUrl.toString(), {
+        method: upstreamMethod,
+        headers: forwardHeaders,
+        body: bodyText,
+        redirect: "manual",
+        signal: redirectController.signal,
+      });
+      clearTimeout(redirectTimeout);
+      redirectCount++;
+    }
+
     // 设置 CORS 响应头
     Object.entries(CORS_HEADERS).forEach(([key, value]) => {
       response.setHeader(key, value);
     });
     // 暴露上游状态
     response.setHeader("X-Upstream-Status", String(proxyResponse.status));
-
-    // 3xx 重定向直接透传（manual 模式下 fetch 不会自动跟随）
-    if (proxyResponse.status >= 300 && proxyResponse.status < 400) {
-      const location = proxyResponse.headers.get("location");
-      if (location) {
-        response.setHeader("Location", location);
-      }
-    }
 
     // 上游 5xx 时读取 body（限制长度避免内存爆炸）
     if (proxyResponse.status >= 500) {

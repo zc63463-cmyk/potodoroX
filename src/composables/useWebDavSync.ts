@@ -474,6 +474,15 @@ function loadConfig(): WebDavConfig | null {
       // 向后兼容：旧数据 password 是明文，decodePassword 失败时会返回原值
       const cfg = parsed as WebDavConfig;
       cfg.password = decodePassword(cfg.password);
+      // 防御性检查：防止配置中保存了嵌套代理 URL
+      if (
+        cfg.url.includes("/api/webdav-proxy?url=") ||
+        cfg.url.includes("/api/webdav-proxy?t=")
+      ) {
+        console.error("[WebDAV] 配置中的 URL 包含代理路径，清除配置:", cfg.url);
+        localStorage.removeItem(STORAGE_KEY);
+        return null;
+      }
       return cfg;
     }
   } catch {
@@ -519,7 +528,16 @@ function shouldTriggerSnapshotFallback(now = Date.now()): boolean {
 function joinUrl(base: string, path: string): string {
   const trimmedBase = base.endsWith("/") ? base.slice(0, -1) : base;
   const trimmedPath = path.startsWith("/") ? path.slice(1) : path;
-  return `${trimmedBase}/${trimmedPath}`;
+  const result = `${trimmedBase}/${trimmedPath}`;
+  // 防御性检查：防止嵌套代理 URL
+  if (
+    result.includes("/api/webdav-proxy?url=") ||
+    result.includes("/api/webdav-proxy?t=")
+  ) {
+    console.error("[WebDAV] 检测到嵌套代理 URL，可能是配置错误:", result);
+    throw new Error("嵌套代理 URL: 服务器地址配置错误");
+  }
+  return result;
 }
 
 /** 浏览器端通过 Vercel Edge API 代理发起 WebDAV 请求 */
@@ -536,7 +554,9 @@ async function webProxyRequest(
       ? cfg.proxyUrl.slice(0, -1)
       : cfg.proxyUrl
     : "/api/webdav-proxy";
-  const reqUrl = `${proxy}?url=${encodeURIComponent(targetUrl)}`;
+  // base64 编码 target URL，绕过 Vercel WAF 对 ?url=https://... 的拦截
+  const encodedTarget = encodeURIComponent(btoa(targetUrl));
+  const reqUrl = `${proxy}?t=${encodedTarget}`;
   const auth = btoa(`${cfg.username}:${cfg.password}`);
   const headers: Record<string, string> = {
     Authorization: `Basic ${auth}`,

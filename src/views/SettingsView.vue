@@ -458,11 +458,26 @@ function cancelClear() {
 /** WebDAV 保存配置 */
 function saveWebDavConfig() {
   if (webDavUrl.value && webDavUsername.value) {
+    let url = webDavUrl.value.trim();
+    // 自动补全末尾斜杠
+    if (!url.endsWith("/")) {
+      url += "/";
+    }
+    // 防止用户把代理 URL 填到服务器地址
+    if (url.includes("/api/webdav-proxy")) {
+      webDavTestResult.value = {
+        success: false,
+        message:
+          "服务器地址不能包含 /api/webdav-proxy，请填写 WebDAV 根目录地址（如 https://dav.jianguoyun.com/dav/）",
+      };
+      return;
+    }
     webDav.setConfig({
-      url: webDavUrl.value,
+      url,
       username: webDavUsername.value,
       password: webDavPassword.value,
     });
+    webDavUrl.value = url;
   }
 }
 
