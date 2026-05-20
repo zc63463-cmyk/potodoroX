@@ -29,11 +29,11 @@ import { TIMER_MODES } from "@/utils/constants";
 import { formatMinutes, getWeekdayName, formatDate } from "@/utils/format";
 import type { Task, SessionType } from "@/types";
 import { animate, spring } from "animejs";
-import GooeyNav from "@/components/GooeyNav.vue";
+import GooeyNav from "@/components/shared/GooeyNav.vue";
 
 // MagicRings 拆分为异步 chunk，避免 Three.js 拖累 TimerView 主包
 const MagicRings = defineAsyncComponent(
-  () => import("@/components/MagicRings.vue")
+  () => import("@/components/timer/MagicRings.vue")
 );
 
 // ---- Stores ----

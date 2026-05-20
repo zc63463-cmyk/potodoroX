@@ -126,12 +126,12 @@ export const useTimerStore = defineStore("timer", () => {
             updates.plan = data.plan;
           }
 
-          // 原子操作：session 创建 + task 更新在同一个事务中
-          const { session, updatedTask } = await db.transaction(async () => {
-            const s = await db.createSession(sessionInput);
-            const t = await db.updateTask(data.taskId!, updates);
-            return { session: s, updatedTask: t };
-          });
+          // 原子操作：session 创建 + task 更新下沉到 Service 层
+          const { session, updatedTask } = await db.createSessionAndUpdateTask(
+            sessionInput,
+            data.taskId!,
+            updates
+          );
 
           // 内存状态同步（事务成功后）
           sessionStore.sessions.unshift(session);

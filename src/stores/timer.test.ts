@@ -11,6 +11,7 @@ const mockDb = vi.hoisted(() => ({
   transaction: vi.fn((fn) => fn()),
   createSession: vi.fn(),
   updateTask: vi.fn(),
+  createSessionAndUpdateTask: vi.fn(),
 }));
 vi.mock("@/services/database", () => ({ db: mockDb }));
 
@@ -150,6 +151,7 @@ beforeEach(() => {
   mockDb.transaction.mockClear().mockImplementation((fn) => fn());
   mockDb.createSession.mockClear();
   mockDb.updateTask.mockClear();
+  mockDb.createSessionAndUpdateTask.mockClear();
   mockRecordEvent.mockClear().mockResolvedValue(undefined);
   capturedOnComplete = undefined;
 });
@@ -169,15 +171,17 @@ async function triggerComplete(
 describe("handleTimerComplete", () => {
   it("work+completed+taskId 应使用原子事务并同步内存", async () => {
     mockTasks.value = [{ id: "task-1", actualPomodoros: 2, plan: "" }];
-    mockDb.createSession.mockResolvedValue({
-      id: "sess-1",
-      taskId: "task-1",
-      type: "work",
-    });
-    mockDb.updateTask.mockResolvedValue({
-      id: "task-1",
-      actualPomodoros: 3,
-      plan: "plan text",
+    mockDb.createSessionAndUpdateTask.mockResolvedValue({
+      session: {
+        id: "sess-1",
+        taskId: "task-1",
+        type: "work",
+      },
+      updatedTask: {
+        id: "task-1",
+        actualPomodoros: 3,
+        plan: "plan text",
+      },
     });
 
     const store = useTimerStore();
@@ -193,12 +197,7 @@ describe("handleTimerComplete", () => {
       plan: "plan text",
     });
 
-    expect(mockDb.transaction).toHaveBeenCalled();
-    expect(mockDb.createSession).toHaveBeenCalled();
-    expect(mockDb.updateTask).toHaveBeenCalledWith("task-1", {
-      actualPomodoros: 3,
-      plan: "plan text",
-    });
+    expect(mockDb.createSessionAndUpdateTask).toHaveBeenCalled();
     expect(mockRecordEvent).toHaveBeenCalledWith(
       "session.created",
       "sess-1",
@@ -231,7 +230,7 @@ describe("handleTimerComplete", () => {
     });
 
     expect(mockAddSession).toHaveBeenCalled();
-    expect(mockDb.transaction).not.toHaveBeenCalled();
+    expect(mockDb.createSessionAndUpdateTask).not.toHaveBeenCalled();
     expect(store.completedPomodoros).toBe(1);
   });
 
@@ -292,9 +291,9 @@ describe("handleTimerComplete", () => {
     expect(mockTimer.setSessionType).toHaveBeenCalledWith("work");
   });
 
-  it("db.transaction 异常时应捕获错误", async () => {
+  it("db.createSessionAndUpdateTask 异常时应捕获错误", async () => {
     mockTasks.value = [{ id: "task-1", actualPomodoros: 2, plan: "" }];
-    mockDb.transaction.mockRejectedValue(new Error("db fail"));
+    mockDb.createSessionAndUpdateTask.mockRejectedValue(new Error("db fail"));
     const store = useTimerStore();
     mockTimer.sessionType.value = "work";
 

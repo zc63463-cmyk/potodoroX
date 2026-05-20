@@ -88,6 +88,10 @@ export const db: DatabaseService = {
     ensureDb().then((d) => d.upsertReflection(reflection)),
   upsertSession: (session) => ensureDb().then((d) => d.upsertSession(session)),
   createSession: (input) => ensureDb().then((d) => d.createSession(input)),
+  createSessionAndUpdateTask: (sessionInput, taskId, updates) =>
+    ensureDb().then((d) =>
+      d.createSessionAndUpdateTask(sessionInput, taskId, updates)
+    ),
   getSession: (id) => ensureDb().then((d) => d.getSession(id)),
   getAllSessions: () => ensureDb().then((d) => d.getAllSessions()),
   updateSession: (id, input) =>

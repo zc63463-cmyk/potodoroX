@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
-import ReflectionEditor from "@/components/ReflectionEditor.vue";
-import ReflectionBrowser from "@/components/ReflectionBrowser.vue";
-import ReflectionDetailModal from "@/components/ReflectionDetailModal.vue";
+import ReflectionEditor from "@/components/reflection/ReflectionEditor.vue";
+import ReflectionBrowser from "@/components/reflection/ReflectionBrowser.vue";
+import ReflectionDetailModal from "@/components/reflection/ReflectionDetailModal.vue";
 import { useReflectionStore } from "@/stores/reflection";
 import { useTaskStore } from "@/stores/task";
 import type { Mood, Reflection } from "@/types";

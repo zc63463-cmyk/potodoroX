@@ -1,138 +1,168 @@
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue'
-import MarkdownPreview from '@/components/MarkdownPreview.vue'
-import type { Mood, Task } from '@/types'
-import { MOODS } from '@/utils/constants'
-import { formatFriendlyDate, getWeekdayName } from '@/utils/format'
-import { downloadReflection } from '@/utils/exportReflection'
+import { ref, computed, nextTick } from "vue";
+import MarkdownPreview from "@/components/MarkdownPreview.vue";
+import type { Mood, Task } from "@/types";
+import { MOODS } from "@/utils/constants";
+import { formatFriendlyDate, getWeekdayName } from "@/utils/format";
+import { downloadReflection } from "@/utils/exportReflection";
 
 // ---- Props ----
 const props = defineProps<{
-  date: string
-  content: string
-  mood: Mood
-  tags: string[]
-  reflectionId: string | null
-  todayTasks: Task[]
-}>()
+  date: string;
+  content: string;
+  mood: Mood;
+  tags: string[];
+  reflectionId: string | null;
+  todayTasks: Task[];
+}>();
 
 const emit = defineEmits<{
-  (e: 'update:content', value: string): void
-  (e: 'update:mood', value: Mood): void
-  (e: 'update:tags', value: string[]): void
-  (e: 'changeDate', offset: number): void
-  (e: 'goToToday'): void
-  (e: 'save'): void
-  (e: 'triggerAutoSave'): void
-}>()
+  (e: "update:content", value: string): void;
+  (e: "update:mood", value: Mood): void;
+  (e: "update:tags", value: string[]): void;
+  (e: "changeDate", offset: number): void;
+  (e: "goToToday"): void;
+  (e: "save"): void;
+  (e: "triggerAutoSave"): void;
+}>();
 
 // ---- 本地状态 ----
-const showPreview = ref(false)
-const tagInput = ref('')
-const showExportMenu = ref(false)
+const showPreview = ref(false);
+const tagInput = ref("");
+const showExportMenu = ref(false);
 
 // ---- 心情配置 ----
-const moodConfig: Record<Mood, { emoji: string; label: string; color: string; bgColor: string }> = {
-  great: { emoji: '\u{1F604}', label: '很棒', color: '#3FB950', bgColor: 'rgba(63, 185, 80, 0.15)' },
-  good: { emoji: '\u{1F642}', label: '不错', color: '#58A6FF', bgColor: 'rgba(88, 166, 255, 0.15)' },
-  normal: { emoji: '\u{1F610}', label: '一般', color: '#D29922', bgColor: 'rgba(210, 153, 34, 0.15)' },
-  bad: { emoji: '\u{1F61F}', label: '不好', color: '#F0883E', bgColor: 'rgba(240, 136, 62, 0.15)' },
-  terrible: { emoji: '\u{1F61E}', label: '很差', color: '#F85149', bgColor: 'rgba(248, 81, 73, 0.15)' },
-}
+const moodConfig: Record<
+  Mood,
+  { emoji: string; label: string; color: string; bgColor: string }
+> = {
+  great: {
+    emoji: "\u{1F604}",
+    label: "很棒",
+    color: "#3FB950",
+    bgColor: "rgba(63, 185, 80, 0.15)",
+  },
+  good: {
+    emoji: "\u{1F642}",
+    label: "不错",
+    color: "#58A6FF",
+    bgColor: "rgba(88, 166, 255, 0.15)",
+  },
+  normal: {
+    emoji: "\u{1F610}",
+    label: "一般",
+    color: "#D29922",
+    bgColor: "rgba(210, 153, 34, 0.15)",
+  },
+  bad: {
+    emoji: "\u{1F61F}",
+    label: "不好",
+    color: "#F0883E",
+    bgColor: "rgba(240, 136, 62, 0.15)",
+  },
+  terrible: {
+    emoji: "\u{1F61E}",
+    label: "很差",
+    color: "#F85149",
+    bgColor: "rgba(248, 81, 73, 0.15)",
+  },
+};
 
 // ---- 模板 ----
 const templates = [
   {
-    label: '极简日记',
-    text: '### 极简日记\n\n- 今天发生了：\n- 我的感受是：\n- 今天最重要的一件事：\n- 明天想继续：\n',
+    label: "极简日记",
+    text: "### 极简日记\n\n- 今天发生了：\n- 我的感受是：\n- 今天最重要的一件事：\n- 明天想继续：\n",
   },
   {
-    label: '情绪复盘',
-    text: '### 情绪复盘\n\n- 今天的主要情绪：\n- 触发这个情绪的事件：\n- 我当时的想法：\n- 这个想法是否完全准确：\n- 我可以如何照顾自己：\n',
+    label: "情绪复盘",
+    text: "### 情绪复盘\n\n- 今天的主要情绪：\n- 触发这个情绪的事件：\n- 我当时的想法：\n- 这个想法是否完全准确：\n- 我可以如何照顾自己：\n",
   },
   {
-    label: '今日收获',
-    text: '### 今日收获\n\n- 今天完成了：\n- 今天学到了：\n- 今天让我开心的是：\n- 今天值得保留的一个瞬间：\n- 给今天的自己一句话：\n',
+    label: "今日收获",
+    text: "### 今日收获\n\n- 今天完成了：\n- 今天学到了：\n- 今天让我开心的是：\n- 今天值得保留的一个瞬间：\n- 给今天的自己一句话：\n",
   },
   {
-    label: '困难与解决',
-    text: '### 困难与解决\n\n- 今天遇到的困难：\n- 当时我的感受：\n- 我尝试过的方法：\n- 有效的做法：\n- 下次可以怎么改进：\n',
+    label: "困难与解决",
+    text: "### 困难与解决\n\n- 今天遇到的困难：\n- 当时我的感受：\n- 我尝试过的方法：\n- 有效的做法：\n- 下次可以怎么改进：\n",
   },
   {
-    label: '明日计划',
-    text: '### 明日计划\n\n- 明天最重要的一件事：\n- 需要完成的 2–3 个小任务：\n  - \n  - \n  - \n- 可能遇到的阻碍：\n- 我准备如何应对：\n- 明天从哪一步开始：\n',
+    label: "明日计划",
+    text: "### 明日计划\n\n- 明天最重要的一件事：\n- 需要完成的 2–3 个小任务：\n  - \n  - \n  - \n- 可能遇到的阻碍：\n- 我准备如何应对：\n- 明天从哪一步开始：\n",
   },
-]
+];
 
 // ---- 计算属性 ----
 const dateDisplayText = computed(() => {
-  const friendly = formatFriendlyDate(props.date)
-  const weekday = getWeekdayName(props.date)
-  return `${friendly} ${weekday}`
-})
+  const friendly = formatFriendlyDate(props.date);
+  const weekday = getWeekdayName(props.date);
+  return `${friendly} ${weekday}`;
+});
 
 // ---- 方法 ----
 function selectMood(mood: Mood) {
-  emit('update:mood', mood)
-  emit('triggerAutoSave')
+  emit("update:mood", mood);
+  emit("triggerAutoSave");
 }
 
 function insertTemplate(template: (typeof templates)[0]) {
-  emit('update:content', template.text + props.content)
-  emit('triggerAutoSave')
+  emit("update:content", template.text + props.content);
+  emit("triggerAutoSave");
   nextTick(() => {
-    const textarea = document.querySelector('.reflection-textarea') as HTMLTextAreaElement
+    const textarea = document.querySelector(
+      ".reflection-textarea"
+    ) as HTMLTextAreaElement;
     if (textarea) {
-      textarea.focus()
-      textarea.setSelectionRange(0, 0)
+      textarea.focus();
+      textarea.setSelectionRange(0, 0);
     }
-  })
+  });
 }
 
 function handleTagInputKey(e: KeyboardEvent) {
-  if (e.key === 'Enter' || e.key === ',' || e.key === ' ') {
-    e.preventDefault()
-    addTag()
-  } else if (e.key === 'Backspace' && tagInput.value === '') {
-    removeLastTag()
+  if (e.key === "Enter" || e.key === "," || e.key === " ") {
+    e.preventDefault();
+    addTag();
+  } else if (e.key === "Backspace" && tagInput.value === "") {
+    removeLastTag();
   }
 }
 
 function addTag() {
-  const raw = tagInput.value.trim().toLowerCase().replace(/,/g, '')
-  if (!raw) return
-  if (raw.length > 20) return
+  const raw = tagInput.value.trim().toLowerCase().replace(/,/g, "");
+  if (!raw) return;
+  if (raw.length > 20) return;
   if (props.tags.includes(raw)) {
-    tagInput.value = ''
-    return
+    tagInput.value = "";
+    return;
   }
-  if (props.tags.length >= 8) return
-  emit('update:tags', [...props.tags, raw])
-  tagInput.value = ''
-  emit('triggerAutoSave')
+  if (props.tags.length >= 8) return;
+  emit("update:tags", [...props.tags, raw]);
+  tagInput.value = "";
+  emit("triggerAutoSave");
 }
 
 function removeTag(index: number) {
-  const next = [...props.tags]
-  next.splice(index, 1)
-  emit('update:tags', next)
-  emit('triggerAutoSave')
+  const next = [...props.tags];
+  next.splice(index, 1);
+  emit("update:tags", next);
+  emit("triggerAutoSave");
 }
 
 function removeLastTag() {
-  if (props.tags.length === 0) return
-  const next = [...props.tags]
-  next.pop()
-  emit('update:tags', next)
-  emit('triggerAutoSave')
+  if (props.tags.length === 0) return;
+  const next = [...props.tags];
+  next.pop();
+  emit("update:tags", next);
+  emit("triggerAutoSave");
 }
 
 function onBlurTagInput() {
-  addTag()
+  addTag();
 }
 
 function getMoodInfo(mood: Mood) {
-  return moodConfig[mood] || moodConfig.normal
+  return moodConfig[mood] || moodConfig.normal;
 }
 </script>
 
@@ -144,18 +174,63 @@ function getMoodInfo(mood: Mood) {
       <div class="header-actions">
         <div class="export-dropdown" @mouseleave="showExportMenu = false">
           <button class="btn-export" @mouseenter="showExportMenu = true">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="7 10 12 15 17 10"/>
-              <line x1="12" y1="15" x2="12" y2="3"/>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
             导出
           </button>
           <div v-if="showExportMenu" class="export-menu">
-            <button class="export-menu-item" @click="downloadReflection({ id: reflectionId || '', date, content, mood, tags, relatedTaskIds: [], createdAt: '', updatedAt: '', synced: false }, 'md'); showExportMenu = false">
+            <button
+              class="export-menu-item"
+              @click="
+                downloadReflection(
+                  {
+                    id: reflectionId || '',
+                    date,
+                    content,
+                    mood,
+                    tags,
+                    relatedTaskIds: [],
+                    createdAt: '',
+                    updatedAt: '',
+                    synced: false,
+                  },
+                  'md'
+                );
+                showExportMenu = false;
+              "
+            >
               Markdown (.md)
             </button>
-            <button class="export-menu-item" @click="downloadReflection({ id: reflectionId || '', date, content, mood, tags, relatedTaskIds: [], createdAt: '', updatedAt: '', synced: false }, 'json'); showExportMenu = false">
+            <button
+              class="export-menu-item"
+              @click="
+                downloadReflection(
+                  {
+                    id: reflectionId || '',
+                    date,
+                    content,
+                    mood,
+                    tags,
+                    relatedTaskIds: [],
+                    createdAt: '',
+                    updatedAt: '',
+                    synced: false,
+                  },
+                  'json'
+                );
+                showExportMenu = false;
+              "
+            >
               JSON (.json)
             </button>
           </div>
@@ -188,7 +263,12 @@ function getMoodInfo(mood: Mood) {
     <!-- 快速模板 -->
     <div class="template-bar">
       <span class="template-label">快速模板</span>
-      <button v-for="tpl in templates" :key="tpl.label" class="template-btn" @click="insertTemplate(tpl)">
+      <button
+        v-for="tpl in templates"
+        :key="tpl.label"
+        class="template-btn"
+        @click="insertTemplate(tpl)"
+      >
         {{ tpl.label }}
       </button>
     </div>
@@ -214,8 +294,20 @@ function getMoodInfo(mood: Mood) {
 
     <!-- 编辑/预览切换 -->
     <div class="editor-toolbar">
-      <button class="toolbar-btn" :class="{ active: !showPreview }" @click="showPreview = false">编辑</button>
-      <button class="toolbar-btn" :class="{ active: showPreview }" @click="showPreview = true">预览</button>
+      <button
+        class="toolbar-btn"
+        :class="{ active: !showPreview }"
+        @click="showPreview = false"
+      >
+        编辑
+      </button>
+      <button
+        class="toolbar-btn"
+        :class="{ active: showPreview }"
+        @click="showPreview = true"
+      >
+        预览
+      </button>
     </div>
 
     <!-- 编辑模式 -->
@@ -224,7 +316,10 @@ function getMoodInfo(mood: Mood) {
       :value="content"
       class="reflection-textarea"
       placeholder="写下今天的反思..."
-      @input="emit('update:content', ($event.target as HTMLTextAreaElement).value); emit('triggerAutoSave')"
+      @input="
+        emit('update:content', ($event.target as HTMLTextAreaElement).value);
+        emit('triggerAutoSave');
+      "
     />
 
     <!-- 预览模式 -->
@@ -371,7 +466,11 @@ function getMoodInfo(mood: Mood) {
   padding: 10px 16px;
   border-radius: 12px;
   border: 1.5px solid transparent;
-  background: linear-gradient(135deg, var(--surface) 0%, var(--bg-elevated) 100%);
+  background: linear-gradient(
+    135deg,
+    var(--surface) 0%,
+    var(--bg-elevated) 100%
+  );
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   color: var(--text-secondary);
@@ -379,7 +478,7 @@ function getMoodInfo(mood: Mood) {
 }
 
 .mood-card::before {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
@@ -403,7 +502,9 @@ function getMoodInfo(mood: Mood) {
   border-color: var(--mood-color, var(--accent));
   background: linear-gradient(135deg, var(--mood-bg) 0%, var(--surface) 100%);
   color: var(--mood-color, var(--accent));
-  box-shadow: 0 0 20px var(--mood-bg), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  box-shadow:
+    0 0 20px var(--mood-bg),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .mood-card.active::before {
@@ -480,7 +581,9 @@ function getMoodInfo(mood: Mood) {
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--surface);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .tag-input-wrap:focus-within {
@@ -592,7 +695,6 @@ function getMoodInfo(mood: Mood) {
 .reflection-textarea:focus {
   background: var(--surface-hover);
 }
-
 
 /* ---- 响应式 ---- */
 @media (max-width: 600px) {

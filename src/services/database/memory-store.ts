@@ -465,6 +465,18 @@ export class MemoryStore {
     return session;
   }
 
+  async createSessionAndUpdateTask(
+    sessionInput: CreateSessionInput,
+    taskId: string,
+    updates: UpdateTaskInput
+  ): Promise<{ session: Session; updatedTask: Task | null }> {
+    return this.transaction(async () => {
+      const session = await this.createSession(sessionInput);
+      const updatedTask = await this.updateTask(taskId, updates);
+      return { session, updatedTask };
+    });
+  }
+
   async getSession(id: string): Promise<Session | null> {
     return this.sessions.get(id) ?? null;
   }

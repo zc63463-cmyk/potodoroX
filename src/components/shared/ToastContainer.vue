@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { useAppStore } from '@/stores/app'
+import { useAppStore } from "@/stores/app";
 
-const appStore = useAppStore()
+const appStore = useAppStore();
 </script>
 
 <template>
@@ -15,7 +15,15 @@ const appStore = useAppStore()
           :class="`toast-${toast.type}`"
         >
           <span class="toast-icon">
-            {{ toast.type === 'success' ? '✓' : toast.type === 'error' ? '✕' : toast.type === 'warning' ? '!' : 'ℹ' }}
+            {{
+              toast.type === "success"
+                ? "✓"
+                : toast.type === "error"
+                  ? "✕"
+                  : toast.type === "warning"
+                    ? "!"
+                    : "ℹ"
+            }}
           </span>
           <span class="toast-message">{{ toast.message }}</span>
         </div>
@@ -74,7 +82,7 @@ const appStore = useAppStore()
 }
 .toast-success .toast-icon {
   background: rgba(63, 185, 80, 0.15);
-  color: #3FB950;
+  color: #3fb950;
 }
 
 .toast-error {
@@ -82,7 +90,7 @@ const appStore = useAppStore()
 }
 .toast-error .toast-icon {
   background: rgba(248, 81, 73, 0.15);
-  color: #F85149;
+  color: #f85149;
 }
 
 .toast-warning {
@@ -90,7 +98,7 @@ const appStore = useAppStore()
 }
 .toast-warning .toast-icon {
   background: rgba(210, 153, 34, 0.15);
-  color: #D29922;
+  color: #d29922;
 }
 
 .toast-info {
@@ -98,7 +106,7 @@ const appStore = useAppStore()
 }
 .toast-info .toast-icon {
   background: rgba(88, 166, 255, 0.15);
-  color: #58A6FF;
+  color: #58a6ff;
 }
 
 /* 动画 */

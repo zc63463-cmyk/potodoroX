@@ -53,7 +53,7 @@ vi.mock("animejs", () => ({
   })),
 }));
 
-vi.mock("@/components/GooeyNav.vue", () => ({
+vi.mock("@/components/shared/GooeyNav.vue", () => ({
   default: {
     name: "GooeyNavStub",
     template: '<div class="gooey-nav-stub" />',
@@ -62,7 +62,7 @@ vi.mock("@/components/GooeyNav.vue", () => ({
   },
 }));
 
-vi.mock("@/components/MagicRings.vue", () => ({
+vi.mock("@/components/timer/MagicRings.vue", () => ({
   default: {
     name: "MagicRingsStub",
     template: '<div class="magic-rings-stub" />',

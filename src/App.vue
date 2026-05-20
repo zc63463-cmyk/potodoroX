@@ -5,8 +5,8 @@ import { useAppStore } from "@/stores/app";
 import { useSettingsStore } from "@/stores/settings";
 import { useSyncStore } from "@/stores/sync";
 import { useKeyboard } from "@/composables/useKeyboard";
-import ToastContainer from "@/components/ToastContainer.vue";
-import GlobalSearch from "@/components/GlobalSearch.vue";
+import ToastContainer from "@/components/shared/ToastContainer.vue";
+import GlobalSearch from "@/components/shared/GlobalSearch.vue";
 import type { ViewName } from "@/types";
 
 const router = useRouter();

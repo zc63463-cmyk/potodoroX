@@ -56,6 +56,12 @@ export interface DatabaseService {
   upsertReflection(reflection: Reflection): Promise<Reflection>;
   upsertSession(session: Session): Promise<Session>;
   createSession(input: CreateSessionInput): Promise<Session>;
+  /** 原子操作：在事务中同时创建 session 并更新 task */
+  createSessionAndUpdateTask(
+    sessionInput: CreateSessionInput,
+    taskId: string,
+    updates: UpdateTaskInput
+  ): Promise<{ session: Session; updatedTask: Task | null }>;
   getSession(id: string): Promise<Session | null>;
   getAllSessions(): Promise<Session[]>;
   updateSession(id: string, input: Partial<Session>): Promise<Session | null>;

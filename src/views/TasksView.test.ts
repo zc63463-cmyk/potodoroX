@@ -11,7 +11,7 @@ import { ref, computed } from "vue";
 // ============================================================
 // Mock 子组件（stub 为简单占位组件）
 // ============================================================
-vi.mock("@/components/TaskDetailModal.vue", () => ({
+vi.mock("@/components/task/TaskDetailModal.vue", () => ({
   default: {
     name: "TaskDetailModal",
     template: '<div class="task-detail-modal-mock" />',
@@ -20,7 +20,7 @@ vi.mock("@/components/TaskDetailModal.vue", () => ({
   },
 }));
 
-vi.mock("@/components/TaskFormModal.vue", () => ({
+vi.mock("@/components/task/TaskFormModal.vue", () => ({
   default: {
     name: "TaskFormModal",
     template: '<div class="task-form-modal-mock" />',
@@ -29,7 +29,7 @@ vi.mock("@/components/TaskFormModal.vue", () => ({
   },
 }));
 
-vi.mock("@/components/TaskDeleteConfirm.vue", () => ({
+vi.mock("@/components/task/TaskDeleteConfirm.vue", () => ({
   default: {
     name: "TaskDeleteConfirm",
     template: '<div class="task-delete-confirm-mock" />',
@@ -38,7 +38,7 @@ vi.mock("@/components/TaskDeleteConfirm.vue", () => ({
   },
 }));
 
-vi.mock("@/components/TaskListPanel.vue", () => ({
+vi.mock("@/components/task/TaskListPanel.vue", () => ({
   default: {
     name: "TaskListPanel",
     template: '<div class="task-list-panel-mock" />',
@@ -46,7 +46,7 @@ vi.mock("@/components/TaskListPanel.vue", () => ({
   },
 }));
 
-vi.mock("@/components/TaskKanbanPanel.vue", () => ({
+vi.mock("@/components/task/TaskKanbanPanel.vue", () => ({
   default: {
     name: "TaskKanbanPanel",
     template: '<div class="task-kanban-panel-mock" />',
@@ -54,7 +54,7 @@ vi.mock("@/components/TaskKanbanPanel.vue", () => ({
   },
 }));
 
-vi.mock("@/components/TaskCalendarPanel.vue", () => ({
+vi.mock("@/components/task/TaskCalendarPanel.vue", () => ({
   default: {
     name: "TaskCalendarPanel",
     template: '<div class="task-calendar-panel-mock" />',
@@ -62,7 +62,7 @@ vi.mock("@/components/TaskCalendarPanel.vue", () => ({
   },
 }));
 
-vi.mock("@/components/TaskExportModal.vue", () => ({
+vi.mock("@/components/task/TaskExportModal.vue", () => ({
   default: {
     name: "TaskExportModal",
     template: '<div class="task-export-modal-mock" />',

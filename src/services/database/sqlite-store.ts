@@ -724,6 +724,18 @@ export class SqliteDatabase {
     };
   }
 
+  async createSessionAndUpdateTask(
+    sessionInput: CreateSessionInput,
+    taskId: string,
+    updates: UpdateTaskInput
+  ): Promise<{ session: Session; updatedTask: Task | null }> {
+    return this.transaction(async () => {
+      const session = await this.createSession(sessionInput);
+      const updatedTask = await this.updateTask(taskId, updates);
+      return { session, updatedTask };
+    });
+  }
+
   async getSession(id: string): Promise<Session | null> {
     const rows = await this.queryRows("SELECT * FROM sessions WHERE id = ?", [
       id,

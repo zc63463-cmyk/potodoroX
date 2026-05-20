@@ -16,13 +16,13 @@ import type {
   SortField,
   SortOrder,
 } from "@/types";
-import TaskDetailModal from "@/components/TaskDetailModal.vue";
-import TaskFormModal from "@/components/TaskFormModal.vue";
-import TaskDeleteConfirm from "@/components/TaskDeleteConfirm.vue";
-import TaskListPanel from "@/components/TaskListPanel.vue";
-import TaskKanbanPanel from "@/components/TaskKanbanPanel.vue";
-import TaskCalendarPanel from "@/components/TaskCalendarPanel.vue";
-import TaskExportModal from "@/components/TaskExportModal.vue";
+import TaskDetailModal from "@/components/task/TaskDetailModal.vue";
+import TaskFormModal from "@/components/task/TaskFormModal.vue";
+import TaskDeleteConfirm from "@/components/task/TaskDeleteConfirm.vue";
+import TaskListPanel from "@/components/task/TaskListPanel.vue";
+import TaskKanbanPanel from "@/components/task/TaskKanbanPanel.vue";
+import TaskCalendarPanel from "@/components/task/TaskCalendarPanel.vue";
+import TaskExportModal from "@/components/task/TaskExportModal.vue";
 
 // ---- Stores ----
 const taskStore = useTaskStore();

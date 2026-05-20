@@ -1,82 +1,89 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { useMarkdown } from '@/composables/useMarkdown'
+import {
+  ref,
+  computed,
+  watch,
+  onMounted,
+  onBeforeUnmount,
+  nextTick,
+} from "vue";
+import { useMarkdown } from "@/composables/useMarkdown";
 
 const props = defineProps<{
-  content: string
-  showToc?: boolean
-}>()
+  content: string;
+  showToc?: boolean;
+}>();
 
-const { renderMarkdown, extractToc } = useMarkdown()
+const { renderMarkdown, extractToc } = useMarkdown();
 
-const contentRef = ref<HTMLElement | null>(null)
-const tocItems = computed(() => extractToc(props.content))
-const activeTocId = ref<string | null>(null)
-let observer: IntersectionObserver | null = null
+const contentRef = ref<HTMLElement | null>(null);
+const tocItems = computed(() => extractToc(props.content));
+const activeTocId = ref<string | null>(null);
+let observer: IntersectionObserver | null = null;
 
 function buildObserver() {
   if (observer) {
-    observer.disconnect()
-    observer = null
+    observer.disconnect();
+    observer = null;
   }
-  if (!contentRef.value) return
+  if (!contentRef.value) return;
 
-  const headings = contentRef.value.querySelectorAll<HTMLElement>('h1, h2, h3')
-  if (headings.length === 0) return
+  const headings = contentRef.value.querySelectorAll<HTMLElement>("h1, h2, h3");
+  if (headings.length === 0) return;
 
   observer = new IntersectionObserver(
     (entries) => {
-      const visible = entries.filter((e) => e.isIntersecting)
+      const visible = entries.filter((e) => e.isIntersecting);
       if (visible.length > 0) {
         const topmost = visible.reduce((a, b) =>
           a.boundingClientRect.top < b.boundingClientRect.top ? a : b
-        )
-        activeTocId.value = topmost.target.id
+        );
+        activeTocId.value = topmost.target.id;
       }
     },
     {
       root: contentRef.value,
       threshold: [0, 0.5, 1],
     }
-  )
+  );
 
-  headings.forEach((h) => observer!.observe(h))
+  headings.forEach((h) => observer!.observe(h));
 }
 
 function scrollToToc(id: string) {
-  if (!contentRef.value) return
-  const el = contentRef.value.querySelector<HTMLElement>(`#${CSS.escape(id)}`)
-  if (!el) return
+  if (!contentRef.value) return;
+  const el = contentRef.value.querySelector<HTMLElement>(`#${CSS.escape(id)}`);
+  if (!el) return;
 
-  const containerRect = contentRef.value.getBoundingClientRect()
-  const elRect = el.getBoundingClientRect()
-  const offset = elRect.top - containerRect.top + contentRef.value.scrollTop
-  contentRef.value.scrollTo({ top: offset, behavior: 'smooth' })
+  const containerRect = contentRef.value.getBoundingClientRect();
+  const elRect = el.getBoundingClientRect();
+  const offset = elRect.top - containerRect.top + contentRef.value.scrollTop;
+  contentRef.value.scrollTo({ top: offset, behavior: "smooth" });
 }
 
 onMounted(() => {
-  nextTick(buildObserver)
-})
+  nextTick(buildObserver);
+});
 
-watch(() => props.content, () => {
-  nextTick(buildObserver)
-})
+watch(
+  () => props.content,
+  () => {
+    nextTick(buildObserver);
+  }
+);
 
 onBeforeUnmount(() => {
   if (observer) {
-    observer.disconnect()
-    observer = null
+    observer.disconnect();
+    observer = null;
   }
-})
+});
 </script>
 
 <template>
   <div class="markdown-preview-container">
     <!-- TOC 侧边栏 -->
-    <nav
-      v-if="showToc && tocItems.length > 0"
-      class="toc-sidebar"
-    >
+    <nav v-if="showToc && tocItems.length > 0" class="toc-sidebar">
       <div class="toc-title">目录</div>
       <ul class="toc-list">
         <li
@@ -97,7 +104,11 @@ onBeforeUnmount(() => {
     </nav>
 
     <!-- Markdown 内容 -->
-    <div ref="contentRef" class="markdown-body" v-html="renderMarkdown(content)" />
+    <div
+      ref="contentRef"
+      class="markdown-body"
+      v-html="renderMarkdown(content)"
+    />
   </div>
 </template>
 
@@ -231,7 +242,7 @@ onBeforeUnmount(() => {
   background: var(--surface);
   color: var(--accent);
   font-size: 0.875rem;
-  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
 }
 
 .markdown-body :deep(pre) {
