@@ -936,7 +936,7 @@ describe("useWebDavSync composable", () => {
 
   it("testConnection 未配置时应返回 false", async () => {
     const webDav = useWebDavSync();
-    const ok = await webDav.testConnection();
-    expect(ok).toBe(false);
+    const result = await webDav.testConnection();
+    expect(result.ok).toBe(false);
   });
 });

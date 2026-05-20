@@ -152,8 +152,9 @@ describe("testConnection", () => {
   it("未配置时应返回 false", async () => {
     const webdav = useWebDavSync();
     webdav.clearConfig();
-    const ok = await webdav.testConnection();
-    expect(ok).toBe(false);
+    const result = await webdav.testConnection();
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("WebDAV 未配置");
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -170,8 +171,8 @@ describe("testConnection", () => {
         `<?xml version="1.0"?><D:multistatus xmlns:D="DAV:"><D:response><D:href>/</D:href></D:response></D:multistatus>`
       )
     );
-    const ok = await webdav.testConnection();
-    expect(ok).toBe(true);
+    const result = await webdav.testConnection();
+    expect(result.ok).toBe(true);
     expect(mockFetch).toHaveBeenCalled();
   });
 
@@ -183,8 +184,8 @@ describe("testConnection", () => {
       password: "p",
     });
     mockFetch.mockResolvedValue(createResponse(401, "Unauthorized"));
-    const ok = await webdav.testConnection();
-    expect(ok).toBe(false);
+    const result = await webdav.testConnection();
+    expect(result.ok).toBe(false);
   });
 
   it("Web fetch 抛异常应返回 false", async () => {
@@ -195,8 +196,8 @@ describe("testConnection", () => {
       password: "p",
     });
     mockFetch.mockRejectedValue(new Error("network error"));
-    const ok = await webdav.testConnection();
-    expect(ok).toBe(false);
+    const result = await webdav.testConnection();
+    expect(result.ok).toBe(false);
   });
 });
 

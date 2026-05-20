@@ -500,12 +500,14 @@ async function testWebDavConnection() {
   saveWebDavConfig();
 
   try {
-    const ok = await webDav.testConnection();
+    const result = await webDav.testConnection();
     webDavTestResult.value = {
-      success: ok,
-      message: ok
+      success: result.ok,
+      message: result.ok
         ? "连接成功！WebDAV 服务可用"
-        : "连接失败：无法访问 WebDAV 服务器",
+        : result.error
+          ? `连接失败：${result.error}`
+          : "连接失败：无法访问 WebDAV 服务器",
     };
   } catch (err) {
     webDavTestResult.value = {

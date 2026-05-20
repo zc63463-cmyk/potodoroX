@@ -842,19 +842,21 @@ export function useWebDavSync() {
     saveConfig(null);
   }
 
-  async function testConnection(): Promise<boolean> {
-    if (!config.value) return false;
+  async function testConnection(): Promise<{ ok: boolean; error?: string }> {
+    if (!config.value) return { ok: false, error: "WebDAV 未配置" };
 
     if (isTauri()) {
       try {
-        return await invoke("webdav_test", {
+        const ok = await invoke<boolean>("webdav_test", {
           url: config.value.url,
           username: config.value.username,
           password: config.value.password,
         });
+        return { ok, error: ok ? undefined : "Tauri WebDAV 连接失败" };
       } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
         console.error("[WebDAV] 连接测试失败:", err);
-        return false;
+        return { ok: false, error: msg };
       }
     }
 
@@ -870,10 +872,48 @@ export function useWebDavSync() {
           depth: "0",
         }
       );
-      return res.status >= 200 && res.status < 400;
+
+      // 尝试读取响应体获取详细错误
+      let errorBody = "";
+      try {
+        errorBody = await res.text();
+        // 如果是 JSON 错误响应，提取 message
+        try {
+          const parsed = JSON.parse(errorBody);
+          if (parsed.error) errorBody = parsed.error;
+          if (parsed.detail) errorBody += " — " + parsed.detail;
+        } catch {
+          // 不是 JSON，保留原始文本（最多 500 字）
+          errorBody = errorBody.slice(0, 500);
+        }
+      } catch {
+        // 无法读取 body
+      }
+
+      if (res.status >= 200 && res.status < 400) {
+        return { ok: true };
+      }
+
+      // 502 = 代理层 body 丢失（platform-level issue）
+      if (res.status === 502 || res.status === 400) {
+        return {
+          ok: false,
+          error:
+            `代理请求失败 (HTTP ${res.status})` +
+            (errorBody ? `: ${errorBody}` : ""),
+        };
+      }
+
+      return {
+        ok: false,
+        error:
+          `WebDAV 服务器返回 HTTP ${res.status}` +
+          (errorBody ? `: ${errorBody}` : "，请检查地址和认证信息"),
+      };
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       console.error("[WebDAV] 代理连接测试失败:", err);
-      return false;
+      return { ok: false, error: msg };
     }
   }
 

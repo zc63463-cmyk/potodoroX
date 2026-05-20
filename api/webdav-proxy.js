@@ -178,26 +178,106 @@ export default async function handler(request, response) {
   /** 请求体大小限制（10MB） */
   const MAX_BODY_SIZE = 10 * 1024 * 1024;
 
-  // 读取 request body（Node.js IncomingMessage 不能直接传给 fetch）
+  /**
+   * 读取 request body — 多策略兜底
+   *
+   * Vercel Serverless Function 的 Node.js runtime 中，IncomingMessage
+   * 的 body stream 行为因版本而异。`for await` 在某些 runtime 版本中可能
+   * 提前结束（返回空 chunks），导致 PROPFIND 等依赖 body 的 WebDAV 方法
+   * 收到 400 Bad Request。
+   *
+   * 策略优先级：
+   *   1. request.body（Vercel 预解析的 buffer/string）
+   *   2. event-based `data`/`end` 监听（最兼容，避免 async iterator 差异）
+   *   3. for await 兜底
+   */
+  async function readRequestBody(req) {
+    // 策略 1：Vercel 可能已预解析 body
+    if (req.body !== undefined && req.body !== null) {
+      if (Buffer.isBuffer(req.body)) return req.body.toString("utf-8");
+      if (typeof req.body === "string") return req.body;
+    }
+
+    // 策略 2：事件驱动读取（最兼容 Node.js streams，含 Vercel runtime）
+    const contentLength = parseInt(req.headers["content-length"], 10);
+    if (contentLength > 0 && contentLength <= MAX_BODY_SIZE) {
+      try {
+        const result = await new Promise((resolve) => {
+          const chunks = [];
+          let total = 0;
+          let settled = false;
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            resolve(
+              chunks.length > 0
+                ? Buffer.concat(chunks).toString("utf-8")
+                : undefined
+            );
+          };
+          req.on("data", (chunk) => {
+            total += chunk.length;
+            if (total > MAX_BODY_SIZE) {
+              settled = true;
+              req.destroy();
+              resolve(undefined);
+              return;
+            }
+            chunks.push(chunk);
+          });
+          req.on("end", finish);
+          req.on("error", finish);
+          // 安全超时：5 秒内无 data 事件则放弃
+          setTimeout(finish, 5000);
+        });
+        if (result !== undefined) return result;
+      } catch {
+        // 事件读取失败，继续降级
+      }
+    }
+
+    // 策略 3：for await 兜底（旧方式）
+    try {
+      const chunks = [];
+      let totalSize = 0;
+      for await (const chunk of req) {
+        totalSize += chunk.length;
+        if (totalSize > MAX_BODY_SIZE) return undefined;
+        chunks.push(chunk);
+      }
+      if (chunks.length > 0) return Buffer.concat(chunks).toString("utf-8");
+    } catch {
+      // 所有策略均失败
+    }
+
+    return undefined;
+  }
+
   let bodyText = undefined;
   if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
-    const chunks = [];
-    let totalSize = 0;
-    for await (const chunk of request) {
-      totalSize += chunk.length;
-      if (totalSize > MAX_BODY_SIZE) {
+    bodyText = await readRequestBody(request);
+
+    // 关键防护：WebDAV 方法（PROPFIND/MKCOL）若依赖 body 但读取为空，
+    // 不要盲转给上游（上游可能返回误导性 400），直接返回明确错误。
+    const needsBodyMethods = ["PROPFIND", "MKCOL", "PUT", "DELETE"];
+    const actualMethod = (overrideMethod || request.method).toUpperCase();
+    if (
+      (!bodyText || bodyText.length === 0) &&
+      needsBodyMethods.includes(actualMethod)
+    ) {
+      const contentLength = parseInt(request.headers["content-length"], 10);
+      // 如果客户端声明了 Content-Length > 0 但 body 没读到，说明平台吞了 body
+      if (contentLength > 0) {
         Object.entries(CORS_HEADERS).forEach(([key, value]) => {
           response.setHeader(key, value);
         });
-        return response.status(413).json({
-          error: "Request body too large",
-          maxBytes: MAX_BODY_SIZE,
+        return response.status(502).json({
+          error: "Request body not captured by serverless function",
+          detail: `Content-Length was ${contentLength} but body is empty. This is a platform-level issue. Please retry or redeploy.`,
+          target: targetUrl.toString(),
+          method: actualMethod,
         });
       }
-      chunks.push(chunk);
-    }
-    if (chunks.length > 0) {
-      bodyText = Buffer.concat(chunks).toString("utf-8");
     }
   }
 
