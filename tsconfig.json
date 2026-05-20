@@ -32,6 +32,5 @@
     "noFallthroughCasesInSwitch": true,
     "strict": true
   },
-  "include": ["src/**/*.ts", "src/**/*.vue", "src/**/*.d.ts"],
-  "exclude": ["src/test-setup.ts"]
+  "include": ["src/**/*.ts", "src/**/*.vue", "src/**/*.d.ts"]
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { setActivePinia, createPinia } from "pinia";
+import { formatDate } from "@/utils/format";
 
 // ============================================================
 // session store · deleteSession 联动测试
@@ -380,7 +381,7 @@ describe("sessionStore.getUnsyncedSessions", () => {
 // ============================================================
 describe("sessionStore.computed getters", () => {
   it("todaySessions 应过滤今日会话", () => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = formatDate(new Date());
     const store = useSessionStore();
     store.sessions = [
       {
@@ -401,7 +402,7 @@ describe("sessionStore.computed getters", () => {
   });
 
   it("todayPomodoros 应统计今日已完成 work", () => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = formatDate(new Date());
     const store = useSessionStore();
     store.sessions = [
       {
