@@ -58,20 +58,19 @@ describe("online status", () => {
 });
 
 // ============================================================
-// sync status
+// sync status（委托给 syncStore，此处验证委托可用）
 // ============================================================
 describe("sync status", () => {
-  it("setSyncStatus 应合并状态", () => {
+  it("syncStatus 应为从 syncStore 派生的 computed", () => {
     const store = useAppStore();
-    expect(store.syncStatus).toEqual({
-      lastSyncAt: null,
-      pendingCount: 0,
-      isSyncing: false,
-    });
-    store.setSyncStatus({ pendingCount: 5 });
-    expect(store.syncStatus.pendingCount).toBe(5);
-    expect(store.hasPendingSync).toBe(true);
-    store.setSyncStatus({ pendingCount: 0 });
+    // syncStatus 是 computed，即使 syncStore 未初始化也应返回对象
+    expect(store.syncStatus).toBeDefined();
+    expect(typeof store.syncStatus.pendingCount).toBe("number");
+  });
+
+  it("hasPendingSync 应读取 syncStore 状态", () => {
+    const store = useAppStore();
+    // 默认 pendingCount = 0，hasPendingSync 应为 false
     expect(store.hasPendingSync).toBe(false);
   });
 });

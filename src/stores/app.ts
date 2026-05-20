@@ -4,7 +4,8 @@
 
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
-import type { SyncStatus, ViewName, ToastType } from "@/types";
+import type { ViewName, ToastType } from "@/types";
+import { useSyncStore } from "@/stores/sync";
 
 export const useAppStore = defineStore("app", () => {
   // ---- 状态 ----
@@ -17,12 +18,8 @@ export const useAppStore = defineStore("app", () => {
   /** 是否在线 */
   const isOnline = ref(navigator.onLine);
 
-  /** 同步状态 */
-  const syncStatus = ref<SyncStatus>({
-    lastSyncAt: null,
-    pendingCount: 0,
-    isSyncing: false,
-  });
+  /** 同步状态（委托给 syncStore 统一管理） */
+  const syncStatus = computed(() => useSyncStore().syncStatus);
 
   /** 是否显示全局搜索 */
   const showGlobalSearch = ref(false);
@@ -71,11 +68,7 @@ export const useAppStore = defineStore("app", () => {
     isOnline.value = navigator.onLine;
   }
 
-  /** 设置同步状态 */
-  function setSyncStatus(status: Partial<SyncStatus>) {
-    syncStatus.value = { ...syncStatus.value, ...status };
-  }
-
+  /** 设置同步状态（已移除，使用 syncStore 统一管理） */
   /** 切换全局搜索 */
   function toggleGlobalSearch() {
     showGlobalSearch.value = !showGlobalSearch.value;
@@ -146,7 +139,6 @@ export const useAppStore = defineStore("app", () => {
     toggleSidebar,
     navigateTo,
     updateOnlineStatus,
-    setSyncStatus,
     toggleGlobalSearch,
     closeGlobalSearch,
     openModal,
