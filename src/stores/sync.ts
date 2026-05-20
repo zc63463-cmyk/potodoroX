@@ -291,9 +291,9 @@ export const useSyncStore = defineStore("sync", () => {
   }
 
   async function exportAllData(): Promise<{
-    tasks: any[];
-    reflections: any[];
-    sessions: any[];
+    tasks: Task[];
+    reflections: Reflection[];
+    sessions: Session[];
   }> {
     const [tasks, reflections, sessions] = await Promise.all([
       db.getAllTasks(),
@@ -411,7 +411,7 @@ export const useSyncStore = defineStore("sync", () => {
       // Tasks
       for (const task of backup.data.tasks) {
         if (mode === "overwrite") {
-          await db.createTask(task as any);
+          await db.createTask(task as unknown as CreateTaskInput);
         } else {
           await db.upsertTask(task);
         }
@@ -421,7 +421,9 @@ export const useSyncStore = defineStore("sync", () => {
       // Reflections
       for (const reflection of backup.data.reflections) {
         if (mode === "overwrite") {
-          await db.createReflection(reflection as any);
+          await db.createReflection(
+            reflection as unknown as CreateReflectionInput
+          );
         } else {
           await db.upsertReflection(reflection);
         }
@@ -431,9 +433,9 @@ export const useSyncStore = defineStore("sync", () => {
       // Sessions
       for (const session of backup.data.sessions) {
         if (mode === "overwrite") {
-          await db.createSession(session as any);
+          await db.createSession(session as unknown as CreateSessionInput);
         } else {
-          await db.upsertSession(session as any);
+          await db.upsertSession(session as unknown as Session);
         }
         counts.sessionCount++;
       }

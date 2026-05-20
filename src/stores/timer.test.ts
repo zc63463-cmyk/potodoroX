@@ -159,7 +159,8 @@ async function triggerComplete(
   data: Parameters<NonNullable<typeof capturedOnComplete>>[0]
 ) {
   capturedOnComplete?.(data);
-  await new Promise((r) => setTimeout(r, 50));
+  // 等待微任务队列清空（mocked async 操作）
+  await new Promise((r) => setTimeout(r, 0));
 }
 
 // ============================================================
