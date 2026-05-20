@@ -50,11 +50,17 @@ const webDavTestResult = ref<{ success: boolean; message: string } | null>(
 );
 
 // 初始化 WebDAV 配置
-if (webDav.config.value) {
-  webDavUrl.value = webDav.config.value.url;
-  webDavUsername.value = webDav.config.value.username;
-  webDavPassword.value = webDav.config.value.password;
+function syncWebDavForm() {
+  if (webDav.config.value) {
+    webDavUrl.value = webDav.config.value.url;
+    webDavUsername.value = webDav.config.value.username;
+    webDavPassword.value = webDav.config.value.password;
+  }
 }
+syncWebDavForm();
+
+// watcher 保底：config 延迟加载/更新时自动同步到表单
+watch(() => webDav.config.value, syncWebDavForm);
 
 /** 是否具备测试连接的最小条件 */
 const canTestWebDav = computed(() => {
