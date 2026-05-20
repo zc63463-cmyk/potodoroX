@@ -6,6 +6,7 @@
 
 const ALLOWED_HOSTS = [
   "dav.jianguoyun.com",
+  "dav.jianguoyun.cc",
   "webdav.yandex.com",
   "dav.box.com",
 ];
