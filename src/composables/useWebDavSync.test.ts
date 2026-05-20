@@ -897,7 +897,7 @@ describe("useWebDavSync composable", () => {
     expect(webDav.syncError.value).toBeNull();
   });
 
-  it("setConfig 后应为已配置", () => {
+  it("密码明文存储，刷新不丢失", () => {
     const webDav = useWebDavSync();
     webDav.setConfig({
       url: "https://dav.example.com",
@@ -906,11 +906,36 @@ describe("useWebDavSync composable", () => {
     });
     expect(webDav.isConfigured.value).toBe(true);
     expect(webDav.config.value?.url).toBe("https://dav.example.com");
-    // 密码应编码存储
+    // 密码明文存储——简单可靠，最高优先级
     const raw = localStorage.getItem(STORAGE_KEY);
     expect(raw).toBeTruthy();
     const parsed = JSON.parse(raw!);
-    expect(parsed.password).not.toBe("pass");
+    expect(parsed.password).toBe("pass");
+  });
+
+  it("旧 v2: 格式密码——setConfig 后转为明文存储", () => {
+    const webDav = useWebDavSync();
+    webDav.clearConfig();
+    // 模拟：旧版 localStorage 中有 v2: 编码的密码
+    const oldEncoded = "v2:" + btoa(encodeURIComponent("oldpass"));
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        url: "https://dav.example.com",
+        username: "user",
+        password: oldEncoded,
+      })
+    );
+    // 用户看到旧密码，手动重新输入 → setConfig 存入明文
+    webDav.setConfig({
+      url: "https://dav.example.com",
+      username: "user",
+      password: "oldpass",
+    });
+    // 验证：localStorage 中的密码已是明文
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const parsed = JSON.parse(raw!);
+    expect(parsed.password).toBe("oldpass");
   });
 
   it("clearConfig 后应为未配置", () => {

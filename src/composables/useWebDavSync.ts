@@ -447,7 +447,7 @@ export function extractFileNamesFromHrefs(
   return names;
 }
 
-/** UTF-8 安全的 btoa，避免非 Latin1 字符导致 InvalidCharacterError */
+/** UTF-8 安全的 btoa，用于 Basic Auth 头（浏览器原生 btoa 不支持非 Latin1 字符） */
 function utf8Btoa(str: string): string {
   const bytes = new TextEncoder().encode(str);
   let binary = "";
@@ -457,61 +457,24 @@ function utf8Btoa(str: string): string {
   return btoa(binary);
 }
 
-/** 简单编码密码（降低明文暴露风险，非安全加密） */
-const ENCODED_MARKER = "v2:";
-function encodePassword(pwd: string): string {
-  try {
-    return ENCODED_MARKER + btoa(encodeURIComponent(pwd));
-  } catch {
-    return pwd;
-  }
-}
-
-function decodePassword(pwd: string): string {
-  if (typeof pwd !== "string" || !pwd) return pwd;
-
-  // 新格式："v2:" + base64，精确识别
-  if (pwd.startsWith(ENCODED_MARKER)) {
-    try {
-      return decodeURIComponent(atob(pwd.slice(ENCODED_MARKER.length)));
-    } catch {
-      return pwd.slice(ENCODED_MARKER.length);
-    }
-  }
-
-  // 旧编码格式（无前缀）：仅当密码看起来像有效 base64 时才尝试解码
-  // 避免把 "hello" 等明文误交给 atob（可能产生垃圾字节导致坚果云 400）
-  if (/^[A-Za-z0-9+/]+=*$/.test(pwd) && pwd.length % 4 === 0) {
-    try {
-      const decoded = decodeURIComponent(atob(pwd));
-      // 防御：解码结果必须可打印且与原值不同（避免明文密码恰好等于自身 base64）
-      if (
-        decoded &&
-        decoded !== pwd &&
-        decoded.length > 0 &&
-        /^[\x20-\x7E\u4e00-\u9fff]*$/.test(decoded) // 仅允许 ASCII 可打印 + 中文
-      ) {
-        return decoded;
-      }
-    } catch {
-      // base64 解码失败，保持原值
-    }
-  }
-
-  // 明文密码（旧版或首次设置），直接返回
-  return pwd;
-}
-
 function loadConfig(): WebDavConfig | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (parsed.url && parsed.username) {
-      // 向后兼容：旧数据 password 是明文，decodePassword 失败时会返回原值
       const cfg = parsed as WebDavConfig;
-      cfg.password = decodePassword(cfg.password);
-      // 防御性检查：防止配置中保存了嵌套代理 URL
+
+      // 向后兼容：如果密码是旧 "v2:base64" 格式，自动解码回明文
+      if (typeof cfg.password === "string" && cfg.password.startsWith("v2:")) {
+        try {
+          cfg.password = decodeURIComponent(atob(cfg.password.slice(3)));
+        } catch {
+          cfg.password = cfg.password.slice(3);
+        }
+      }
+
+      // 防御性检查
       if (
         cfg.url.includes("/api/webdav-proxy?url=") ||
         cfg.url.includes("/api/webdav-proxy?t=")
@@ -528,16 +491,10 @@ function loadConfig(): WebDavConfig | null {
   return null;
 }
 
-/**
- * ⚠️ 安全说明：密码使用 "v2:" 前缀 + base64(encodeURIComponent) 编码。
- * 前缀用于区分新旧格式，避免旧明文密码被误解码为垃圾字节。
- * 这只能降低肉眼直接读取的风险，任何获得本地存储的人都可以还原明文。
- * 浏览器端无法提供真正的安全存储；如需更高安全性，请在 Tauri 桌面端使用系统钥匙串。
- */
+/** 密码明文存储——简单可靠，最优先 */
 function saveConfig(cfg: WebDavConfig | null): void {
   if (cfg) {
-    const toSave = { ...cfg, password: encodePassword(cfg.password) };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
   } else {
     localStorage.removeItem(STORAGE_KEY);
   }
