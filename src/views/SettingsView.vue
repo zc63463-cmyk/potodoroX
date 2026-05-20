@@ -672,6 +672,7 @@ onUnmounted(() => {
               type="password"
               class="form-input"
               placeholder="应用专用密码"
+              autocomplete="new-password"
             />
           </div>
 

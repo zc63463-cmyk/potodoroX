@@ -480,16 +480,21 @@ function decodePassword(pwd: string): string {
   }
 
   // 旧编码格式（无前缀）：仅当密码看起来像有效 base64 时才尝试解码
-  // 避免把 "myPassword" 之类的明文误交给 atob（可能产生垃圾字节导致坚果云 400）
-  if (/^[A-Za-z0-9+/]+=*$/.test(pwd)) {
+  // 避免把 "hello" 等明文误交给 atob（可能产生垃圾字节导致坚果云 400）
+  if (/^[A-Za-z0-9+/]+=*$/.test(pwd) && pwd.length % 4 === 0) {
     try {
       const decoded = decodeURIComponent(atob(pwd));
-      // 如果解码后和原值明显不同，大概率是旧编码格式
-      if (decoded && decoded !== pwd && decoded.length > 0) {
+      // 防御：解码结果必须可打印且与原值不同（避免明文密码恰好等于自身 base64）
+      if (
+        decoded &&
+        decoded !== pwd &&
+        decoded.length > 0 &&
+        /^[\x20-\x7E\u4e00-\u9fff]*$/.test(decoded) // 仅允许 ASCII 可打印 + 中文
+      ) {
         return decoded;
       }
     } catch {
-      // base64 解码失败，保持原值——几乎可以确定就是明文密码
+      // base64 解码失败，保持原值
     }
   }
 
