@@ -7,8 +7,18 @@ import {
   removeTombstone,
 } from "./outbox";
 import { db } from "./database";
-import { isConfigured, pullEvents } from "./github";
 import type { Task, Reflection, Session } from "@/types";
+
+/** 事务包装的事件处理，确保 db 操作 + markProcessed 原子完成 */
+async function processEventInTransaction(
+  event: OutboxEvent
+): Promise<ProcessEventResult> {
+  return db.transaction(async () => {
+    const result = await processEvent(event);
+    await markProcessed(event.eventId);
+    return result;
+  });
+}
 
 export interface ConsumeEventsResult {
   pulled: number;
@@ -45,7 +55,7 @@ function emptyConsumeResult(): ConsumeEventsResult {
  * iOS Safari can reject the local format unless the space is normalized.
  */
 export function parseTime(ts: string): number {
-  const normalized = ts.replace(" ", "T");
+  const normalized = ts.replaceAll(" ", "T");
   const ms = new Date(normalized).getTime();
   // Invalid values become 0 so version checks do not incorrectly block newer events.
   return Number.isNaN(ms) ? 0 : ms;
@@ -63,15 +73,16 @@ async function shouldSkipDueToVersion(
   const entityId = event.entityId;
   const entityType = event.entityType;
 
-  // Delete events are final tombstone events and should always be applied.
-  if (eventType.endsWith(".deleted")) return { skip: false };
+  // Delete events should also respect version order to avoid deleting newer local data.
+  // (Tombstone protection below still applies if a newer tombstone exists.)
 
   const tombstone = await getTombstone(entityType, entityId);
   if (tombstone && isNewerThan(tombstone.deletedAt, event.timestamp)) {
-    console.log(
-      `[EventConsumer] 跳过 ${eventType} ${entityId}: ` +
-        `墓碑时间 ${tombstone.deletedAt} > 事件时间 ${event.timestamp}`
-    );
+    if (import.meta.env.DEV)
+      console.log(
+        `[EventConsumer] 跳过 ${eventType} ${entityId}: ` +
+          `墓碑时间 ${tombstone.deletedAt} > 事件时间 ${event.timestamp}`
+      );
     return { skip: true, reason: "tombstoneNewer" };
   }
 
@@ -80,10 +91,11 @@ async function shouldSkipDueToVersion(
       case "task": {
         const task = await db.getTask(entityId);
         if (task && isNewerThan(task.updatedAt, event.timestamp)) {
-          console.log(
-            `[EventConsumer] 跳过 ${eventType} ${entityId}: ` +
-              `本地 updatedAt ${task.updatedAt} > 事件时间 ${event.timestamp}`
-          );
+          if (import.meta.env.DEV)
+            console.log(
+              `[EventConsumer] 跳过 ${eventType} ${entityId}: ` +
+                `本地 updatedAt ${task.updatedAt} > 事件时间 ${event.timestamp}`
+            );
           return { skip: true, reason: "localNewer" };
         }
         break;
@@ -91,10 +103,11 @@ async function shouldSkipDueToVersion(
       case "reflection": {
         const reflection = await db.getReflection(entityId);
         if (reflection && isNewerThan(reflection.updatedAt, event.timestamp)) {
-          console.log(
-            `[EventConsumer] 跳过 ${eventType} ${entityId}: ` +
-              `本地 updatedAt ${reflection.updatedAt} > 事件时间 ${event.timestamp}`
-          );
+          if (import.meta.env.DEV)
+            console.log(
+              `[EventConsumer] 跳过 ${eventType} ${entityId}: ` +
+                `本地 updatedAt ${reflection.updatedAt} > 事件时间 ${event.timestamp}`
+            );
           return { skip: true, reason: "localNewer" };
         }
         break;
@@ -106,10 +119,11 @@ async function shouldSkipDueToVersion(
           session.updatedAt &&
           isNewerThan(session.updatedAt, event.timestamp)
         ) {
-          console.log(
-            `[EventConsumer] 跳过 ${eventType} ${entityId}: ` +
-              `本地 updatedAt ${session.updatedAt} > 事件时间 ${event.timestamp}`
-          );
+          if (import.meta.env.DEV)
+            console.log(
+              `[EventConsumer] 跳过 ${eventType} ${entityId}: ` +
+                `本地 updatedAt ${session.updatedAt} > 事件时间 ${event.timestamp}`
+            );
           return { skip: true, reason: "localNewer" };
         }
         break;
@@ -179,12 +193,24 @@ async function processEvent(event: OutboxEvent): Promise<ProcessEventResult> {
   return { status: "applied" };
 }
 
-export async function consumeEvents(): Promise<ConsumeEventsResult> {
-  if (!isConfigured()) {
+/** 事件提供方接口（解耦具体同步后端） */
+export interface EventProvider {
+  isConfigured(): boolean;
+  pullEvents(): Promise<OutboxEvent[]>;
+}
+
+/**
+ * 消费远程事件
+ * @param provider 事件提供方（如 GitHub / WebDAV）。若不提供，返回空结果。
+ */
+export async function consumeEvents(
+  provider?: EventProvider
+): Promise<ConsumeEventsResult> {
+  if (!provider || !provider.isConfigured()) {
     return emptyConsumeResult();
   }
 
-  const remoteEvents = await pullEvents();
+  const remoteEvents = await provider.pullEvents();
   return consumeEventsFrom(remoteEvents);
 }
 
@@ -209,8 +235,7 @@ export async function consumeEventsFrom(
 
   for (const event of unprocessed) {
     try {
-      const result = await processEvent(event);
-      await markProcessed(event.eventId);
+      const result = await processEventInTransaction(event);
       processed++;
       if (result.status === "applied") {
         applied++;
@@ -225,10 +250,11 @@ export async function consumeEventsFrom(
     }
   }
 
-  console.log(
-    `[EventConsumer] 完成: 远程 ${remoteEvents.length} 个事件, ` +
-      `新处理 ${processed} 个, 应用 ${applied} 个, 跳过 ${skipped} 个, 失败 ${errors} 个`
-  );
+  if (import.meta.env.DEV)
+    console.log(
+      `[EventConsumer] 完成: 远程 ${remoteEvents.length} 个事件, ` +
+        `新处理 ${processed} 个, 应用 ${applied} 个, 跳过 ${skipped} 个, 失败 ${errors} 个`
+    );
 
   return {
     pulled: remoteEvents.length,

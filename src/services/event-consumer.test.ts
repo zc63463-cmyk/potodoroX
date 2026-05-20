@@ -8,6 +8,7 @@ import type { Task } from "@/types";
 
 // 使用 vi.hoisted 创建可被 mock 工厂和测试共享的 mock 对象
 const mockDb = vi.hoisted(() => ({
+  transaction: vi.fn((fn: () => Promise<unknown>) => fn()),
   getTask: vi.fn() as ReturnType<typeof vi.fn>,
   upsertTask: vi.fn(),
   deleteTask: vi.fn(),
@@ -19,22 +20,12 @@ const mockDb = vi.hoisted(() => ({
   deleteSession: vi.fn(),
 }));
 
-const mockGithub = vi.hoisted(() => ({
-  isConfigured: vi.fn(),
-  pullEvents: vi.fn(),
-}));
-
 const mockOutbox = vi.hoisted(() => ({
   filterUnprocessed: vi.fn(),
   markProcessed: vi.fn(),
   markTombstone: vi.fn(),
   getTombstone: vi.fn(),
   removeTombstone: vi.fn(),
-}));
-
-vi.mock("./github", () => ({
-  isConfigured: () => mockGithub.isConfigured(),
-  pullEvents: () => mockGithub.pullEvents(),
 }));
 
 vi.mock("./outbox", () => ({
@@ -51,6 +42,12 @@ vi.mock("./database", () => ({ db: mockDb }));
 // 导入被测模块
 const { consumeEvents, consumeEventsFrom, parseTime, isNewerThan } =
   await import("./event-consumer");
+
+// 构建 mock provider（替代已移除的 github 依赖）
+const mockProvider = {
+  isConfigured: vi.fn(),
+  pullEvents: vi.fn(),
+};
 
 // ============================================================
 // 测试辅助
@@ -112,7 +109,7 @@ describe("isNewerThan", () => {
 describe("consumeEvents", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGithub.isConfigured.mockReturnValue(true);
+    mockProvider.isConfigured.mockReturnValue(true);
     mockDb.getTask.mockResolvedValue(null);
     mockDb.getReflection.mockResolvedValue(null);
     mockDb.getSession.mockResolvedValue(null);
@@ -121,14 +118,14 @@ describe("consumeEvents", () => {
   });
 
   it("GitHub 未配置时跳过", async () => {
-    mockGithub.isConfigured.mockReturnValue(false);
-    const r = await consumeEvents();
+    mockProvider.isConfigured.mockReturnValue(false);
+    const r = await consumeEvents(mockProvider);
     expect(r).toMatchObject({ pulled: 0, processed: 0, errors: 0 });
   });
 
   it("无远程事件时返回空", async () => {
-    mockGithub.pullEvents.mockResolvedValue([]);
-    const r = await consumeEvents();
+    mockProvider.pullEvents.mockResolvedValue([]);
+    const r = await consumeEvents(mockProvider);
     expect(r).toMatchObject({ pulled: 0, processed: 0, errors: 0 });
   });
 
@@ -140,8 +137,8 @@ describe("consumeEvents", () => {
         updatedAt: "2026-05-04 10:00:00",
       },
     });
-    mockGithub.pullEvents.mockResolvedValue([e]);
-    const r = await consumeEvents();
+    mockProvider.pullEvents.mockResolvedValue([e]);
+    const r = await consumeEvents(mockProvider);
     expect(r.processed).toBe(1);
     expect(r.applied).toBe(1);
     expect(r.skipped).toBe(0);
@@ -150,9 +147,9 @@ describe("consumeEvents", () => {
   });
 
   it("已处理的事件跳过", async () => {
-    mockGithub.pullEvents.mockResolvedValue([makeEvent()]);
+    mockProvider.pullEvents.mockResolvedValue([makeEvent()]);
     mockOutbox.filterUnprocessed.mockResolvedValue([]);
-    const r = await consumeEvents();
+    const r = await consumeEvents(mockProvider);
     expect(r.processed).toBe(0);
     expect(r.alreadyProcessed).toBe(1);
     expect(mockDb.upsertTask).not.toHaveBeenCalled();
@@ -176,8 +173,8 @@ describe("consumeEvents", () => {
         updatedAt: "2026-05-04 08:00:00",
       },
     });
-    mockGithub.pullEvents.mockResolvedValue([old]);
-    const r = await consumeEvents();
+    mockProvider.pullEvents.mockResolvedValue([old]);
+    const r = await consumeEvents(mockProvider);
     expect(r.processed).toBe(1); // 事件被消费(标记 processed)，但未被 upsert
     expect(r.applied).toBe(0);
     expect(r.skipped).toBe(1);
@@ -203,7 +200,7 @@ describe("consumeEvents", () => {
         updatedAt: "2026-05-04 09:00:00",
       },
     });
-    mockGithub.pullEvents.mockResolvedValue([del, oldCreate]);
+    mockProvider.pullEvents.mockResolvedValue([del, oldCreate]);
     // .deleted 事件不走 getTombstone（shouldSkipDueToVersion 提前返回 false）
     // 只需为 oldCreate 事件配置 1 次
     mockOutbox.getTombstone.mockResolvedValueOnce({
@@ -212,7 +209,7 @@ describe("consumeEvents", () => {
       deletedAt: "2026-05-04T10:00:00.000Z",
     });
 
-    const r = await consumeEvents();
+    const r = await consumeEvents(mockProvider);
     expect(r.pulled).toBe(2);
     expect(r.processed).toBe(2); // 都被消费：del 被应用，oldCreate 被版本保护跳过
     expect(r.applied).toBe(1);
@@ -246,14 +243,14 @@ describe("consumeEvents", () => {
         updatedAt: "2026-05-04 10:00:00",
       },
     });
-    mockGithub.pullEvents.mockResolvedValue([del, newCreate]);
+    mockProvider.pullEvents.mockResolvedValue([del, newCreate]);
     // .deleted 不走 getTombstone，只需为 newCreate 配置 1 次
     mockOutbox.getTombstone.mockResolvedValueOnce({
       entityId: "task-1",
       entityType: "task",
       deletedAt: "2026-05-04T09:00:00.000Z",
     });
-    const r = await consumeEvents();
+    const r = await consumeEvents(mockProvider);
     expect(r.processed).toBe(2);
     expect(mockDb.deleteTask).toHaveBeenCalledWith("task-1");
     expect(mockOutbox.markTombstone).toHaveBeenCalledWith(
@@ -270,11 +267,11 @@ describe("consumeEvents", () => {
   it("单个事件失败不影响后续", async () => {
     const bad = makeEvent({ eventId: "bad", payload: { id: "bad" } });
     const good = makeEvent({ eventId: "good", payload: { id: "good" } });
-    mockGithub.pullEvents.mockResolvedValue([bad, good]);
+    mockProvider.pullEvents.mockResolvedValue([bad, good]);
     mockDb.upsertTask
       .mockRejectedValueOnce(new Error("fail"))
       .mockResolvedValueOnce(undefined);
-    const r = await consumeEvents();
+    const r = await consumeEvents(mockProvider);
     expect(r.processed).toBe(1);
     expect(r.errors).toBe(1);
   });
@@ -295,7 +292,7 @@ describe("consumeEventsFrom", () => {
   });
 
   it("不依赖 GitHub 配置：即使未配置也能消费传入事件", async () => {
-    mockGithub.isConfigured.mockReturnValue(false);
+    mockProvider.isConfigured.mockReturnValue(false);
     const e = makeEvent();
     const r = await consumeEventsFrom([e]);
     expect(r.processed).toBe(1);
@@ -410,5 +407,80 @@ describe("consumeEventsFrom", () => {
     const r = await consumeEventsFrom([ev]);
     expect(r.processed).toBe(1); // 跳过仍计入 processed
     expect(mockDb.upsertSession).not.toHaveBeenCalled();
+  });
+
+  // ---- Reflection 事件 ----
+
+  it("reflection.created 应触发 upsertReflection", async () => {
+    const ev = makeEvent({
+      type: "reflection.created",
+      entityType: "reflection",
+      entityId: "ref-1",
+      payload: {
+        id: "ref-1",
+        date: "2026-05-01",
+        content: "c",
+        mood: "good",
+        updatedAt: "2026-05-01 10:00:00",
+      },
+      timestamp: "2026-05-04T10:00:00.000Z",
+    });
+    const r = await consumeEventsFrom([ev]);
+    expect(r.processed).toBe(1);
+    expect(mockDb.upsertReflection).toHaveBeenCalledWith(ev.payload);
+    expect(mockOutbox.removeTombstone).toHaveBeenCalledWith(
+      "reflection",
+      "ref-1"
+    );
+  });
+
+  it("reflection.updated：本地 updatedAt 较新时被跳过", async () => {
+    mockDb.getReflection.mockResolvedValue({
+      id: "ref-1",
+      updatedAt: "2026-05-04 20:00:00",
+    } as any);
+    const ev = makeEvent({
+      type: "reflection.updated",
+      entityType: "reflection",
+      entityId: "ref-1",
+      timestamp: "2026-05-04T08:00:00.000Z",
+      payload: { id: "ref-1", updatedAt: "2026-05-04 08:00:00" },
+    });
+    const r = await consumeEventsFrom([ev]);
+    expect(r.processed).toBe(1);
+    expect(mockDb.upsertReflection).not.toHaveBeenCalled();
+  });
+
+  it("reflection.deleted 应触发 deleteReflection 并写入墓碑", async () => {
+    const ev = makeEvent({
+      eventId: "evt-rd-1",
+      type: "reflection.deleted",
+      entityType: "reflection",
+      entityId: "ref-del",
+      timestamp: "2026-05-06T10:00:00.000Z",
+      payload: { id: "ref-del" },
+    });
+    const r = await consumeEventsFrom([ev]);
+    expect(r.processed).toBe(1);
+    expect(mockDb.deleteReflection).toHaveBeenCalledWith("ref-del");
+    expect(mockOutbox.markTombstone).toHaveBeenCalledWith(
+      "reflection",
+      "ref-del",
+      "2026-05-06T10:00:00.000Z"
+    );
+  });
+
+  it("未知事件类型不应崩溃", async () => {
+    const ev = makeEvent({
+      type: "unknown.event" as any,
+      entityType: "unknown" as any,
+      entityId: "x-1",
+      payload: {},
+    });
+    const r = await consumeEventsFrom([ev]);
+    expect(r.processed).toBe(1);
+    // default 分支返回 applied，计数为 1
+    expect(r.applied).toBe(1);
+    expect(r.errors).toBe(0);
   });
 });

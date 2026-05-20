@@ -1,35 +1,35 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
 
 interface GooeyNavItem {
-  label: string
-  value: string
-  color?: string
+  label: string;
+  value: string;
+  color?: string;
 }
 
 const props = defineProps<{
-  items: GooeyNavItem[]
-  activeIndex?: number
-  disabled?: boolean
-}>()
+  items: GooeyNavItem[];
+  activeIndex?: number;
+  disabled?: boolean;
+}>();
 
 const emit = defineEmits<{
-  select: [index: number]
-}>()
+  select: [index: number];
+}>();
 
-const containerRef = ref<HTMLElement | null>(null)
-const navRef = ref<HTMLElement | null>(null)
-const filterRef = ref<HTMLElement | null>(null)
-const textRef = ref<HTMLElement | null>(null)
+const containerRef = ref<HTMLElement | null>(null);
+const navRef = ref<HTMLElement | null>(null);
+const filterRef = ref<HTMLElement | null>(null);
+const textRef = ref<HTMLElement | null>(null);
 
-const activeIndex = computed(() => props.activeIndex ?? 0)
+const activeIndex = computed(() => props.activeIndex ?? 0);
 
-const noise = (n = 1) => n / 2 - Math.random() * n
+const noise = (n = 1) => n / 2 - Math.random() * n;
 
 const getXY = (distance: number, pointIndex: number, totalPoints: number) => {
-  const angle = ((360 + noise(8)) / totalPoints) * pointIndex * (Math.PI / 180)
-  return [distance * Math.cos(angle), distance * Math.sin(angle)]
-}
+  const angle = ((360 + noise(8)) / totalPoints) * pointIndex * (Math.PI / 180);
+  return [distance * Math.cos(angle), distance * Math.sin(angle)];
+};
 
 const createParticle = (
   i: number,
@@ -37,9 +37,9 @@ const createParticle = (
   d: [number, number],
   r: number,
   particleCount: number,
-  colors: number[],
+  colors: number[]
 ) => {
-  const rotate = noise(r / 10)
+  const rotate = noise(r / 10);
   return {
     start: getXY(d[0], particleCount - i, particleCount),
     end: getXY(d[1] + noise(7), particleCount - i, particleCount),
@@ -47,153 +47,167 @@ const createParticle = (
     scale: 1 + noise(0.2),
     color: colors[Math.floor(Math.random() * colors.length)],
     rotate: rotate > 0 ? (rotate + r / 20) * 10 : (rotate - r / 20) * 10,
-  }
-}
+  };
+};
 
 const activeItemColor = computed(() => {
-  const item = props.items[activeIndex.value]
-  return item?.color || '#58A6FF'
-})
+  const item = props.items[activeIndex.value];
+  return item?.color || "#58A6FF";
+});
+
+const particleTimers: ReturnType<typeof setTimeout>[] = [];
 
 const makeParticles = (element: HTMLElement) => {
-  const d: [number, number] = [40, 5]
-  const r = 60
-  const animationTime = 500
-  const timeVariance = 200
-  const particleCount = 12
-  const bubbleTime = animationTime * 2 + timeVariance
-  element.style.setProperty('--time', `${bubbleTime}ms`)
+  const d: [number, number] = [40, 5];
+  const r = 60;
+  const animationTime = 500;
+  const timeVariance = 200;
+  const particleCount = 12;
+  const bubbleTime = animationTime * 2 + timeVariance;
+  element.style.setProperty("--time", `${bubbleTime}ms`);
 
-  const baseColor = activeItemColor.value
+  const baseColor = activeItemColor.value;
 
   for (let i = 0; i < particleCount; i++) {
-    const t = animationTime * 2 + noise(timeVariance * 2)
-    const p = createParticle(i, t, d, r, particleCount, [1])
-    element.classList.remove('active')
+    const t = animationTime * 2 + noise(timeVariance * 2);
+    const p = createParticle(i, t, d, r, particleCount, [1]);
+    element.classList.remove("active");
 
-    setTimeout(() => {
-      const particle = document.createElement('span')
-      const point = document.createElement('span')
-      particle.classList.add('particle')
-      particle.style.setProperty('--start-x', `${p.start[0]}px`)
-      particle.style.setProperty('--start-y', `${p.start[1]}px`)
-      particle.style.setProperty('--end-x', `${p.end[0]}px`)
-      particle.style.setProperty('--end-y', `${p.end[1]}px`)
-      particle.style.setProperty('--time', `${p.time}ms`)
-      particle.style.setProperty('--scale', `${p.scale}`)
-      particle.style.setProperty('--color', baseColor)
-      particle.style.setProperty('--rotate', `${p.rotate}deg`)
+    const timer1 = setTimeout(() => {
+      if (!document.contains(element)) return;
+      const particle = document.createElement("span");
+      const point = document.createElement("span");
+      particle.classList.add("particle");
+      particle.style.setProperty("--start-x", `${p.start[0]}px`);
+      particle.style.setProperty("--start-y", `${p.start[1]}px`);
+      particle.style.setProperty("--end-x", `${p.end[0]}px`);
+      particle.style.setProperty("--end-y", `${p.end[1]}px`);
+      particle.style.setProperty("--time", `${p.time}ms`);
+      particle.style.setProperty("--scale", `${p.scale}`);
+      particle.style.setProperty("--color", baseColor);
+      particle.style.setProperty("--rotate", `${p.rotate}deg`);
 
-      point.classList.add('point')
-      particle.appendChild(point)
-      element.appendChild(particle)
+      point.classList.add("point");
+      particle.appendChild(point);
+      element.appendChild(particle);
       requestAnimationFrame(() => {
-        element.classList.add('active')
-      })
-      setTimeout(() => {
+        if (document.contains(element)) element.classList.add("active");
+      });
+      const timer2 = setTimeout(() => {
         try {
-          element.removeChild(particle)
+          if (document.contains(element)) element.removeChild(particle);
         } catch {
           // Do nothing
         }
-      }, t)
-    }, 20)
+      }, t);
+      particleTimers.push(timer2);
+    }, 20);
+    particleTimers.push(timer1);
   }
-}
+};
 
 const updateEffectPosition = (element: HTMLElement) => {
-  if (!containerRef.value || !filterRef.value || !textRef.value) return
-  const containerRect = containerRef.value.getBoundingClientRect()
-  const pos = element.getBoundingClientRect()
+  if (!containerRef.value || !filterRef.value || !textRef.value) return;
+  const containerRect = containerRef.value.getBoundingClientRect();
+  const pos = element.getBoundingClientRect();
 
   const styles = {
     left: `${pos.x - containerRect.x}px`,
     top: `${pos.y - containerRect.y}px`,
     width: `${pos.width}px`,
     height: `${pos.height}px`,
-  }
-  Object.assign(filterRef.value.style, styles)
-  Object.assign(textRef.value.style, styles)
-  textRef.value.innerText = element.innerText
-}
+  };
+  Object.assign(filterRef.value.style, styles);
+  Object.assign(textRef.value.style, styles);
+  textRef.value.innerText = element.innerText;
+};
 
 const handleClick = (e: MouseEvent, index: number) => {
-  if (props.disabled) return
-  const liEl = e.currentTarget as HTMLElement
-  if (activeIndex.value === index) return
+  if (props.disabled) return;
+  const liEl = e.currentTarget as HTMLElement;
+  if (activeIndex.value === index) return;
 
-  emit('select', index)
+  emit("select", index);
   nextTick(() => {
-    updateEffectPosition(liEl)
+    updateEffectPosition(liEl);
 
     if (filterRef.value) {
-      const particles = filterRef.value.querySelectorAll('.particle')
-      particles.forEach((p) => filterRef.value!.removeChild(p))
+      const particles = filterRef.value.querySelectorAll(".particle");
+      particles.forEach((p) => filterRef.value!.removeChild(p));
     }
 
     if (textRef.value) {
-      textRef.value.classList.remove('active')
-      void textRef.value.offsetWidth
-      textRef.value.classList.add('active')
+      textRef.value.classList.remove("active");
+      void textRef.value.offsetWidth;
+      textRef.value.classList.add("active");
     }
 
     if (filterRef.value) {
-      makeParticles(filterRef.value)
+      makeParticles(filterRef.value);
     }
-  })
-}
+  });
+};
 
 const handleKeyDown = (e: KeyboardEvent, index: number) => {
-  if (e.key === 'Enter' || e.key === ' ') {
-    e.preventDefault()
-    const liEl = (e.currentTarget as HTMLElement).parentElement
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    const liEl = (e.currentTarget as HTMLElement).parentElement;
     if (liEl) {
-      handleClick({ currentTarget: liEl } as unknown as MouseEvent, index)
+      handleClick({ currentTarget: liEl } as unknown as MouseEvent, index);
     }
   }
-}
+};
 
-let resizeObserver: ResizeObserver | null = null
+let resizeObserver: ResizeObserver | null = null;
 
 onMounted(() => {
   nextTick(() => {
-    if (!navRef.value || !containerRef.value) return
-    const lis = navRef.value.querySelectorAll('li')
-    const activeLi = lis[activeIndex.value]
+    if (!navRef.value || !containerRef.value) return;
+    const lis = navRef.value.querySelectorAll("li");
+    const activeLi = lis[activeIndex.value];
     if (activeLi) {
-      updateEffectPosition(activeLi as HTMLElement)
-      textRef.value?.classList.add('active')
+      updateEffectPosition(activeLi as HTMLElement);
+      textRef.value?.classList.add("active");
     }
 
     resizeObserver = new ResizeObserver(() => {
-      if (!navRef.value) return
-      const currentActiveLi = navRef.value.querySelectorAll('li')[activeIndex.value]
+      if (!navRef.value) return;
+      const currentActiveLi =
+        navRef.value.querySelectorAll("li")[activeIndex.value];
       if (currentActiveLi) {
-        updateEffectPosition(currentActiveLi as HTMLElement)
+        updateEffectPosition(currentActiveLi as HTMLElement);
       }
-    })
+    });
 
-    resizeObserver.observe(containerRef.value)
-  })
-})
+    resizeObserver.observe(containerRef.value);
+  });
+});
 
 onUnmounted(() => {
-  resizeObserver?.disconnect()
-})
+  resizeObserver?.disconnect();
+  particleTimers.forEach(clearTimeout);
+  particleTimers.length = 0;
+});
 
 watch(activeIndex, () => {
   nextTick(() => {
-    if (!navRef.value) return
-    const currentActiveLi = navRef.value.querySelectorAll('li')[activeIndex.value]
+    if (!navRef.value) return;
+    const currentActiveLi =
+      navRef.value.querySelectorAll("li")[activeIndex.value];
     if (currentActiveLi) {
-      updateEffectPosition(currentActiveLi as HTMLElement)
+      updateEffectPosition(currentActiveLi as HTMLElement);
     }
-  })
-})
+  });
+});
 </script>
 
 <template>
-  <div class="gooey-nav-container" :class="{ disabled: disabled }" :style="{ '--active-color': activeItemColor }" ref="containerRef">
+  <div
+    ref="containerRef"
+    class="gooey-nav-container"
+    :class="{ disabled: disabled }"
+    :style="{ '--active-color': activeItemColor }"
+  >
     <nav>
       <ul ref="navRef">
         <li
@@ -213,10 +227,10 @@ watch(activeIndex, () => {
         </li>
       </ul>
     </nav>
-    <span class="effect filter" ref="filterRef" aria-hidden="true">
+    <span ref="filterRef" class="effect filter" aria-hidden="true">
       <span class="filter-bg" />
     </span>
-    <span class="effect text" ref="textRef" aria-hidden="true" />
+    <span ref="textRef" class="effect text" aria-hidden="true" />
   </div>
 </template>
 
@@ -224,10 +238,10 @@ watch(activeIndex, () => {
 .gooey-nav-container {
   position: relative;
   display: inline-flex;
-  --gooey-color-1: #58A6FF;
-  --gooey-color-2: #3FB950;
-  --gooey-color-3: #A371F7;
-  --gooey-color-4: #F0883E;
+  --gooey-color-1: #58a6ff;
+  --gooey-color-2: #3fb950;
+  --gooey-color-3: #a371f7;
+  --gooey-color-4: #f0883e;
 }
 
 .gooey-nav-container.disabled {
@@ -284,7 +298,7 @@ watch(activeIndex, () => {
 }
 
 .gooey-nav-container nav ul li::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   border-radius: 100vw;
@@ -348,7 +362,7 @@ watch(activeIndex, () => {
 }
 
 .gooey-nav-container .effect.filter::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   background: var(--active-color);
@@ -395,24 +409,28 @@ watch(activeIndex, () => {
 
 @keyframes particle {
   0% {
-    transform: rotate(0deg) translate(calc(var(--start-x)), calc(var(--start-y)));
+    transform: rotate(0deg)
+      translate(calc(var(--start-x)), calc(var(--start-y)));
     opacity: 1;
     animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45);
   }
 
   70% {
-    transform: rotate(calc(var(--rotate) * 0.5)) translate(calc(var(--end-x) * 1.2), calc(var(--end-y) * 1.2));
+    transform: rotate(calc(var(--rotate) * 0.5))
+      translate(calc(var(--end-x) * 1.2), calc(var(--end-y) * 1.2));
     opacity: 1;
     animation-timing-function: ease;
   }
 
   85% {
-    transform: rotate(calc(var(--rotate) * 0.66)) translate(calc(var(--end-x)), calc(var(--end-y)));
+    transform: rotate(calc(var(--rotate) * 0.66))
+      translate(calc(var(--end-x)), calc(var(--end-y)));
     opacity: 1;
   }
 
   100% {
-    transform: rotate(calc(var(--rotate) * 1.2)) translate(calc(var(--end-x) * 0.5), calc(var(--end-y) * 0.5));
+    transform: rotate(calc(var(--rotate) * 1.2))
+      translate(calc(var(--end-x) * 0.5), calc(var(--end-y) * 0.5));
     opacity: 1;
   }
 }

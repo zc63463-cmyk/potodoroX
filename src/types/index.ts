@@ -190,3 +190,42 @@ export interface ConflictLogEntry {
   localSnapshot: string;
   remoteSnapshot: string;
 }
+
+// ============================================================
+// Outbox & Tombstone Types (moved from services/outbox.ts)
+// ============================================================
+
+/** Outbox 事件类型 */
+export type OutboxEventType =
+  | "task.created"
+  | "task.updated"
+  | "task.deleted"
+  | "reflection.created"
+  | "reflection.updated"
+  | "reflection.deleted"
+  | "session.created"
+  | "session.updated"
+  | "session.deleted";
+
+/** Outbox 事件结构 */
+export interface OutboxEvent {
+  /** 全局唯一事件 ID（用于幂等去重） */
+  eventId: string;
+  /** 事件类型 */
+  type: OutboxEventType;
+  /** 实体类型（task / reflection / session） */
+  entityType: string;
+  /** 实体 ID */
+  entityId: string;
+  /** 事件载荷（完整实体数据或 { id }） */
+  payload: unknown;
+  /** 事件发生时间（ISO 8601） */
+  timestamp: string;
+}
+
+/** 墓碑记录（记录实体最后一次删除的时间） */
+export interface TombstoneRecord {
+  entityId: string;
+  entityType: string;
+  deletedAt: string;
+}

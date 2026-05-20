@@ -48,9 +48,10 @@ const router = createRouter({
 });
 
 // 路由守卫：更新页面标题
-router.beforeEach((to) => {
+router.beforeEach((to, _from, next) => {
   const title = (to.meta.title as string) || "PomodoroX";
   document.title = `${title} - PomodoroX`;
+  next();
 });
 
 // 路由错误处理：捕获动态加载失败（部署更新导致）

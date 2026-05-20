@@ -3,29 +3,42 @@
 // PomodoroX - 删除确认弹窗
 // ============================================================
 
+import { ref, watch, nextTick } from "vue";
+
 interface Props {
-  visible: boolean
-  taskTitle?: string
+  visible: boolean;
+  taskTitle?: string;
 }
 
-const props = defineProps<Props>()
+const props = defineProps<Props>();
 
 const emit = defineEmits<{
-  (e: 'confirm'): void
-  (e: 'cancel'): void
-}>()
+  (e: "confirm"): void;
+  (e: "cancel"): void;
+}>();
+
+const panelRef = ref<HTMLDivElement | null>(null);
+
+watch(
+  () => props.visible,
+  (visible) => {
+    if (visible) {
+      nextTick(() => panelRef.value?.focus());
+    }
+  }
+);
 
 function confirm() {
-  emit('confirm')
+  emit("confirm");
 }
 
 function cancel() {
-  emit('cancel')
+  emit("cancel");
 }
 
 function handleKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape') {
-    cancel()
+  if (e.key === "Escape") {
+    cancel();
   }
 }
 </script>
@@ -33,12 +46,27 @@ function handleKeydown(e: KeyboardEvent) {
 <template>
   <Transition name="modal">
     <div v-if="visible" class="modal-overlay" @click.self="cancel">
-      <div class="modal-panel small" @keydown="handleKeydown" tabindex="-1">
+      <div
+        ref="panelRef"
+        class="modal-panel small"
+        tabindex="-1"
+        @keydown="handleKeydown"
+      >
         <div class="modal-header">
           <h2 class="modal-title">确认删除</h2>
           <button class="modal-close" @click="cancel">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
@@ -47,9 +75,7 @@ function handleKeydown(e: KeyboardEvent) {
             <template v-if="taskTitle">
               确定要删除任务「{{ taskTitle }}」吗？此操作无法撤销。
             </template>
-            <template v-else>
-              确定要删除这个任务吗？此操作无法撤销。
-            </template>
+            <template v-else> 确定要删除这个任务吗？此操作无法撤销。 </template>
           </p>
         </div>
         <div class="modal-footer">
@@ -87,7 +113,9 @@ function handleKeydown(e: KeyboardEvent) {
   border-radius: 16px;
   display: flex;
   flex-direction: column;
-  box-shadow: var(--glass-shadow), 0 20px 60px rgba(0, 0, 0, 0.4);
+  box-shadow:
+    var(--glass-shadow),
+    0 20px 60px rgba(0, 0, 0, 0.4);
   overflow: hidden;
 }
 

@@ -15,20 +15,10 @@ import { formatDate } from "@/utils/format";
 import { useSyncStore } from "@/stores/sync";
 import { markTombstone } from "@/services/outbox";
 
-async function recordEvent(
-  type: "reflection.created" | "reflection.updated" | "reflection.deleted",
-  id: string,
-  payload: unknown
-) {
-  try {
-    const syncStore = useSyncStore();
-    await syncStore.recordEvent(type, id, payload);
-  } catch (err) {
-    console.error("[ReflectionStore] 同步事件写入失败（业务操作已成功）:", err);
-  }
-}
-
 export const useReflectionStore = defineStore("reflection", () => {
+  // 使用 SyncStore 的 recordEvent（已内置错误隔离）
+  const syncStore = useSyncStore();
+  const recordEvent = syncStore.recordEvent;
   // ---- 状态 ----
   /** 所有反思列表 */
   const reflections = ref<Reflection[]>([]);

@@ -175,8 +175,8 @@ describe("exportWeeklyReport", () => {
 import { isTaskActiveInRange, filterTasks } from "@/services/export";
 
 describe("isTaskActiveInRange", () => {
-  const start = new Date("2026-05-03T00:00:00");
-  const end = new Date("2026-05-03T23:59:59");
+  const start = new Date("2026-05-03 00:00:00");
+  const end = new Date("2026-05-03 23:59:59");
 
   it("应包含 createdAt 在区间内的任务", () => {
     const task = {
@@ -452,5 +452,41 @@ describe("exportAdvancedReport", () => {
     expect(parsed.meta.type).toBe("weekly");
     expect(parsed.summary).toBeDefined();
     expect(Array.isArray(parsed.tasks)).toBe(true);
+  });
+
+  it("biweekly + markdown 应生成双周报格式", () => {
+    const result = exportAdvancedReport({
+      type: "biweekly",
+      format: "markdown",
+      tasks: mockTasks,
+      sessions: mockSessions,
+      reflections: mockReflections,
+      dateRange: { start: "2026-05-01", end: "2026-05-14" },
+    });
+    expect(result).toContain("半月报");
+    expect(result).toContain("2026-05-01");
+  });
+
+  it("task + markdown 应生成任务列表格式", () => {
+    const result = exportAdvancedReport({
+      type: "task",
+      format: "markdown",
+      tasks: mockTasks,
+      sessions: [],
+      reflections: [],
+    });
+    expect(result).toContain("任务报告");
+  });
+
+  it("不支持的 type 应抛异常", () => {
+    expect(() =>
+      exportAdvancedReport({
+        type: "monthly" as any,
+        format: "markdown",
+        tasks: mockTasks,
+        sessions: mockSessions,
+        reflections: mockReflections,
+      })
+    ).toThrow("Unsupported type");
   });
 });

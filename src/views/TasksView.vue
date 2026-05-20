@@ -282,8 +282,8 @@ onUnmounted(() => {
           <!-- 导出按钮 -->
           <button
             class="export-btn"
-            @click="openExportModal"
             title="导出任务数据"
+            @click="openExportModal"
           >
             <svg
               width="16"

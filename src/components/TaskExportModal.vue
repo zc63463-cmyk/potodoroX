@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, watch, nextTick } from "vue";
 import type { Task, Session, TaskStatus, Priority } from "@/types";
 import { exportAdvancedReport } from "@/services/export";
 import { formatDate } from "@/utils/format";
@@ -52,6 +52,17 @@ const filteredSessions = computed(() => {
   }
   return props.sessions;
 });
+
+const panelRef = ref<HTMLDivElement | null>(null);
+
+watch(
+  () => props.visible,
+  (visible) => {
+    if (visible) {
+      nextTick(() => panelRef.value?.focus());
+    }
+  }
+);
 
 // ---- 方法 ----
 function closeModal() {
@@ -108,7 +119,7 @@ async function handleExport() {
 
     closeModal();
   } catch (err) {
-    console.error("Export failed:", err);
+    if (import.meta.env.DEV) console.error("Export failed:", err);
     alert("导出失败，请重试");
   }
 }
@@ -208,7 +219,7 @@ function resetTaskSelection() {
               <label class="form-label">筛选条件</label>
               <div class="filter-toggle">
                 <label class="toggle-label">
-                  <input type="checkbox" v-model="useCurrentFilters" />
+                  <input v-model="useCurrentFilters" type="checkbox" />
                   <span>使用当前面板筛选条件</span>
                 </label>
               </div>

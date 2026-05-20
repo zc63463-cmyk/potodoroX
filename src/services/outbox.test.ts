@@ -1,86 +1,181 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+// ============================================================
+// outbox 回归测试
+// 覆盖：事件写入/读取/清理、墓碑操作、迁移后的薄包装调用
+// ============================================================
 
-/**
- * 模拟 idb-keyval（happy-dom 不支持 IndexedDB）
- * 使用内存 Map 替代
- */
-const store = new Map<string, unknown>()
-vi.mock('idb-keyval', () => ({
-  get: vi.fn(async (key: string) => store.get(key) ?? undefined),
-  set: vi.fn(async (key: string, value: unknown) => { store.set(key, value) }),
-  keys: vi.fn(async () => Array.from(store.keys())),
-  del: vi.fn(async (key: string) => { store.delete(key) }),
-}))
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  writeEvent,
+  getUnpushedEvents,
+  getUnpushedCount,
+  removePushedEvents,
+  markProcessed,
+  isProcessed,
+  filterUnprocessed,
+  markTombstone,
+  getTombstone,
+  removeTombstone,
+  getAllTombstones,
+  upsertTombstones,
+  clearAll,
+} from "@/services/outbox";
 
-// 导入被测模块（必须在 vi.mock 之后）
-const outbox = await import('./outbox')
+const mockDb = vi.hoisted(() => ({
+  writeOutboxEvent: vi.fn().mockResolvedValue(undefined),
+  getUnpushedOutboxEvents: vi.fn().mockResolvedValue([]),
+  getOutboxEventCount: vi.fn().mockResolvedValue(0),
+  removePushedOutboxEvents: vi.fn().mockResolvedValue(undefined),
+  markOutboxEventProcessed: vi.fn().mockResolvedValue(undefined),
+  isOutboxEventProcessed: vi.fn().mockResolvedValue(false),
+  filterUnprocessedOutboxEvents: vi.fn().mockResolvedValue([]),
+  markTombstone: vi.fn().mockResolvedValue(undefined),
+  getTombstone: vi.fn().mockResolvedValue(null),
+  removeTombstone: vi.fn().mockResolvedValue(undefined),
+  getAllTombstones: vi.fn().mockResolvedValue([]),
+  upsertTombstones: vi.fn().mockResolvedValue(undefined),
+  clearOutbox: vi.fn().mockResolvedValue(undefined),
+  clearProcessedEvents: vi.fn().mockResolvedValue(undefined),
+}));
 
-describe('Outbox 事件队列', () => {
-  beforeEach(() => {
-    store.clear()
-  })
+vi.mock("@/services/database", () => ({ db: mockDb }));
 
-  it('writeEvent 应写入并返回事件', async () => {
-    const event = await outbox.writeEvent('task.created', 'task-1', { id: 'task-1', title: '测试' })
-    expect(event.eventId).toBeTruthy()
-    expect(event.type).toBe('task.created')
-    expect(event.entityId).toBe('task-1')
-    expect(event.payload).toEqual({ id: 'task-1', title: '测试' })
-    expect(event.timestamp).toBeTruthy()
+const mockIdbGet = vi.hoisted(() => vi.fn());
+const mockIdbSet = vi.hoisted(() => vi.fn());
+const mockIdbKeys = vi.hoisted(() => vi.fn());
+const mockIdbDel = vi.hoisted(() => vi.fn());
 
-    // 验证能从队列读出
-    const events = await outbox.getUnpushedEvents()
-    expect(events).toHaveLength(1)
-    expect(events[0].eventId).toBe(event.eventId)
-  })
+vi.mock("idb-keyval", () => ({
+  get: mockIdbGet,
+  set: mockIdbSet,
+  keys: mockIdbKeys,
+  del: mockIdbDel,
+}));
 
-  it('removePushedEvents 应删除已推送的事件', async () => {
-    const e1 = await outbox.writeEvent('task.created', 'task-1', { id: 'task-1' })
-    const e2 = await outbox.writeEvent('reflection.created', 'ref-1', { id: 'ref-1' })
+beforeEach(() => {
+  Object.values(mockDb).forEach((m: any) => {
+    if (typeof m.mockClear === "function") m.mockClear();
+  });
+  mockIdbGet.mockClear().mockResolvedValue("done");
+  mockIdbSet.mockClear();
+  mockIdbKeys.mockClear();
+  mockIdbDel.mockClear();
+});
 
-    await outbox.removePushedEvents([e1.eventId])
+describe("outbox", () => {
+  // ============================================================
+  // 事件写入与读取
+  // ============================================================
+  it("writeEvent 应创建并写入事件", async () => {
+    const event = await writeEvent("task.created", "t1", { title: "Test" });
+    expect(event.type).toBe("task.created");
+    expect(event.entityType).toBe("task");
+    expect(event.entityId).toBe("t1");
+    expect(mockDb.writeOutboxEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "task.created",
+        entityId: "t1",
+      })
+    );
+  });
 
-    const remaining = await outbox.getUnpushedEvents()
-    expect(remaining).toHaveLength(1)
-    expect(remaining[0].eventId).toBe(e2.eventId)
-  })
+  it("getUnpushedEvents 应返回未推送事件", async () => {
+    mockDb.getUnpushedOutboxEvents.mockResolvedValue([{ eventId: "e1" }]);
+    const events = await getUnpushedEvents();
+    expect(events).toHaveLength(1);
+    expect(mockDb.getUnpushedOutboxEvents).toHaveBeenCalled();
+  });
 
-  it('getUnpushedEvents 应按时间戳升序排列', async () => {
-    // 写入 3 个事件，验证排序
-    const e1 = await outbox.writeEvent('task.created', 'task-1', {})
-    await outbox.writeEvent('reflection.created', 'ref-1', {})
-    await outbox.writeEvent('session.created', 'session-1', {})
+  it("getUnpushedCount 应返回数量", async () => {
+    mockDb.getOutboxEventCount.mockResolvedValue(5);
+    const count = await getUnpushedCount();
+    expect(count).toBe(5);
+    expect(mockDb.getOutboxEventCount).toHaveBeenCalled();
+  });
 
-    const events = await outbox.getUnpushedEvents()
-    expect(events).toHaveLength(3)
-    expect(events[0].eventId).toBe(e1.eventId)
-  })
-})
+  it("removePushedEvents 应删除已推送事件", async () => {
+    await removePushedEvents(["e1", "e2"]);
+    expect(mockDb.removePushedOutboxEvents).toHaveBeenCalledWith(["e1", "e2"]);
+  });
 
-describe('Outbox 墓碑机制', () => {
-  beforeEach(() => {
-    store.clear()
-  })
+  // ============================================================
+  // 已处理事件记录
+  // ============================================================
+  it("markProcessed 应标记事件为已处理", async () => {
+    await markProcessed("e1");
+    expect(mockDb.markOutboxEventProcessed).toHaveBeenCalledWith("e1");
+  });
 
-  it('markTombstone 应记录墓碑', async () => {
-    await outbox.markTombstone('task', 'task-1', '2026-05-04T10:00:00.000Z')
+  it("isProcessed 应返回处理状态", async () => {
+    mockDb.isOutboxEventProcessed.mockResolvedValue(true);
+    const result = await isProcessed("e1");
+    expect(result).toBe(true);
+    expect(mockDb.isOutboxEventProcessed).toHaveBeenCalledWith("e1");
+  });
 
-    const tombstone = await outbox.getTombstone('task', 'task-1')
-    expect(tombstone).not.toBeNull()
-    expect(tombstone!.entityId).toBe('task-1')
-    expect(tombstone!.deletedAt).toBe('2026-05-04T10:00:00.000Z')
-  })
+  it("filterUnprocessed 应筛选未处理事件", async () => {
+    const events = [{ eventId: "e1" }, { eventId: "e2" }] as any;
+    mockDb.filterUnprocessedOutboxEvents.mockResolvedValue([events[0]]);
+    const result = await filterUnprocessed(events);
+    expect(result).toHaveLength(1);
+    expect(mockDb.filterUnprocessedOutboxEvents).toHaveBeenCalledWith(events);
+  });
 
-  it('removeTombstone 应清除墓碑', async () => {
-    await outbox.markTombstone('task', 'task-1', '2026-05-04T10:00:00.000Z')
-    await outbox.removeTombstone('task', 'task-1')
+  // ============================================================
+  // 墓碑机制
+  // ============================================================
+  it("markTombstone 应记录墓碑", async () => {
+    await markTombstone("task", "t1");
+    expect(mockDb.markTombstone).toHaveBeenCalledWith("task", "t1", undefined);
+  });
 
-    const tombstone = await outbox.getTombstone('task', 'task-1')
-    expect(tombstone).toBeNull()
-  })
+  it("markTombstone 应支持自定义时间戳", async () => {
+    await markTombstone("task", "t1", "2026-05-01T10:00:00Z");
+    expect(mockDb.markTombstone).toHaveBeenCalledWith(
+      "task",
+      "t1",
+      "2026-05-01T10:00:00Z"
+    );
+  });
 
-  it('getTombstone 应返回 null（未找到时）', async () => {
-    const tombstone = await outbox.getTombstone('task', 'nonexistent')
-    expect(tombstone).toBeNull()
-  })
-})
+  it("getTombstone 应返回墓碑", async () => {
+    mockDb.getTombstone.mockResolvedValue({
+      entityType: "task",
+      entityId: "t1",
+      deletedAt: "2026-05-01",
+    });
+    const result = await getTombstone("task", "t1");
+    expect(result).toBeDefined();
+    expect(mockDb.getTombstone).toHaveBeenCalledWith("task", "t1");
+  });
+
+  it("removeTombstone 应清除墓碑", async () => {
+    await removeTombstone("task", "t1");
+    expect(mockDb.removeTombstone).toHaveBeenCalledWith("task", "t1");
+  });
+
+  it("getAllTombstones 应返回所有墓碑", async () => {
+    mockDb.getAllTombstones.mockResolvedValue([
+      { entityType: "task", entityId: "t1", deletedAt: "2026-05-01" },
+    ]);
+    const result = await getAllTombstones();
+    expect(result).toHaveLength(1);
+    expect(mockDb.getAllTombstones).toHaveBeenCalled();
+  });
+
+  it("upsertTombstones 应批量写入墓碑", async () => {
+    const tombstones = [
+      { entityType: "task", entityId: "t1", deletedAt: "2026-05-01" },
+    ];
+    await upsertTombstones(tombstones as any);
+    expect(mockDb.upsertTombstones).toHaveBeenCalledWith(tombstones);
+  });
+
+  // ============================================================
+  // 清理
+  // ============================================================
+  it("clearAll 应清空 outbox 和 processed 事件", async () => {
+    await clearAll();
+    expect(mockDb.clearOutbox).toHaveBeenCalled();
+    expect(mockDb.clearProcessedEvents).toHaveBeenCalled();
+  });
+});

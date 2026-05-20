@@ -97,7 +97,7 @@ export const GITHUB_SYNC_DIR = "pomodorox-sync";
 export const TIMER_INTERVAL_MS = 100;
 
 /** 数据 schema 版本号 */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** 常用标签 */
 export const DEFAULT_TAGS = [

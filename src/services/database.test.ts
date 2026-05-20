@@ -3,8 +3,13 @@
 // 覆盖：MemoryStore localStorage 持久化、数据序列化/反序列化、CRUD 操作
 // ============================================================
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { initDatabase, migrateMemoryData } from "@/services/database";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import {
+  initDatabase,
+  migrateMemoryData,
+  db,
+  __testOnlySqliteDatabase,
+} from "@/services/database";
 import type { Task, Reflection, Session } from "@/types";
 
 // ============================================================
@@ -423,7 +428,7 @@ describe("migrateMemoryData", () => {
       syncLog: [],
     };
     const migrated = migrateMemoryData(oldData);
-    expect(migrated._schemaVersion).toBe(2);
+    expect(migrated._schemaVersion).toBe(3);
     const task = (migrated.tasks as [string, unknown][])[0][1] as Record<
       string,
       string
@@ -468,13 +473,16 @@ describe("migrateMemoryData", () => {
       syncLog: [],
     };
     const migrated = migrateMemoryData(oldData);
-    expect(migrated._schemaVersion).toBe(2);
+    expect(migrated._schemaVersion).toBe(3);
     const session = (migrated.sessions as [string, unknown][])[0][1] as Record<
       string,
       string
     >;
     expect(session.updatedAt).toBe("2026-01-01 10:00:00");
     expect(migrated.conflictLog).toEqual([]);
+    expect(migrated.outboxEvents).toEqual([]);
+    expect(migrated.processedEvents).toEqual([]);
+    expect(migrated.tombstones).toEqual([]);
   });
 
   it("v2 数据不再修改", () => {
@@ -496,7 +504,7 @@ describe("migrateMemoryData", () => {
       conflictLog: [{ id: "c1", entityType: "task" }],
     };
     const migrated = migrateMemoryData(modernData);
-    expect(migrated._schemaVersion).toBe(2);
+    expect(migrated._schemaVersion).toBe(3);
     expect(migrated.tasks).toEqual(modernData.tasks);
     expect(migrated.sessions).toEqual(modernData.sessions);
     expect(migrated.conflictLog).toEqual(modernData.conflictLog);
@@ -504,7 +512,703 @@ describe("migrateMemoryData", () => {
 
   it("空对象也能正常迁移", () => {
     const migrated = migrateMemoryData({});
-    expect(migrated._schemaVersion).toBe(2);
+    expect(migrated._schemaVersion).toBe(3);
     expect(migrated.conflictLog).toEqual([]);
+  });
+});
+
+// ============================================================
+// 6. db 代理与 MemoryStore 集成测试
+// ============================================================
+
+describe("db 代理与 MemoryStore 集成", () => {
+  beforeEach(async () => {
+    await db.clearAll();
+  });
+
+  // ---- Task CRUD ----
+  it("应创建并读取任务", async () => {
+    const task = await db.createTask({
+      title: "测试任务",
+      description: "描述",
+      priority: "high",
+      estimatedPomodoros: 3,
+      tags: ["A", "B"],
+      dueDate: "2026-05-20",
+      plan: "计划",
+      completion: "",
+    });
+    expect(task.title).toBe("测试任务");
+    expect(task.status).toBe("todo");
+    expect(task.actualPomodoros).toBe(0);
+
+    const found = await db.getTask(task.id);
+    expect(found).not.toBeNull();
+    expect(found!.title).toBe("测试任务");
+  });
+
+  it("应更新任务", async () => {
+    const task = await db.createTask({
+      title: "旧标题",
+      description: "",
+      priority: "medium",
+      estimatedPomodoros: 1,
+      tags: [],
+      dueDate: null,
+      plan: "",
+      completion: "",
+    });
+    const updated = await db.updateTask(task.id, {
+      title: "新标题",
+      status: "done",
+    });
+    expect(updated).not.toBeNull();
+    expect(updated!.title).toBe("新标题");
+    expect(updated!.status).toBe("done");
+    expect(updated!.synced).toBe(false);
+  });
+
+  it("应删除任务", async () => {
+    const task = await db.createTask({
+      title: "待删除",
+      description: "",
+      priority: "medium",
+      estimatedPomodoros: 1,
+      tags: [],
+      dueDate: null,
+      plan: "",
+      completion: "",
+    });
+    const ok = await db.deleteTask(task.id);
+    expect(ok).toBe(true);
+    expect(await db.getTask(task.id)).toBeNull();
+  });
+
+  it("应按日期查询任务", async () => {
+    const task = await db.createTask({
+      title: "日期任务",
+      description: "",
+      priority: "medium",
+      estimatedPomodoros: 1,
+      tags: [],
+      dueDate: "2026-05-20",
+      plan: "",
+      completion: "",
+    });
+    const byDate = await db.getTasksByDate(task.createdAt.slice(0, 10));
+    expect(byDate.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("应按状态查询任务", async () => {
+    await db.createTask({
+      title: "t1",
+      description: "",
+      priority: "medium",
+      estimatedPomodoros: 1,
+      tags: [],
+      dueDate: null,
+      plan: "",
+      completion: "",
+    });
+    await db.createTask({
+      title: "t2",
+      description: "",
+      priority: "medium",
+      estimatedPomodoros: 1,
+      tags: [],
+      dueDate: null,
+      plan: "",
+      completion: "",
+    });
+    const all = await db.getAllTasks();
+    expect(all.length).toBe(2);
+    const todo = await db.getTasksByStatus("todo");
+    expect(todo.length).toBe(2);
+  });
+
+  it("应标记任务同步状态", async () => {
+    const task = await db.createTask({
+      title: "sync-task",
+      description: "",
+      priority: "medium",
+      estimatedPomodoros: 1,
+      tags: [],
+      dueDate: null,
+      plan: "",
+      completion: "",
+    });
+    await db.markTaskSynced(task.id);
+    const unsynced = await db.getUnsyncedTasks();
+    expect(unsynced.find((t) => t.id === task.id)).toBeUndefined();
+  });
+
+  // ---- Reflection CRUD ----
+  it("应创建并读取反思", async () => {
+    const r = await db.createReflection({
+      date: "2026-05-01",
+      content: "反思内容",
+      mood: "good",
+      relatedTaskIds: [],
+      tags: ["日记"],
+    });
+    expect(r.content).toBe("反思内容");
+    const found = await db.getReflection(r.id);
+    expect(found).not.toBeNull();
+  });
+
+  it("应更新反思", async () => {
+    const r = await db.createReflection({
+      date: "2026-05-01",
+      content: "旧内容",
+      mood: "good",
+      relatedTaskIds: [],
+      tags: [],
+    });
+    const updated = await db.updateReflection(r.id, { content: "新内容" });
+    expect(updated).not.toBeNull();
+    expect(updated!.content).toBe("新内容");
+  });
+
+  it("应按日期范围查询反思", async () => {
+    await db.createReflection({
+      date: "2026-05-01",
+      content: "a",
+      mood: "good",
+      relatedTaskIds: [],
+      tags: [],
+    });
+    await db.createReflection({
+      date: "2026-05-10",
+      content: "b",
+      mood: "bad",
+      relatedTaskIds: [],
+      tags: [],
+    });
+    const range = await db.getReflectionsByDateRange(
+      "2026-05-01",
+      "2026-05-05"
+    );
+    expect(range.length).toBe(1);
+    expect(range[0].content).toBe("a");
+  });
+
+  it("应删除反思", async () => {
+    const r = await db.createReflection({
+      date: "2026-05-01",
+      content: "del",
+      mood: "good",
+      relatedTaskIds: [],
+      tags: [],
+    });
+    const ok = await db.deleteReflection(r.id);
+    expect(ok).toBe(true);
+    expect(await db.getReflection(r.id)).toBeNull();
+  });
+
+  it("应标记反思同步状态并查询未同步", async () => {
+    const r = await db.createReflection({
+      date: "2026-05-01",
+      content: "sync",
+      mood: "good",
+      relatedTaskIds: [],
+      tags: [],
+    });
+    await db.markReflectionSynced(r.id);
+    const unsynced = await db.getUnsyncedReflections();
+    expect(unsynced.find((x) => x.id === r.id)).toBeUndefined();
+  });
+
+  // ---- Session CRUD ----
+  it("应创建并读取会话", async () => {
+    const s = await db.createSession({
+      taskId: "task-1",
+      type: "work",
+      duration: 1500,
+      completed: true,
+      startedAt: "2026-05-01 10:00:00",
+      plan: "",
+      completion: "",
+    });
+    expect(s.type).toBe("work");
+    expect(s.completed).toBe(true);
+    expect(s.endedAt).not.toBeNull();
+    const found = await db.getSession(s.id);
+    expect(found).not.toBeNull();
+  });
+
+  it("未完成会话的 endedAt 应为 null", async () => {
+    const s = await db.createSession({
+      taskId: null,
+      type: "short_break",
+      duration: 300,
+      completed: false,
+      startedAt: "2026-05-01 10:00:00",
+      plan: "",
+      completion: "",
+    });
+    expect(s.endedAt).toBeNull();
+  });
+
+  it("应按日期范围查询会话", async () => {
+    await db.createSession({
+      taskId: null,
+      type: "work",
+      duration: 1500,
+      completed: true,
+      startedAt: "2026-05-01 10:00:00",
+      plan: "",
+      completion: "",
+    });
+    await db.createSession({
+      taskId: null,
+      type: "work",
+      duration: 1500,
+      completed: true,
+      startedAt: "2026-05-10 10:00:00",
+      plan: "",
+      completion: "",
+    });
+    const range = await db.getSessionsByDateRange("2026-05-01", "2026-05-05");
+    expect(range.length).toBe(1);
+  });
+
+  it("应按任务 ID 查询会话", async () => {
+    await db.createSession({
+      taskId: "t1",
+      type: "work",
+      duration: 1500,
+      completed: true,
+      startedAt: "2026-05-01 10:00:00",
+      plan: "",
+      completion: "",
+    });
+    await db.createSession({
+      taskId: "t2",
+      type: "work",
+      duration: 1500,
+      completed: true,
+      startedAt: "2026-05-01 10:30:00",
+      plan: "",
+      completion: "",
+    });
+    const sessions = await db.getSessionsByTask("t1");
+    expect(sessions.length).toBe(1);
+  });
+
+  it("应删除会话", async () => {
+    const s = await db.createSession({
+      taskId: null,
+      type: "work",
+      duration: 1500,
+      completed: true,
+      startedAt: "2026-05-01 10:00:00",
+      plan: "",
+      completion: "",
+    });
+    const ok = await db.deleteSession(s.id);
+    expect(ok).toBe(true);
+    expect(await db.getSession(s.id)).toBeNull();
+  });
+
+  it("应标记会话同步状态并查询未同步", async () => {
+    const s = await db.createSession({
+      taskId: null,
+      type: "work",
+      duration: 1500,
+      completed: true,
+      startedAt: "2026-05-01 10:00:00",
+      plan: "",
+      completion: "",
+    });
+    await db.markSessionSynced(s.id);
+    const unsynced = await db.getUnsyncedSessions();
+    expect(unsynced.find((x) => x.id === s.id)).toBeUndefined();
+  });
+
+  // ---- Sync ----
+  it("应记录同步状态", async () => {
+    const status = await db.getSyncStatus();
+    expect(status.pendingCount).toBe(0);
+    expect(status.isSyncing).toBe(false);
+
+    await db.recordSync("task", "t1");
+    const status2 = await db.getSyncStatus();
+    expect(status2.lastSyncAt).not.toBeNull();
+  });
+
+  it("应记录和读取冲突日志", async () => {
+    const entry = await db.recordSyncConflict({
+      entityType: "task",
+      entityId: "t1",
+      localUpdatedAt: "2026-05-01 10:00:00",
+      remoteUpdatedAt: "2026-05-01 11:00:00",
+      resolvedAt: "2026-05-01 12:00:00",
+      resolution: "local_wins",
+      localSnapshot: "{}",
+      remoteSnapshot: "{}",
+    });
+    expect(entry.id).toBeDefined();
+    const conflicts = await db.getSyncConflicts();
+    expect(conflicts.length).toBe(1);
+    await db.clearSyncConflicts();
+    expect((await db.getSyncConflicts()).length).toBe(0);
+  });
+
+  // ---- Outbox ----
+  it("应写入和读取 outbox 事件", async () => {
+    const event = {
+      eventId: "evt-1",
+      type: "task.created" as const,
+      entityType: "task" as const,
+      entityId: "t1",
+      payload: {},
+      timestamp: "2026-05-01T10:00:00Z",
+    };
+    await db.writeOutboxEvent(event);
+    const events = await db.getUnpushedOutboxEvents();
+    expect(events.length).toBe(1);
+    expect(events[0].eventId).toBe("evt-1");
+    expect(await db.getOutboxEventCount()).toBe(1);
+  });
+
+  it("应删除已推送的 outbox 事件", async () => {
+    await db.writeOutboxEvent({
+      eventId: "evt-1",
+      type: "task.created",
+      entityType: "task",
+      entityId: "t1",
+      payload: {},
+      timestamp: "2026-05-01T10:00:00Z",
+    });
+    await db.removePushedOutboxEvents(["evt-1"]);
+    expect(await db.getOutboxEventCount()).toBe(0);
+  });
+
+  it("应标记和检查 outbox 事件处理状态", async () => {
+    await db.writeOutboxEvent({
+      eventId: "evt-1",
+      type: "task.created",
+      entityType: "task",
+      entityId: "t1",
+      payload: {},
+      timestamp: "2026-05-01T10:00:00Z",
+    });
+    expect(await db.isOutboxEventProcessed("evt-1")).toBe(false);
+    await db.markOutboxEventProcessed("evt-1");
+    expect(await db.isOutboxEventProcessed("evt-1")).toBe(true);
+    const unprocessed = await db.filterUnprocessedOutboxEvents([
+      {
+        eventId: "evt-1",
+        type: "task.created",
+        entityType: "task",
+        entityId: "t1",
+        payload: {},
+        timestamp: "2026-05-01T10:00:00Z",
+      },
+    ]);
+    expect(unprocessed.length).toBe(0);
+  });
+
+  // ---- Tombstones ----
+  it("应标记和查询墓碑", async () => {
+    await db.markTombstone("task", "t1");
+    const t = await db.getTombstone("task", "t1");
+    expect(t).not.toBeNull();
+    expect(t!.entityType).toBe("task");
+    await db.removeTombstone("task", "t1");
+    expect(await db.getTombstone("task", "t1")).toBeNull();
+  });
+
+  it("应批量 upsert 墓碑", async () => {
+    await db.upsertTombstones([
+      { entityType: "task", entityId: "t1", deletedAt: "2026-05-01 10:00:00" },
+      {
+        entityType: "reflection",
+        entityId: "r1",
+        deletedAt: "2026-05-01 11:00:00",
+      },
+    ]);
+    const all = await db.getAllTombstones();
+    expect(all.length).toBe(2);
+  });
+
+  // ---- Transaction ----
+  it("transaction 应在 MemoryStore 中原子执行", async () => {
+    const result = await db.transaction(async () => {
+      const task = await db.createTask({
+        title: "tx-task",
+        description: "",
+        priority: "medium",
+        estimatedPomodoros: 1,
+        tags: [],
+        dueDate: null,
+        plan: "",
+        completion: "",
+      });
+      return task.title;
+    });
+    expect(result).toBe("tx-task");
+  });
+
+  // ---- ClearAll ----
+  it("clearAll 应清空所有数据", async () => {
+    await db.createTask({
+      title: "t1",
+      description: "",
+      priority: "medium",
+      estimatedPomodoros: 1,
+      tags: [],
+      dueDate: null,
+      plan: "",
+      completion: "",
+    });
+    await db.createReflection({
+      date: "2026-05-01",
+      content: "c",
+      mood: "good",
+      relatedTaskIds: [],
+      tags: [],
+    });
+    await db.createSession({
+      taskId: null,
+      type: "work",
+      duration: 1500,
+      completed: true,
+      startedAt: "2026-05-01 10:00:00",
+      plan: "",
+      completion: "",
+    });
+    await db.writeOutboxEvent({
+      eventId: "e1",
+      type: "task.created",
+      entityType: "task",
+      entityId: "t1",
+      payload: {},
+      timestamp: "2026-05-01T10:00:00Z",
+    });
+    await db.markTombstone("task", "t1");
+    await db.recordSyncConflict({
+      entityType: "task",
+      entityId: "t1",
+      localUpdatedAt: "",
+      remoteUpdatedAt: "",
+      resolvedAt: "",
+      resolution: "local_wins",
+      localSnapshot: "",
+      remoteSnapshot: "",
+    });
+
+    await db.clearAll();
+
+    expect((await db.getAllTasks()).length).toBe(0);
+    expect((await db.getAllReflections()).length).toBe(0);
+    expect((await db.getAllSessions()).length).toBe(0);
+    expect(await db.getOutboxEventCount()).toBe(0);
+    expect((await db.getAllTombstones()).length).toBe(0);
+    expect((await db.getSyncConflicts()).length).toBe(0);
+  });
+
+  // ---- Outbox Cleanup ----
+  it("应清空 outbox 和 processed events", async () => {
+    await db.writeOutboxEvent({
+      eventId: "e1",
+      type: "task.created",
+      entityType: "task",
+      entityId: "t1",
+      payload: {},
+      timestamp: "2026-05-01T10:00:00Z",
+    });
+    await db.markOutboxEventProcessed("e1");
+    await db.clearOutbox();
+    await db.clearProcessedEvents();
+    expect(await db.getOutboxEventCount()).toBe(0);
+    expect(await db.isOutboxEventProcessed("e1")).toBe(false);
+  });
+
+  // ---- Upsert ----
+  it("应 upsert 任务/反思/会话", async () => {
+    await db.upsertTask({
+      id: "t1",
+      title: "u",
+      description: "",
+      status: "todo",
+      priority: "medium",
+      estimatedPomodoros: 1,
+      actualPomodoros: 0,
+      tags: [],
+      dueDate: null,
+      plan: "",
+      completion: "",
+      createdAt: "",
+      updatedAt: "",
+      synced: false,
+    });
+    expect((await db.getTask("t1"))!.title).toBe("u");
+
+    await db.upsertReflection({
+      id: "r1",
+      date: "",
+      content: "u",
+      mood: "good",
+      relatedTaskIds: [],
+      tags: [],
+      createdAt: "",
+      updatedAt: "",
+      synced: false,
+    });
+    expect((await db.getReflection("r1"))!.content).toBe("u");
+
+    await db.upsertSession({
+      id: "s1",
+      taskId: null,
+      type: "work",
+      duration: 1,
+      completed: true,
+      startedAt: "",
+      endedAt: "",
+      plan: "",
+      completion: "",
+      synced: false,
+      updatedAt: "",
+    });
+    expect((await db.getSession("s1"))!.duration).toBe(1);
+  });
+
+  // ---- Validation ----
+  it("创建任务时标题为空应抛出错误", async () => {
+    await expect(
+      db.createTask({
+        title: "   ",
+        description: "",
+        priority: "medium",
+        estimatedPomodoros: 1,
+        tags: [],
+        dueDate: null,
+        plan: "",
+        completion: "",
+      })
+    ).rejects.toThrow("任务标题 不能为空");
+  });
+
+  it("创建反思时日期为空应抛出错误", async () => {
+    await expect(
+      db.createReflection({
+        date: "",
+        content: "c",
+        mood: "good",
+        relatedTaskIds: [],
+        tags: [],
+      })
+    ).rejects.toThrow("反思日期 不能为空");
+  });
+
+  it("创建会话时负时长应抛出错误", async () => {
+    await expect(
+      db.createSession({
+        taskId: null,
+        type: "work",
+        duration: -1,
+        completed: false,
+        startedAt: "2026-05-01 10:00:00",
+        plan: "",
+        completion: "",
+      })
+    ).rejects.toThrow("时长 必须是非负有限数");
+  });
+});
+
+// ============================================================
+// SqliteDatabase.transaction SAVEPOINT 嵌套测试
+// ============================================================
+
+const mockExecute = vi.hoisted(() => vi.fn().mockResolvedValue(0));
+const mockSelect = vi.hoisted(() => vi.fn().mockResolvedValue([]));
+
+vi.mock("@tauri-apps/plugin-sql", () => ({
+  load: vi.fn().mockResolvedValue({
+    execute: mockExecute,
+    select: mockSelect,
+  }),
+}));
+
+describe("SqliteDatabase.transaction SAVEPOINT", () => {
+  beforeEach(() => {
+    mockExecute.mockClear();
+  });
+
+  it("单层事务应执行 BEGIN → COMMIT", async () => {
+    const sqlite = new __testOnlySqliteDatabase();
+    const result = await sqlite.transaction(async () => "ok");
+    expect(result).toBe("ok");
+    expect(mockExecute).toHaveBeenNthCalledWith(1, "BEGIN");
+    expect(mockExecute).toHaveBeenNthCalledWith(2, "COMMIT");
+  });
+
+  it("单层事务异常时应执行 BEGIN → ROLLBACK", async () => {
+    const sqlite = new __testOnlySqliteDatabase();
+    await expect(
+      sqlite.transaction(async () => {
+        throw new Error("fail");
+      })
+    ).rejects.toThrow("fail");
+    expect(mockExecute).toHaveBeenNthCalledWith(1, "BEGIN");
+    expect(mockExecute).toHaveBeenNthCalledWith(2, "ROLLBACK");
+  });
+
+  it("双层嵌套事务应使用 SAVEPOINT", async () => {
+    const sqlite = new __testOnlySqliteDatabase();
+    await sqlite.transaction(async () => {
+      return sqlite.transaction(async () => "inner");
+    });
+    expect(mockExecute).toHaveBeenNthCalledWith(1, "BEGIN");
+    expect(mockExecute).toHaveBeenNthCalledWith(2, "SAVEPOINT sp_1");
+    expect(mockExecute).toHaveBeenNthCalledWith(3, "RELEASE SAVEPOINT sp_1");
+    expect(mockExecute).toHaveBeenNthCalledWith(4, "COMMIT");
+  });
+
+  it("双层嵌套内层异常时应回滚到 SAVEPOINT 并继续外层回滚", async () => {
+    const sqlite = new __testOnlySqliteDatabase();
+    await expect(
+      sqlite.transaction(async () => {
+        return sqlite.transaction(async () => {
+          throw new Error("inner fail");
+        });
+      })
+    ).rejects.toThrow("inner fail");
+    expect(mockExecute).toHaveBeenNthCalledWith(1, "BEGIN");
+    expect(mockExecute).toHaveBeenNthCalledWith(2, "SAVEPOINT sp_1");
+    expect(mockExecute).toHaveBeenNthCalledWith(
+      3,
+      "ROLLBACK TO SAVEPOINT sp_1"
+    );
+    expect(mockExecute).toHaveBeenNthCalledWith(4, "ROLLBACK");
+  });
+
+  it("三层嵌套事务应使用递增 SAVEPOINT", async () => {
+    const sqlite = new __testOnlySqliteDatabase();
+    await sqlite.transaction(async () => {
+      return sqlite.transaction(async () => {
+        return sqlite.transaction(async () => "deep");
+      });
+    });
+    expect(mockExecute).toHaveBeenNthCalledWith(1, "BEGIN");
+    expect(mockExecute).toHaveBeenNthCalledWith(2, "SAVEPOINT sp_1");
+    expect(mockExecute).toHaveBeenNthCalledWith(3, "SAVEPOINT sp_2");
+    expect(mockExecute).toHaveBeenNthCalledWith(4, "RELEASE SAVEPOINT sp_2");
+    expect(mockExecute).toHaveBeenNthCalledWith(5, "RELEASE SAVEPOINT sp_1");
+    expect(mockExecute).toHaveBeenNthCalledWith(6, "COMMIT");
+  });
+
+  it("嵌套异常后 depth 应正确重置，后续事务可正常执行", async () => {
+    const sqlite = new __testOnlySqliteDatabase();
+    await expect(
+      sqlite.transaction(async () => {
+        throw new Error("fail");
+      })
+    ).rejects.toThrow("fail");
+    mockExecute.mockClear();
+    await sqlite.transaction(async () => "ok");
+    expect(mockExecute).toHaveBeenNthCalledWith(1, "BEGIN");
+    expect(mockExecute).toHaveBeenNthCalledWith(2, "COMMIT");
   });
 });

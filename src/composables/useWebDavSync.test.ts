@@ -10,7 +10,7 @@
 // - PROPFIND XML 解析（Phase 2 事件流）
 // ============================================================
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   mergeWithTombstones,
   mergeTombstones,
@@ -28,6 +28,9 @@ import {
   hasUnsyncedChanges,
   type ConflictRecord,
 } from "./useWebDavSync";
+
+// 测试 useWebDavSync composable 内部函数（通过实例暴露）
+import { useWebDavSync } from "./useWebDavSync";
 import type { Tombstone } from "@/services/outbox";
 
 type Entity = { id: string; updatedAt: string; value?: string };
@@ -812,5 +815,128 @@ describe("hasUnsyncedChanges", () => {
 
   it("缺少 synced 字段视为 undefined（不计入未同步）", () => {
     expect(hasUnsyncedChanges([{}, {}])).toBe(false);
+  });
+});
+
+describe("__shouldTriggerSnapshotFallback", () => {
+  const LAST_SYNC_KEY = "webdav-last-sync";
+
+  beforeEach(() => {
+    localStorage.removeItem(LAST_SYNC_KEY);
+  });
+
+  afterEach(() => {
+    localStorage.removeItem(LAST_SYNC_KEY);
+  });
+
+  it("首次同步（localStorage 无 lastSync）不触发兜底", () => {
+    const webDav = useWebDavSync();
+    expect(webDav.__shouldTriggerSnapshotFallback()).toBe(false);
+  });
+
+  it("24 天前同步不触发兜底（< 25 天阈值）", () => {
+    const now = Date.now();
+    const lastSync = new Date(now - 24 * 24 * 60 * 60 * 1000).toISOString();
+    localStorage.setItem(LAST_SYNC_KEY, lastSync);
+
+    const webDav = useWebDavSync();
+    expect(webDav.__shouldTriggerSnapshotFallback(now)).toBe(false);
+  });
+
+  it("刚好 25 天前同步不触发兜底（严格 > 阈值）", () => {
+    const now = Date.now();
+    const lastSync = new Date(now - 25 * 24 * 60 * 60 * 1000).toISOString();
+    localStorage.setItem(LAST_SYNC_KEY, lastSync);
+
+    const webDav = useWebDavSync();
+    expect(webDav.__shouldTriggerSnapshotFallback(now)).toBe(false);
+  });
+
+  it("26 天前同步触发兜底（> 25 天阈值）", () => {
+    const now = Date.now();
+    const lastSync = new Date(now - 26 * 24 * 60 * 60 * 1000).toISOString();
+    localStorage.setItem(LAST_SYNC_KEY, lastSync);
+
+    const webDav = useWebDavSync();
+    expect(webDav.__shouldTriggerSnapshotFallback(now)).toBe(true);
+  });
+
+  it("未来时间同步不触发兜底", () => {
+    const now = Date.now();
+    const lastSync = new Date(now + 24 * 60 * 60 * 1000).toISOString();
+    localStorage.setItem(LAST_SYNC_KEY, lastSync);
+
+    const webDav = useWebDavSync();
+    expect(webDav.__shouldTriggerSnapshotFallback(now)).toBe(false);
+  });
+});
+
+// ============================================================
+// useWebDavSync composable 状态与前置检查
+// ============================================================
+
+describe("useWebDavSync composable", () => {
+  const STORAGE_KEY = "webdav-config";
+  const LAST_SYNC_KEY = "webdav-last-sync";
+
+  beforeEach(() => {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(LAST_SYNC_KEY);
+  });
+
+  afterEach(() => {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(LAST_SYNC_KEY);
+  });
+
+  it("初始状态应为未配置", () => {
+    const webDav = useWebDavSync();
+    expect(webDav.isConfigured.value).toBe(false);
+    expect(webDav.config.value).toBeNull();
+    expect(webDav.isSyncing.value).toBe(false);
+    expect(webDav.syncError.value).toBeNull();
+  });
+
+  it("setConfig 后应为已配置", () => {
+    const webDav = useWebDavSync();
+    webDav.setConfig({
+      url: "https://dav.example.com",
+      username: "user",
+      password: "pass",
+    });
+    expect(webDav.isConfigured.value).toBe(true);
+    expect(webDav.config.value?.url).toBe("https://dav.example.com");
+    // 密码应编码存储
+    const raw = localStorage.getItem(STORAGE_KEY);
+    expect(raw).toBeTruthy();
+    const parsed = JSON.parse(raw!);
+    expect(parsed.password).not.toBe("pass");
+  });
+
+  it("clearConfig 后应为未配置", () => {
+    const webDav = useWebDavSync();
+    webDav.setConfig({
+      url: "https://dav.example.com",
+      username: "user",
+      password: "pass",
+    });
+    webDav.clearConfig();
+    expect(webDav.isConfigured.value).toBe(false);
+    expect(webDav.config.value).toBeNull();
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it("syncEvents 未配置时应返回错误", async () => {
+    const webDav = useWebDavSync();
+    const result = await webDav.syncEvents();
+    expect(result.error).toBe("WebDAV 未配置");
+    expect(result.pushed).toBe(0);
+    expect(result.pulled).toBe(0);
+  });
+
+  it("testConnection 未配置时应返回 false", async () => {
+    const webDav = useWebDavSync();
+    const ok = await webDav.testConnection();
+    expect(ok).toBe(false);
   });
 });

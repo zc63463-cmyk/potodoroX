@@ -1,4 +1,5 @@
 {
+  "id": "/",
   "name": "PomodoroX",
   "short_name": "PomoX",
   "description": "PomodoroX - 高效番茄钟与任务管理工具",
@@ -7,13 +8,15 @@
   "background_color": "#070B14",
   "theme_color": "#070B14",
   "scope": "/",
-  "orientation": "portrait-primary",
+  "orientation": "any",
+  "lang": "zh-CN",
+  "categories": ["productivity", "utilities"],
   "icons": [
     {
       "src": "/favicon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ]
 }

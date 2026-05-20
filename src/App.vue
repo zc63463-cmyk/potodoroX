@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, computed } from "vue";
+import { onMounted, onUnmounted, computed } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useAppStore } from "@/stores/app";
 import { useSettingsStore } from "@/stores/settings";
@@ -56,7 +56,7 @@ const navItems = [
 
 /** 当前激活的导航项 */
 const activeNav = computed(() => {
-  return navItems.find((item) => item.path === route.path) || navItems[0];
+  return navItems.find((item) => item.path === route.path) ?? null;
 });
 
 /** 导航到指定视图 */
@@ -75,28 +75,55 @@ useKeyboard({
     appStore.closeModal();
     appStore.closeGlobalSearch();
   },
-  onGlobalSearch: () => {
-    appStore.toggleGlobalSearch();
-  },
+  // 注意：Ctrl+K 全局搜索由 GlobalSearch.vue 自身监听，此处不重复注册
 });
+
+// ---- 页面可见性变化自动同步 ----
+function handleVisibilityChange() {
+  if (document.visibilityState === "visible") {
+    syncStore.backgroundPull().catch(() => {});
+  }
+}
+
+// ---- 网络状态变化 ----
+let onlineDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+function handleOnline() {
+  appStore.isOnline = true;
+  if (onlineDebounceTimer) clearTimeout(onlineDebounceTimer);
+  onlineDebounceTimer = setTimeout(() => {
+    if (import.meta.env.DEV) console.log("[App] 网络恢复，触发同步");
+    syncStore.backgroundPull().catch(() => {});
+  }, 300);
+}
+function handleOffline() {
+  appStore.isOnline = false;
+}
 
 // ---- 初始化 ----
 onMounted(async () => {
   await settingsStore.loadSettings();
 
-  // 如果已配置 GitHub，启动时自动拉取远程数据
-  const { githubToken, githubOwner, githubRepo } = settingsStore.settings;
-  if (githubToken && githubOwner && githubRepo) {
-    syncStore.authenticate(githubToken);
-    syncStore.setRepo(githubOwner, githubRepo);
-    // 后台拉取 outbox 事件，不阻塞 UI；网络异常静默处理
-    syncStore.backgroundPull().catch(() => {});
-  }
+  // 启动时后台同步（WebDAV 已配置且在线时自动触发）
+  syncStore.backgroundPull().catch(() => {});
+
+  // 页面切回前台时自动同步
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+
+  // 网络状态监听
+  window.addEventListener("online", handleOnline);
+  window.addEventListener("offline", handleOffline);
 
   const currentNav = navItems.find((item) => item.path === route.path);
   if (currentNav) {
     appStore.navigateTo(currentNav.name);
   }
+});
+
+onUnmounted(() => {
+  document.removeEventListener("visibilitychange", handleVisibilityChange);
+  window.removeEventListener("online", handleOnline);
+  window.removeEventListener("offline", handleOffline);
+  if (onlineDebounceTimer) clearTimeout(onlineDebounceTimer);
 });
 
 // ---- SVG 图标渲染函数 ----
@@ -185,20 +212,21 @@ function renderIcon(name: string, active: boolean) {
     </main>
 
     <!-- 底部导航栏 -->
-    <nav class="bottom-nav">
+    <nav class="bottom-nav" role="navigation" aria-label="主导航">
       <button
         v-for="item in navItems"
         :key="item.name"
         class="nav-item"
-        :class="{ active: activeNav.name === item.name }"
+        :class="{ active: activeNav?.name === item.name }"
+        :aria-current="activeNav?.name === item.name ? 'page' : undefined"
         @click="navigateTo(item.name)"
       >
         <span
           class="nav-icon"
-          v-html="renderIcon(item.icon, activeNav.name === item.name)"
+          v-html="renderIcon(item.icon, activeNav?.name === item.name)"
         />
         <span class="nav-label">{{ item.label }}</span>
-        <span v-if="activeNav.name === item.name" class="nav-indicator" />
+        <span v-if="activeNav?.name === item.name" class="nav-indicator" />
       </button>
     </nav>
 

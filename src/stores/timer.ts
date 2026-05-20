@@ -9,6 +9,8 @@ import type { SessionType } from "@/types";
 import { useSessionStore } from "@/stores/session";
 import { useTaskStore } from "@/stores/task";
 import { useSettingsStore } from "@/stores/settings";
+import { useSyncStore } from "@/stores/sync";
+import { db } from "@/services/database";
 import { useTimer } from "@/composables/useTimer";
 import type { TimerCompleteData } from "@/composables/useTimer";
 
@@ -110,31 +112,55 @@ export const useTimerStore = defineStore("timer", () => {
     // 通过 SessionStore 保存会话
     try {
       const sessionStore = useSessionStore();
-      await sessionStore.addSession(sessionInput);
+      const taskStore = useTaskStore();
+      const syncStore = useSyncStore();
 
-      // 如果是完成的工作会话，更新番茄钟计数
-      if (data.completed && data.sessionType === "work") {
-        completedPomodoros.value++;
-        pomodoroStreak.value++;
-
-        // 更新任务的 actualPomodoros（通过 taskStore 保持内存同步）
-        if (data.taskId) {
-          const taskStore = useTaskStore();
-          const task = taskStore.tasks.find((t) => t.id === data.taskId);
-          if (task) {
-            await taskStore.updateTask(data.taskId, {
-              actualPomodoros: task.actualPomodoros + 1,
-            });
+      // 如果是完成的工作会话且有关联任务，使用原子事务同时创建 session 和更新 task
+      if (data.completed && data.sessionType === "work" && data.taskId) {
+        const task = taskStore.tasks.find((t) => t.id === data.taskId);
+        if (task) {
+          const updates: Parameters<typeof taskStore.updateTask>[1] = {
+            actualPomodoros: task.actualPomodoros + 1,
+          };
+          if (!task.plan && data.plan) {
+            updates.plan = data.plan;
           }
-        }
-      }
 
-      // 自动同步：如果任务 plan 为空，且本次 session 有 plan，则复制到任务
-      if (data.taskId && data.plan) {
-        const taskStore = useTaskStore();
-        const task = taskStore.getTaskById(data.taskId);
-        if (task && !task.plan) {
-          await taskStore.updateTask(data.taskId, { plan: data.plan });
+          // 原子操作：session 创建 + task 更新在同一个事务中
+          const { session, updatedTask } = await db.transaction(async () => {
+            const s = await db.createSession(sessionInput);
+            const t = await db.updateTask(data.taskId!, updates);
+            return { session: s, updatedTask: t };
+          });
+
+          // 内存状态同步（事务成功后）
+          sessionStore.sessions.unshift(session);
+          if (updatedTask) {
+            const idx = taskStore.tasks.findIndex((t) => t.id === data.taskId);
+            if (idx !== -1) {
+              taskStore.tasks[idx] = updatedTask;
+            }
+            await syncStore.recordEvent(
+              "task.updated",
+              data.taskId,
+              updatedTask
+            );
+          }
+          await syncStore.recordEvent("session.created", session.id, session);
+
+          completedPomodoros.value++;
+          pomodoroStreak.value++;
+        } else {
+          // 任务在内存中不存在，退化为非原子操作
+          await sessionStore.addSession(sessionInput);
+          completedPomodoros.value++;
+          pomodoroStreak.value++;
+        }
+      } else {
+        await sessionStore.addSession(sessionInput);
+        if (data.completed && data.sessionType === "work") {
+          completedPomodoros.value++;
+          pomodoroStreak.value++;
         }
       }
     } catch (err) {
@@ -197,10 +223,10 @@ export const useTimerStore = defineStore("timer", () => {
    * @param force 是否强制跳过额度检查（用户确认后）
    * @returns { success: boolean; reason?: 'idle' | 'quota_exhausted' }
    */
-  function fastForward(force = false): {
+  async function fastForward(force = false): Promise<{
     success: boolean;
     reason?: "idle" | "quota_exhausted";
-  } {
+  }> {
     if (!isRunning.value && !isPaused.value) {
       return { success: false, reason: "idle" };
     }
@@ -219,14 +245,14 @@ export const useTimerStore = defineStore("timer", () => {
     const used = settingsStore.settings.weeklyFastForwardUsed || 0;
 
     if (used < quota) {
-      settingsStore.settings.weeklyFastForwardUsed = used + 1;
+      await settingsStore.updateSettings({ weeklyFastForwardUsed: used + 1 });
       timer.doFastForward(600);
       return { success: true };
     }
 
     // 额度已用完
     if (force) {
-      settingsStore.settings.weeklyFastForwardUsed = used + 1;
+      await settingsStore.updateSettings({ weeklyFastForwardUsed: used + 1 });
       timer.doFastForward(600);
       return { success: true };
     }

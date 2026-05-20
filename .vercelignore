@@ -8,11 +8,14 @@ docs/
 deliverables/
 dist/
 dist-web/
+dist-verify/
+coverage/
 *.tgz
 *.ico
 *.icns
 *.png
 *.pdb
+*.test.ts
 Cargo.toml
 Cargo.lock
 tauri.conf.json

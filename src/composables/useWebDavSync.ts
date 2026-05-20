@@ -8,6 +8,7 @@
 import { ref, computed } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "@/utils/platform";
+import { isOnline, probeOnline } from "@/utils/network";
 import type { Reflection, Session, Task } from "@/types";
 import { db } from "@/services/database";
 import {
@@ -15,6 +16,7 @@ import {
   getUnpushedEvents,
   getUnpushedCount,
   removePushedEvents,
+  markProcessed,
   upsertTombstones,
   type OutboxEvent,
   type Tombstone,
@@ -25,6 +27,43 @@ import {
   parseTime,
   type ConsumeEventsResult,
 } from "@/services/event-consumer";
+
+/** 网络请求超时时间（毫秒） */
+const FETCH_TIMEOUT_MS = 30000;
+
+/** 带超时的 fetch，超时后自动 Abort（尊重外部 signal） */
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init?: RequestInit & { timeout?: number }
+): Promise<Response> {
+  const timeout = init?.timeout ?? FETCH_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+
+  // 组合外部 signal：外部 abort 或超时都会触发取消
+  const externalSignal = init?.signal;
+  if (externalSignal) {
+    externalSignal.addEventListener("abort", () => controller.abort(), {
+      once: true,
+    });
+  }
+
+  try {
+    const res = await fetch(input, { ...init, signal: controller.signal });
+    return res;
+  } catch (err) {
+    const isTimeout =
+      err instanceof Error &&
+      (err.name === "AbortError" || err.message?.includes("abort"));
+    // 仅当不是外部 signal 触发时才包装为超时错误
+    if (isTimeout && (!externalSignal || !externalSignal.aborted)) {
+      throw new Error(`请求超时（${timeout}ms）`, { cause: err });
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** 事件同步结果（Phase 2 / append-only 事件流） */
 export interface SyncEventsResult {
@@ -38,6 +77,8 @@ export interface SyncEventsResult {
   alreadyProcessed?: number;
   errors: number;
   error?: string;
+  /** 本次同步 GC 删除的过期事件文件数 */
+  deleted?: number;
 }
 
 interface WebDavConfig {
@@ -406,13 +447,34 @@ export function extractFileNamesFromHrefs(
   return names;
 }
 
+/** 简单编码密码（降低明文暴露风险，非安全加密） */
+function encodePassword(pwd: string): string {
+  try {
+    return btoa(encodeURIComponent(pwd));
+  } catch {
+    return pwd;
+  }
+}
+
+function decodePassword(pwd: string): string {
+  try {
+    return decodeURIComponent(atob(pwd));
+  } catch {
+    // 解码失败说明是旧明文或异常值，直接返回原值
+    return pwd;
+  }
+}
+
 function loadConfig(): WebDavConfig | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (parsed.url && parsed.username) {
-      return parsed as WebDavConfig;
+      // 向后兼容：旧数据 password 是明文，decodePassword 失败时会返回原值
+      const cfg = parsed as WebDavConfig;
+      cfg.password = decodePassword(cfg.password);
+      return cfg;
     }
   } catch {
     // ignore
@@ -420,9 +482,15 @@ function loadConfig(): WebDavConfig | null {
   return null;
 }
 
+/**
+ * ⚠️ 安全说明：密码使用 base64(encodeURIComponent) 进行"编码"而非"加密"。
+ * 这只能降低肉眼直接读取的风险，任何获得本地存储的人都可以通过 atob() 还原明文。
+ * 浏览器端无法提供真正的安全存储；如需更高安全性，请在 Tauri 桌面端使用系统钥匙串。
+ */
 function saveConfig(cfg: WebDavConfig | null): void {
   if (cfg) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+    const toSave = { ...cfg, password: encodePassword(cfg.password) };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
   } else {
     localStorage.removeItem(STORAGE_KEY);
   }
@@ -435,6 +503,16 @@ function loadLastSync(): string | null {
 function saveLastSync(at: string): void {
   localStorage.setItem(LAST_SYNC_KEY, at);
   lastSyncAt.value = at;
+}
+
+/** 超过此天数未同步则触发快照兜底（GC 保留 30 天，留 5 天安全边际） */
+const SNAPSHOT_FALLBACK_DAYS = 25;
+
+function shouldTriggerSnapshotFallback(now = Date.now()): boolean {
+  const last = loadLastSync();
+  if (!last) return false; // 首次同步，无历史事件需要保护
+  const days = (now - new Date(last).getTime()) / (1000 * 60 * 60 * 24);
+  return days > SNAPSHOT_FALLBACK_DAYS;
 }
 
 /** 拼接完整 WebDAV URL */
@@ -483,7 +561,7 @@ async function webProxyRequest(
 
   const shouldTunnelMethod = method === "PROPFIND" || method === "MKCOL";
   if (shouldTunnelMethod) {
-    return fetch(reqUrl, {
+    return fetchWithTimeout(reqUrl, {
       method: "POST",
       headers: {
         ...headers,
@@ -493,7 +571,7 @@ async function webProxyRequest(
     });
   }
 
-  const directResponse = await fetch(reqUrl, {
+  const directResponse = await fetchWithTimeout(reqUrl, {
     method,
     headers,
     body: finalBody,
@@ -509,7 +587,7 @@ async function webProxyRequest(
     return directResponse;
   }
 
-  return fetch(reqUrl, {
+  return fetchWithTimeout(reqUrl, {
     method: "POST",
     headers: {
       ...headers,
@@ -941,7 +1019,7 @@ export function useWebDavSync() {
   > {
     if (!config.value) return { kind: "fatal", error: "WebDAV 未配置" };
 
-    let xml = "";
+    let xml: string;
     try {
       if (isTauri()) {
         xml = await invoke<string>("webdav_list", {
@@ -991,8 +1069,8 @@ export function useWebDavSync() {
     return { kind: "ok", names };
   }
 
-  /** 删除远程文件（幂等，404 视为已删除）——供未来 GC 使用 */
-  async function _deleteRemoteFile(path: string): Promise<boolean> {
+  /** 删除远程文件（幂等，404 视为已删除） */
+  async function deleteRemoteFile(path: string): Promise<boolean> {
     if (!config.value) return false;
 
     if (isTauri()) {
@@ -1018,11 +1096,17 @@ export function useWebDavSync() {
       return false;
     }
   }
-  void _deleteRemoteFile; // 暂未使用但保留接口
+  void deleteRemoteFile;
+
+  /** 批量推送时每批最大事件数 */
+  const BATCH_SIZE = 20;
 
   /**
    * 推送本地 outbox 事件到 WebDAV（append-only）
-   * 每个事件 PUT 到独立文件，不存在覆盖冲突。
+   *
+   * 批量优化：将事件打包为 JSON 数组上传，每批最多 BATCH_SIZE 个。
+   * - 单事件：保持旧格式（对象 JSON），向后兼容
+   * - 多事件：数组 JSON，文件名带 batch- 前缀
    * 成功后从本地 outbox 移除。
    */
   async function pushLocalEvents(): Promise<{
@@ -1056,18 +1140,50 @@ export function useWebDavSync() {
     let pushed = 0;
     let failed = 0;
     const pushedIds: string[] = [];
-    for (const event of events) {
-      const path = `${REMOTE_PATHS.eventsDir}${event.eventId}.json`;
-      const ok = await pushFile(path, JSON.stringify(event, null, 2));
+    const datePrefix = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+
+    // 分批处理
+    for (let i = 0; i < events.length; i += BATCH_SIZE) {
+      const batch = events.slice(i, i + BATCH_SIZE);
+      const isSingle = batch.length === 1;
+
+      // 单事件保持旧格式（向后兼容），多事件用 batch- 前缀
+      // batch ID 用首个事件的 eventId，确保重试时文件名不变（幂等）
+      const path = isSingle
+        ? `${REMOTE_PATHS.eventsDir}${datePrefix}-${batch[0].eventId}.json`
+        : `${REMOTE_PATHS.eventsDir}batch-${datePrefix}-${batch[0].eventId}.json`;
+      const content = JSON.stringify(isSingle ? batch[0] : batch, null, 2);
+
+      // 指数退避重试：最多 3 次（1s / 2s / 4s）
+      let ok = false;
+      let attempts = 0;
+      const maxAttempts = 3;
+      while (!ok && attempts < maxAttempts) {
+        ok = await pushFile(path, content);
+        attempts++;
+        if (!ok && attempts < maxAttempts) {
+          const delay = Math.min(1000 * Math.pow(2, attempts - 1), 8000);
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      }
+
       if (ok) {
-        pushed++;
-        pushedIds.push(event.eventId);
+        pushed += batch.length;
+        pushedIds.push(...batch.map((e) => e.eventId));
       } else {
-        failed++;
+        failed += batch.length;
+        console.warn(
+          `[WebDAV] 批量推送失败（已重试 ${maxAttempts} 次，${batch.length} 个事件）`
+        );
       }
     }
+
     if (pushedIds.length > 0) {
       await removePushedEvents(pushedIds);
+      // 同时标记为已处理，防止本设备下次拉取时重复消费
+      for (const id of pushedIds) {
+        await markProcessed(id);
+      }
     }
     return { pushed, failed };
   }
@@ -1202,33 +1318,106 @@ export function useWebDavSync() {
     const events: OutboxEvent[] = [];
     let fetchErrors = 0;
     let parseErrors = 0;
-    for (const name of listRes.names) {
-      const path = `${REMOTE_PATHS.eventsDir}${name}`;
-      const res = await pullFile(path);
-      if (res.kind === "fatal") {
-        fetchErrors++;
-        console.warn(`[WebDAV] 拉取事件 ${name} 失败: ${res.error}`);
-        continue;
-      }
-      if (res.kind === "missing") continue;
-      try {
-        const parsed = JSON.parse(res.content);
-        if (isValidOutboxEvent(parsed)) {
-          events.push(parsed);
-        } else {
-          parseErrors++;
-          console.warn(`[WebDAV] 事件 ${name} 字段缺失或非法，跳过`);
+
+    // 并发批量拉取（每批 4 个文件，平衡速度与服务器压力）
+    const CONCURRENT_BATCH_SIZE = 4;
+    for (let i = 0; i < listRes.names.length; i += CONCURRENT_BATCH_SIZE) {
+      const batch = listRes.names.slice(i, i + CONCURRENT_BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map((name) => pullFile(`${REMOTE_PATHS.eventsDir}${name}`))
+      );
+      for (let j = 0; j < batch.length; j++) {
+        const name = batch[j];
+        const res = batchResults[j];
+        if (res.kind === "fatal") {
+          fetchErrors++;
+          console.warn(`[WebDAV] 拉取事件 ${name} 失败: ${res.error}`);
+          continue;
         }
-      } catch (err) {
-        parseErrors++;
-        console.warn(`[WebDAV] 解析事件 ${name} 失败:`, err);
+        if (res.kind === "missing") continue;
+        try {
+          const parsed = JSON.parse(res.content);
+
+          // 批量打包格式：JSON 数组
+          if (Array.isArray(parsed)) {
+            const batchEvents = parsed.filter((item) => {
+              if (!isValidOutboxEvent(item)) {
+                parseErrors++;
+                console.warn(
+                  `[WebDAV] 批量文件 ${name} 内事件 ${(item as Record<string, unknown>)?.eventId ?? "?"} 字段缺失或非法，跳过`
+                );
+                return false;
+              }
+              return true;
+            });
+            events.push(...batchEvents);
+          } else if (isValidOutboxEvent(parsed)) {
+            events.push(parsed);
+          } else {
+            parseErrors++;
+            console.warn(`[WebDAV] 事件 ${name} 字段缺失或非法，跳过`);
+          }
+        } catch (err) {
+          parseErrors++;
+          console.warn(`[WebDAV] 解析事件 ${name} 失败:`, err);
+        }
       }
     }
     return { kind: "ok", events, fetchErrors, parseErrors };
   }
 
+  /** 远程事件文件保留天数 */
+  const EVENT_RETENTION_DAYS = 30;
+
   /**
-   * 完整事件同步：push 本地 outbox → pull 远程 → consume。
+   * 压缩远程 events/ 目录：删除超过保留期的旧事件文件。
+   * 新格式文件名含日期前缀（YYYY-MM-DD-eventId.json），便于按日期筛选。
+   * 旧格式文件名（eventId.json）无法判断日期，保留不动。
+   *
+   * 失败不影响主同步，仅记录日志。
+   */
+  async function compactRemoteEvents(): Promise<{
+    deleted: number;
+    errors: number;
+  }> {
+    const listRes = await listEvents();
+    if (listRes.kind !== "ok") return { deleted: 0, errors: 0 };
+
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - EVENT_RETENTION_DAYS);
+    const cutoffStr = cutoff.toISOString().slice(0, 10); // "YYYY-MM-DD"
+
+    let deleted = 0;
+    let errors = 0;
+
+    for (const name of listRes.names) {
+      // 单事件格式: "2024-05-19-abc123.json"
+      // 批量格式: "batch-2024-05-19-abc123.json"
+      const dateMatch = name.match(/^(?:batch-)?(\d{4}-\d{2}-\d{2})-/);
+      if (!dateMatch) continue; // 旧格式或未知格式，保留
+
+      const fileDate = dateMatch[1];
+      if (fileDate < cutoffStr) {
+        const path = `${REMOTE_PATHS.eventsDir}${name}`;
+        const ok = await deleteRemoteFile(path);
+        if (ok) {
+          deleted++;
+        } else {
+          errors++;
+          console.warn(`[WebDAV] GC 删除旧事件失败: ${name}`);
+        }
+      }
+    }
+
+    if (deleted > 0) {
+      if (import.meta.env.DEV)
+        console.log(`[WebDAV] GC 完成: 删除 ${deleted} 个过期事件文件`);
+    }
+    return { deleted, errors };
+  }
+
+  /**
+   * 完整事件同步：push 本地 outbox → pull 远程 → consume → GC。
    *
    * 这是多端并发安全的同步模式——
    * 两端同时同步各自写入不同 eventId 文件，互不覆盖。
@@ -1252,11 +1441,91 @@ export function useWebDavSync() {
         error: isTauri() ? "WebDAV 不可用" : "请先配置 Worker 代理 URL",
       };
     }
+    if (!isOnline()) {
+      return {
+        pushed: 0,
+        pulled: 0,
+        processed: 0,
+        errors: 0,
+        error: "网络离线，跳过同步",
+      };
+    }
+
+    // 二次确认：navigator.onLine 可能误判（连上无 Internet 的 WiFi）
+    const actuallyOnline = await probeOnline();
+    if (!actuallyOnline) {
+      return {
+        pushed: 0,
+        pulled: 0,
+        processed: 0,
+        errors: 0,
+        error: "无法连接到同步服务器，跳过同步",
+      };
+    }
 
     isSyncing.value = true;
     syncError.value = null;
 
     try {
+      // ---- 快照同步兜底（长期离线设备）----
+      if (shouldTriggerSnapshotFallback()) {
+        console.warn(
+          `[WebDAV] 检测到长期离线（>${SNAPSHOT_FALLBACK_DAYS}天），触发快照同步兜底`
+        );
+
+        const tombstones = await getAllTombstones();
+
+        // 1. 墓碑同步（必须先于实体同步）
+        const tsRes = await syncTombstones();
+        if (tsRes.error) {
+          console.warn("[WebDAV] 快照兜底：墓碑同步失败", tsRes.error);
+        }
+
+        // 2. 实体快照同步
+        const [tasks, reflections, sessions] = await Promise.all([
+          db.getAllTasks(),
+          db.getAllReflections(),
+          db.getAllSessions(),
+        ]);
+
+        const taskRes = await syncTasks(tasks, tombstones, {
+          skipLastSync: true,
+        });
+        if (taskRes.merged) {
+          for (const task of taskRes.merged) await db.upsertTask(task);
+          for (const id of taskRes.toDeleteLocal ?? []) await db.deleteTask(id);
+        }
+        if (taskRes.error) {
+          console.warn("[WebDAV] 快照兜底：任务同步失败", taskRes.error);
+        }
+
+        const reflectionRes = await syncReflections(reflections, tombstones, {
+          skipLastSync: true,
+        });
+        if (reflectionRes.merged) {
+          for (const r of reflectionRes.merged) await db.upsertReflection(r);
+          for (const id of reflectionRes.toDeleteLocal ?? [])
+            await db.deleteReflection(id);
+        }
+        if (reflectionRes.error) {
+          console.warn("[WebDAV] 快照兜底：反思同步失败", reflectionRes.error);
+        }
+
+        const sessionRes = await syncSessions(sessions, tombstones, {
+          skipLastSync: true,
+        });
+        if (sessionRes.merged) {
+          for (const s of sessionRes.merged) await db.upsertSession(s);
+          for (const id of sessionRes.toDeleteLocal ?? [])
+            await db.deleteSession(id);
+        }
+        if (sessionRes.error) {
+          console.warn("[WebDAV] 快照兜底：会话同步失败", sessionRes.error);
+        }
+
+        if (import.meta.env.DEV) console.log("[WebDAV] 快照同步兜底完成");
+      }
+
       // Step 1: 推送本地事件
       const { pushed, failed } = await pushLocalEvents();
 
@@ -1279,7 +1548,6 @@ export function useWebDavSync() {
       const totalErrors =
         failed + consumed.errors + pullRes.fetchErrors + pullRes.parseErrors;
 
-      saveLastSync(generatedAt);
       await publishReadableSyncFiles({
         generatedAt,
         pushed,
@@ -1289,6 +1557,23 @@ export function useWebDavSync() {
         consumed,
         totalErrors,
       });
+
+      // Step 4: 压缩过期事件（尽力而为，不影响主结果）
+      let deleted = 0;
+      try {
+        const gc = await compactRemoteEvents();
+        deleted = gc.deleted;
+        // 远程旧事件已删除，清理对应的本地 processed 记录防止无限增长
+        if (deleted > 0) {
+          await db.clearProcessedEvents();
+        }
+      } catch (err) {
+        console.warn("[WebDAV] 事件压缩失败:", err);
+      }
+
+      // 所有副作用完成后才保存 lastSync，确保下次兜底同步判断准确
+      saveLastSync(generatedAt);
+
       return {
         pushed,
         pulled: consumed.pulled,
@@ -1299,6 +1584,7 @@ export function useWebDavSync() {
         skippedTombstone: consumed.skippedTombstone,
         alreadyProcessed: consumed.alreadyProcessed,
         errors: totalErrors,
+        deleted,
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "事件同步失败";
@@ -1427,7 +1713,8 @@ export function useWebDavSync() {
   /** 同步反思 */
   async function syncReflections(
     items: Reflection[],
-    tombstones: Tombstone[] = []
+    tombstones: Tombstone[] = [],
+    opts?: { skipLastSync?: boolean }
   ): Promise<SyncTypeResult<Reflection[]>> {
     if (!config.value) {
       return {
@@ -1446,6 +1733,7 @@ export function useWebDavSync() {
       };
     }
 
+    const previousSyncing = isSyncing.value;
     isSyncing.value = true;
     syncError.value = null;
 
@@ -1499,21 +1787,22 @@ export function useWebDavSync() {
       }
       const pushed = shouldSkipPush ? 0 : merged.length;
 
-      saveLastSync(new Date().toISOString());
+      if (!opts?.skipLastSync) saveLastSync(new Date().toISOString());
       return { type: "reflections", pushed, pulled, merged, toDeleteLocal };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "同步失败";
       syncError.value = msg;
       return { type: "reflections", pushed: 0, pulled: 0, error: msg };
     } finally {
-      isSyncing.value = false;
+      isSyncing.value = previousSyncing;
     }
   }
 
   /** 同步会话 */
   async function syncSessions(
     items: Session[],
-    tombstones: Tombstone[] = []
+    tombstones: Tombstone[] = [],
+    opts?: { skipLastSync?: boolean }
   ): Promise<SyncTypeResult<Session[]>> {
     if (!config.value) {
       return { type: "sessions", pushed: 0, pulled: 0, error: "WebDAV 未配置" };
@@ -1527,6 +1816,7 @@ export function useWebDavSync() {
       };
     }
 
+    const previousSyncing = isSyncing.value;
     isSyncing.value = true;
     syncError.value = null;
 
@@ -1580,21 +1870,22 @@ export function useWebDavSync() {
       }
       const pushed = shouldSkipPush ? 0 : merged.length;
 
-      saveLastSync(new Date().toISOString());
+      if (!opts?.skipLastSync) saveLastSync(new Date().toISOString());
       return { type: "sessions", pushed, pulled, merged, toDeleteLocal };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "同步失败";
       syncError.value = msg;
       return { type: "sessions", pushed: 0, pulled: 0, error: msg };
     } finally {
-      isSyncing.value = false;
+      isSyncing.value = previousSyncing;
     }
   }
 
   /** 同步任务 */
   async function syncTasks(
     items: Task[],
-    tombstones: Tombstone[] = []
+    tombstones: Tombstone[] = [],
+    opts?: { skipLastSync?: boolean }
   ): Promise<SyncTypeResult<Task[]>> {
     if (!config.value) {
       return { type: "tasks", pushed: 0, pulled: 0, error: "WebDAV 未配置" };
@@ -1608,6 +1899,7 @@ export function useWebDavSync() {
       };
     }
 
+    const previousSyncing = isSyncing.value;
     isSyncing.value = true;
     syncError.value = null;
 
@@ -1661,14 +1953,14 @@ export function useWebDavSync() {
       }
       const pushed = shouldSkipPush ? 0 : merged.length;
 
-      saveLastSync(new Date().toISOString());
+      if (!opts?.skipLastSync) saveLastSync(new Date().toISOString());
       return { type: "tasks", pushed, pulled, merged, toDeleteLocal };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "同步失败";
       syncError.value = msg;
       return { type: "tasks", pushed: 0, pulled: 0, error: msg };
     } finally {
-      isSyncing.value = false;
+      isSyncing.value = previousSyncing;
     }
   }
 
@@ -1692,5 +1984,7 @@ export function useWebDavSync() {
       serialized(() => syncSessions(items, tombstones)),
     syncTasks: (items: Task[], tombstones: Tombstone[] = []) =>
       serialized(() => syncTasks(items, tombstones)),
+    // 测试钩子（不用于生产代码）
+    __shouldTriggerSnapshotFallback: shouldTriggerSnapshotFallback,
   };
 }

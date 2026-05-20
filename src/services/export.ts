@@ -776,6 +776,10 @@ function renderToCsv(tasks: Task[]): string {
   ];
 
   function escapeCsv(value: string): string {
+    // 防御 CSV 公式注入：前缀危险字符
+    if (/^[=+\-@]/.test(value)) {
+      value = "'" + value;
+    }
     if (value.includes(",") || value.includes('"') || value.includes("\n")) {
       return `"${value.replace(/"/g, '""')}"`;
     }

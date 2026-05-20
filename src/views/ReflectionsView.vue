@@ -113,7 +113,7 @@ async function saveReflection() {
     }
     showSaveMessage("保存成功");
   } catch (err) {
-    console.error("保存反思失败:", err);
+    if (import.meta.env.DEV) console.error("保存反思失败:", err);
     showSaveMessage("保存失败");
   } finally {
     isSaving.value = false;
@@ -131,9 +131,12 @@ function triggerAutoSave() {
   }, 300);
 }
 
+let saveMessageTimer: ReturnType<typeof setTimeout> | null = null;
+
 function showSaveMessage(msg: string) {
   saveMessage.value = msg;
-  setTimeout(() => {
+  if (saveMessageTimer) clearTimeout(saveMessageTimer);
+  saveMessageTimer = setTimeout(() => {
     saveMessage.value = "";
   }, 2000);
 }
@@ -169,7 +172,7 @@ async function saveDetail(id: string, payload: { content: string }) {
     showSaveMessage("保存成功");
     closeDetailModal();
   } catch (err) {
-    console.error("Modal 保存反思失败:", err);
+    if (import.meta.env.DEV) console.error("Modal 保存反思失败:", err);
     showSaveMessage("保存失败");
   }
 }
@@ -311,7 +314,7 @@ onUnmounted(() => {
       </div>
 
       <div v-if="mode === 'edit'" class="header-center">
-        <button class="date-nav-btn" @click="changeDate(-1)" title="前一天">
+        <button class="date-nav-btn" title="前一天" @click="changeDate(-1)">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
             <path
               d="M10.5 3L5 8l5.5 5"
@@ -324,10 +327,10 @@ onUnmounted(() => {
           </svg>
         </button>
         <div class="date-display">
-          <input type="date" v-model="selectedDate" class="date-input" />
+          <input v-model="selectedDate" type="date" class="date-input" />
           <span class="date-text">{{ formatFriendlyDate(selectedDate) }}</span>
         </div>
-        <button class="date-nav-btn" @click="changeDate(1)" title="后一天">
+        <button class="date-nav-btn" title="后一天" @click="changeDate(1)">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
             <path
               d="M5.5 3L11 8l-5.5 5"

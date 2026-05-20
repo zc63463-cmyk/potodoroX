@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue'
-import { useTaskStore } from '@/stores/task'
-import { useReflectionStore } from '@/stores/reflection'
-import { useSessionStore } from '@/stores/session'
-import { exportAdvancedReport, isTaskActiveInRange } from '@/services/export'
-import type { Mood } from '@/types'
-import { MOODS } from '@/utils/constants'
+import { ref, computed, onMounted, nextTick } from "vue";
+import { useRouter } from "vue-router";
+import { useTaskStore } from "@/stores/task";
+import { useReflectionStore } from "@/stores/reflection";
+import { useSessionStore } from "@/stores/session";
+import { exportAdvancedReport, isTaskActiveInRange } from "@/services/export";
+import type { Mood } from "@/types";
+import { MOODS } from "@/utils/constants";
 import {
   formatDate,
   formatMinutes,
@@ -13,223 +14,239 @@ import {
   getToday,
   getThisWeek,
   getThisMonth,
-} from '@/utils/format'
+} from "@/utils/format";
 
-// ---- Stores ----
-const taskStore = useTaskStore()
-const reflectionStore = useReflectionStore()
-const sessionStore = useSessionStore()
+// ---- Stores & Router ----
+const router = useRouter();
+const taskStore = useTaskStore();
+const reflectionStore = useReflectionStore();
+const sessionStore = useSessionStore();
 
 // ---- 状态 ----
-type DateRangeType = 'today' | 'week' | 'month' | 'custom'
-type ExportFormat = 'markdown' | 'csv' | 'json'
-const dateRangeType = ref<DateRangeType>('week')
-const customStartDate = ref('')
-const customEndDate = ref('')
-const isExporting = ref(false)
-const chartsReady = ref(false)
-const exportFormat = ref<ExportFormat>('markdown')
+type DateRangeType = "today" | "week" | "month" | "custom";
+type ExportFormat = "markdown" | "csv" | "json";
+const dateRangeType = ref<DateRangeType>("week");
+const customStartDate = ref("");
+const customEndDate = ref("");
+const isExporting = ref(false);
+const chartsReady = ref(false);
+const exportFormat = ref<ExportFormat>("markdown");
 
 // ---- 日期范围计算 ----
 
 /** 获取日期范围 */
 const dateRange = computed((): [string, string] => {
   switch (dateRangeType.value) {
-    case 'today': {
-      const today = getToday()
-      return [today, today]
+    case "today": {
+      const today = getToday();
+      return [today, today];
     }
-    case 'week':
-      return getThisWeek()
-    case 'month':
-      return getThisMonth()
-    case 'custom':
+    case "week":
+      return getThisWeek();
+    case "month":
+      return getThisMonth();
+    case "custom":
       if (customStartDate.value && customEndDate.value) {
-        return [customStartDate.value, customEndDate.value]
+        return [customStartDate.value, customEndDate.value];
       }
-      return getThisWeek()
+      return getThisWeek();
     default:
-      return getThisWeek()
+      return getThisWeek();
   }
-})
+});
 
 /** 日期范围显示文本 */
 const dateRangeText = computed(() => {
-  const [start, end] = dateRange.value
-  if (start === end) return formatFriendlyDate(start)
-  return `${formatFriendlyDate(start)} ~ ${formatFriendlyDate(end)}`
-})
+  const [start, end] = dateRange.value;
+  if (start === end) return formatFriendlyDate(start);
+  return `${formatFriendlyDate(start)} ~ ${formatFriendlyDate(end)}`;
+});
 
 /** 上一个周期的日期范围 */
 const prevDateRange = computed((): [string, string] => {
-  const [start, end] = dateRange.value
-  const startDate = new Date(start)
-  const endDate = new Date(end)
-  const diffDays = Math.round((endDate.getTime() - startDate.getTime()) / 86400000) + 1
-  const prevEnd = new Date(startDate.getTime() - 86400000)
-  const prevStart = new Date(prevEnd.getTime() - (diffDays - 1) * 86400000)
-  return [formatDate(prevStart), formatDate(prevEnd)]
-})
+  const [start, end] = dateRange.value;
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  const diffDays =
+    Math.round((endDate.getTime() - startDate.getTime()) / 86400000) + 1;
+  const prevEnd = new Date(startDate.getTime() - 86400000);
+  const prevStart = new Date(prevEnd.getTime() - (diffDays - 1) * 86400000);
+  return [formatDate(prevStart), formatDate(prevEnd)];
+});
 
 // ---- 筛选数据 ----
 
 /** 当前周期的已完成工作会话 */
 const currentWorkSessions = computed(() => {
-  const [start, end] = dateRange.value
-  const endDate = new Date(end + 'T23:59:59')
-  const startDate = new Date(start + 'T00:00:00')
+  const [start, end] = dateRange.value;
+  const endDate = new Date(end + "T23:59:59");
+  const startDate = new Date(start + "T00:00:00");
   return sessionStore.sessions.filter(
     (s) =>
-      s.type === 'work' &&
+      s.type === "work" &&
       s.completed &&
       new Date(s.startedAt) >= startDate &&
       new Date(s.startedAt) <= endDate
-  )
-})
+  );
+});
 
 /** 上一个周期的已完成工作会话 */
 const prevWorkSessions = computed(() => {
-  const [start, end] = prevDateRange.value
-  const endDate = new Date(end + 'T23:59:59')
-  const startDate = new Date(start + 'T00:00:00')
+  const [start, end] = prevDateRange.value;
+  const endDate = new Date(end + "T23:59:59");
+  const startDate = new Date(start + "T00:00:00");
   return sessionStore.sessions.filter(
     (s) =>
-      s.type === 'work' &&
+      s.type === "work" &&
       s.completed &&
       new Date(s.startedAt) >= startDate &&
       new Date(s.startedAt) <= endDate
-  )
-})
+  );
+});
 
 // ---- 统计卡片 ----
 
 /** 总番茄钟数 */
-const totalPomodoros = computed(() => currentWorkSessions.value.length)
+const totalPomodoros = computed(() => currentWorkSessions.value.length);
 
 /** 上周期番茄钟数（趋势对比） */
-const prevPomodoros = computed(() => prevWorkSessions.value.length)
+const prevPomodoros = computed(() => prevWorkSessions.value.length);
 
 /** 番茄钟趋势 */
 const pomodoroTrend = computed(() => {
-  const diff = totalPomodoros.value - prevPomodoros.value
-  if (diff > 0) return { direction: 'up' as const, value: diff }
-  if (diff < 0) return { direction: 'down' as const, value: Math.abs(diff) }
-  return { direction: 'same' as const, value: 0 }
-})
+  const diff = totalPomodoros.value - prevPomodoros.value;
+  if (diff > 0) return { direction: "up" as const, value: diff };
+  if (diff < 0) return { direction: "down" as const, value: Math.abs(diff) };
+  return { direction: "same" as const, value: 0 };
+});
 
 /** 总专注时间（分钟） */
 const totalFocusMinutes = computed(() =>
-  currentWorkSessions.value.reduce((sum, s) => sum + Math.round(s.duration / 60), 0)
-)
+  currentWorkSessions.value.reduce(
+    (sum, s) => sum + Math.round(s.duration / 60),
+    0
+  )
+);
 
 /** 总专注时间（小时） */
-const totalFocusHours = computed(() => (totalFocusMinutes.value / 60).toFixed(1))
+const totalFocusHours = computed(() =>
+  (totalFocusMinutes.value / 60).toFixed(1)
+);
 
 /** 连续天数 */
 const streakDays = computed(() => {
-  const today = new Date()
-  let streak = 0
+  const today = new Date();
+  let streak = 0;
   for (let i = 0; i < 365; i++) {
-    const d = new Date(today)
-    d.setDate(d.getDate() - i)
-    const dateStr = formatDate(d)
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const dateStr = formatDate(d);
     const hasSession = sessionStore.sessions.some(
-      (s) =>
-        s.type === 'work' &&
-        s.completed &&
-        s.startedAt.startsWith(dateStr)
-    )
+      (s) => s.type === "work" && s.completed && s.startedAt.startsWith(dateStr)
+    );
     if (hasSession) {
-      streak++
+      streak++;
     } else if (i > 0) {
       // 允许今天还没有完成，但之前不能断
-      break
+      break;
     }
   }
-  return streak
-})
+  return streak;
+});
 
-/** 任务完成率 */
+/** 任务完成率（所有活跃任务，不限创建时间） */
 const taskCompletionRate = computed(() => {
-  const [start, end] = dateRange.value
-  const endDate = new Date(end + 'T23:59:59')
-  const startDate = new Date(start + 'T00:00:00')
-  const relevantTasks = taskStore.tasks.filter(
-    (t) => new Date(t.createdAt) >= startDate && new Date(t.createdAt) <= endDate
-  )
-  if (relevantTasks.length === 0) return 0
-  const done = relevantTasks.filter((t) => t.status === 'done').length
-  return Math.round((done / relevantTasks.length) * 100)
-})
+  const activeTasks = taskStore.tasks.filter((t) => t.status !== "archived");
+  if (activeTasks.length === 0) return 0;
+  const done = activeTasks.filter((t) => t.status === "done").length;
+  return Math.round((done / activeTasks.length) * 100);
+});
 
 // ---- 图表数据 ----
 
 /** 每日番茄钟数据（柱状图） */
 const dailyPomodoroData = computed(() => {
-  const [start, end] = dateRange.value
-  const startDate = new Date(start)
-  const endDate = new Date(end)
-  const days: { date: string; label: string; count: number }[] = []
+  const [start, end] = dateRange.value;
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  const days: { date: string; label: string; count: number }[] = [];
 
   for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-    const dateStr = formatDate(d)
+    const dateStr = formatDate(d);
     const count = sessionStore.sessions.filter(
-      (s) =>
-        s.type === 'work' &&
-        s.completed &&
-        s.startedAt.startsWith(dateStr)
-    ).length
+      (s) => s.type === "work" && s.completed && s.startedAt.startsWith(dateStr)
+    ).length;
     days.push({
       date: dateStr,
       label: dateStr.slice(5), // MM-DD
       count,
-    })
+    });
   }
-  return days
-})
+  return days;
+});
 
 /** 柱状图最大值 */
 const barChartMax = computed(() => {
-  const max = Math.max(...dailyPomodoroData.value.map((d) => d.count), 1)
-  return Math.ceil(max * 1.2)
-})
+  const max = Math.max(...dailyPomodoroData.value.map((d) => d.count), 1);
+  return Math.ceil(max * 1.2);
+});
 
 /** 按标签分布的时间（甜甜圈图） */
 const tagTimeData = computed(() => {
-  const tagMinutes = new Map<string, number>()
+  const tagMinutes = new Map<string, number>();
   currentWorkSessions.value.forEach((session) => {
     if (session.taskId) {
-      const task = taskStore.tasks.find((t) => t.id === session.taskId)
+      const task = taskStore.tasks.find((t) => t.id === session.taskId);
       if (task && task.tags.length > 0) {
-        const minutes = Math.round(session.duration / 60)
+        const minutes = Math.round(session.duration / 60);
         task.tags.forEach((tag) => {
-          tagMinutes.set(tag, (tagMinutes.get(tag) || 0) + minutes)
-        })
+          tagMinutes.set(tag, (tagMinutes.get(tag) || 0) + minutes);
+        });
       } else {
-        tagMinutes.set('未标记', (tagMinutes.get('未标记') || 0) + Math.round(session.duration / 60))
+        tagMinutes.set(
+          "未标记",
+          (tagMinutes.get("未标记") || 0) + Math.round(session.duration / 60)
+        );
       }
     } else {
-      tagMinutes.set('未标记', (tagMinutes.get('未标记') || 0) + Math.round(session.duration / 60))
+      tagMinutes.set(
+        "未标记",
+        (tagMinutes.get("未标记") || 0) + Math.round(session.duration / 60)
+      );
     }
-  })
+  });
 
   const entries = Array.from(tagMinutes.entries())
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
+    .slice(0, 8);
 
-  const total = entries.reduce((sum, [, v]) => sum + v, 0)
+  const total = entries.reduce((sum, [, v]) => sum + v, 0);
   return entries.map(([tag, minutes]) => ({
     tag,
     minutes,
     percentage: total > 0 ? (minutes / total) * 100 : 0,
-  }))
-})
+  }));
+});
 
 /** 甜甜圈图 SVG 参数 */
 const donutSegments = computed(() => {
-  const segments: { tag: string; color: string; offset: number; length: number }[] = []
-  const colors = ['#58A6FF', '#3FB950', '#F0883E', '#A371F7', '#F85149', '#D29922', '#79C0FF', '#56D364']
-  let cumulative = 0
+  const segments: {
+    tag: string;
+    color: string;
+    offset: number;
+    length: number;
+  }[] = [];
+  const colors = [
+    "#58A6FF",
+    "#3FB950",
+    "#F0883E",
+    "#A371F7",
+    "#F85149",
+    "#D29922",
+    "#79C0FF",
+    "#56D364",
+  ];
+  let cumulative = 0;
 
   tagTimeData.value.forEach((item, i) => {
     segments.push({
@@ -237,50 +254,57 @@ const donutSegments = computed(() => {
       color: colors[i % colors.length],
       offset: cumulative,
       length: item.percentage,
-    })
-    cumulative += item.percentage
-  })
+    });
+    cumulative += item.percentage;
+  });
 
-  return segments
-})
+  return segments;
+});
 
 /** 心情趋势数据（折线图） */
 const moodTrendData = computed(() => {
-  const [start, end] = dateRange.value
-  const startDate = new Date(start)
-  const endDate = new Date(end)
+  const [start, end] = dateRange.value;
+  const startDate = new Date(start);
+  const endDate = new Date(end);
   const moodMap: Record<Mood, number> = {
     great: 5,
     good: 4,
     normal: 3,
     bad: 2,
     terrible: 1,
-  }
+  };
 
-  const points: { date: string; label: string; mood: number; moodType: Mood | null }[] = []
+  const points: {
+    date: string;
+    label: string;
+    mood: number;
+    moodType: Mood | null;
+  }[] = [];
 
   for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-    const dateStr = formatDate(d)
-    const reflection = reflectionStore.reflections.find((r) => r.date === dateStr)
+    const dateStr = formatDate(d);
+    const reflection = reflectionStore.reflections.find(
+      (r) => r.date === dateStr
+    );
     points.push({
       date: dateStr,
       label: dateStr.slice(5),
       mood: reflection ? moodMap[reflection.mood] : 0,
       moodType: reflection?.mood || null,
-    })
+    });
   }
-  return points
-})
+  return points;
+});
 
 /** 折线图数据点 */
 const moodLinePoints = computed(() => {
-  const data = moodTrendData.value.filter((p) => p.mood > 0)
-  if (data.length === 0) return []
-  const width = 100
-  const height = 80
-  const padding = 5
-  const usableWidth = width - padding * 2
-  const usableHeight = height - padding * 2
+  const data = moodTrendData.value.filter((p) => p.mood > 0);
+  if (data.length === 0) return [];
+  const width = 100;
+  const height = 80;
+  const padding = 5;
+  const usableWidth = width - padding * 2;
+  const usableHeight = height - padding * 2;
 
   return data.map((p, i) => ({
     x: padding + (i / (data.length - 1)) * usableWidth,
@@ -288,33 +312,33 @@ const moodLinePoints = computed(() => {
     date: p.date,
     mood: p.mood,
     moodType: p.moodType,
-  }))
-})
+  }));
+});
 
 /** 最佳专注时段数据（水平柱状图） */
 const bestFocusHours = computed(() => {
-  const hourCounts = new Map<number, number>()
+  const hourCounts = new Map<number, number>();
   currentWorkSessions.value.forEach((session) => {
-    const hour = new Date(session.startedAt).getHours()
-    hourCounts.set(hour, (hourCounts.get(hour) || 0) + 1)
-  })
+    const hour = new Date(session.startedAt).getHours();
+    hourCounts.set(hour, (hourCounts.get(hour) || 0) + 1);
+  });
 
   return Array.from(hourCounts.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
     .map(([hour, count]) => ({
       hour,
-      label: `${hour.toString().padStart(2, '0')}:00`,
+      label: `${hour.toString().padStart(2, "0")}:00`,
       count,
     }))
-    .sort((a, b) => a.hour - b.hour)
-})
+    .sort((a, b) => a.hour - b.hour);
+});
 
 /** 最佳专注时段最大值 */
 const focusHourMax = computed(() => {
-  const max = Math.max(...bestFocusHours.value.map((h) => h.count), 1)
-  return Math.ceil(max * 1.2)
-})
+  const max = Math.max(...bestFocusHours.value.map((h) => h.count), 1);
+  return Math.ceil(max * 1.2);
+});
 
 // ---- 最近会话 ----
 
@@ -324,39 +348,41 @@ const recentSessions = computed(() => {
     .filter((s) => s.completed)
     .slice(0, 15)
     .map((s) => {
-      const task = s.taskId ? taskStore.tasks.find((t) => t.id === s.taskId) : null
+      const task = s.taskId
+        ? taskStore.tasks.find((t) => t.id === s.taskId)
+        : null;
       return {
         ...s,
-        taskTitle: task?.title || '自由专注',
-      }
-    })
-})
+        taskTitle: task?.title || "自由专注",
+      };
+    });
+});
 
 // ---- 方法 ----
 
 /** 切换日期范围 */
 function setDateRange(type: DateRangeType) {
-  dateRangeType.value = type
+  dateRangeType.value = type;
 }
 
 /** 导出报告 */
 async function exportReport() {
-  isExporting.value = true
+  isExporting.value = true;
   try {
-    const [start, end] = dateRange.value
-    const endDate = new Date(end + 'T23:59:59')
-    const startDate = new Date(start + 'T00:00:00')
-    const sessionsInRange = currentWorkSessions.value
+    const [start, end] = dateRange.value;
+    const endDate = new Date(end + "T23:59:59");
+    const startDate = new Date(start + "T00:00:00");
+    const sessionsInRange = currentWorkSessions.value;
 
     // 升级：使用 isTaskActiveInRange 筛选区间内活跃的任务
     const tasksInRange = taskStore.tasks.filter((t) =>
       isTaskActiveInRange(t, sessionsInRange, startDate, endDate)
-    )
+    );
     const reflectionsInRange = reflectionStore.reflections.filter(
       (r) => r.date >= start && r.date <= end
-    )
+    );
 
-    const type = start === end ? 'daily' : 'weekly'
+    const type = start === end ? "daily" : "weekly";
     const result = exportAdvancedReport({
       type,
       format: exportFormat.value,
@@ -364,61 +390,61 @@ async function exportReport() {
       sessions: sessionsInRange,
       reflections: reflectionsInRange,
       dateRange: { start, end },
-    })
+    });
 
     const mimeMap: Record<ExportFormat, string> = {
-      markdown: 'text/markdown;charset=utf-8',
-      csv: 'text/csv;charset=utf-8',
-      json: 'application/json;charset=utf-8',
-    }
+      markdown: "text/markdown;charset=utf-8",
+      csv: "text/csv;charset=utf-8",
+      json: "application/json;charset=utf-8",
+    };
     const extMap: Record<ExportFormat, string> = {
-      markdown: 'md',
-      csv: 'csv',
-      json: 'json',
-    }
+      markdown: "md",
+      csv: "csv",
+      json: "json",
+    };
 
-    const blob = new Blob([result], { type: mimeMap[exportFormat.value] })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `pomodorox-report-${start}${start !== end ? `-${end}` : ''}.${extMap[exportFormat.value]}`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    const blob = new Blob([result], { type: mimeMap[exportFormat.value] });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `pomodorox-report-${start}${start !== end ? `-${end}` : ""}.${extMap[exportFormat.value]}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   } catch (err) {
-    console.error('导出报告失败:', err)
+    if (import.meta.env.DEV) console.error("导出报告失败:", err);
   } finally {
-    isExporting.value = false
+    isExporting.value = false;
   }
 }
 
 /** 获取心情 emoji */
 function getMoodEmoji(mood: Mood | null): string {
-  if (!mood) return '-'
-  return MOODS.find((m) => m.value === mood)?.emoji || '-'
+  if (!mood) return "-";
+  return MOODS.find((m) => m.value === mood)?.emoji || "-";
 }
 
 /** 获取心情颜色 */
 function getMoodColor(mood: Mood | null): string {
   const colorMap: Record<string, string> = {
-    great: '#3FB950',
-    good: '#58A6FF',
-    normal: '#D29922',
-    bad: '#F0883E',
-    terrible: '#F85149',
-  }
-  return mood ? colorMap[mood] || '#8B949E' : '#8B949E'
+    great: "#3FB950",
+    good: "#58A6FF",
+    normal: "#D29922",
+    bad: "#F0883E",
+    terrible: "#F85149",
+  };
+  return mood ? colorMap[mood] || "#8B949E" : "#8B949E";
 }
 
 /** 触发图表动画 */
 function triggerChartAnimation() {
-  chartsReady.value = false
+  chartsReady.value = false;
   nextTick(() => {
     requestAnimationFrame(() => {
-      chartsReady.value = true
-    })
-  })
+      chartsReady.value = true;
+    });
+  });
 }
 
 // ---- 初始化 ----
@@ -427,9 +453,9 @@ onMounted(async () => {
     taskStore.loadTasks(),
     reflectionStore.loadReflections(),
     sessionStore.loadAllSessions(),
-  ])
-  triggerChartAnimation()
-})
+  ]);
+  triggerChartAnimation();
+});
 </script>
 
 <template>
@@ -459,9 +485,9 @@ onMounted(async () => {
         </div>
 
         <div v-if="dateRangeType === 'custom'" class="custom-range">
-          <input type="date" v-model="customStartDate" class="date-input" />
+          <input v-model="customStartDate" type="date" class="date-input" />
           <span class="range-separator">~</span>
-          <input type="date" v-model="customEndDate" class="date-input" />
+          <input v-model="customEndDate" type="date" class="date-input" />
         </div>
       </div>
 
@@ -476,10 +502,20 @@ onMounted(async () => {
       <div class="stats-cards">
         <!-- 总番茄钟 -->
         <div class="stat-card">
-          <div class="stat-card-icon" style="background: rgba(88, 166, 255, 0.15); color: #58A6FF;">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"/>
-              <polyline points="12 6 12 12 16 14"/>
+          <div
+            class="stat-card-icon"
+            style="background: rgba(88, 166, 255, 0.15); color: #58a6ff"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
             </svg>
           </div>
           <div class="stat-card-content">
@@ -487,21 +523,49 @@ onMounted(async () => {
             <span class="stat-label">总番茄钟</span>
           </div>
           <div class="stat-trend" :class="pomodoroTrend.direction">
-            <svg v-if="pomodoroTrend.direction === 'up'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <polyline points="18 15 12 9 6 15"/>
+            <svg
+              v-if="pomodoroTrend.direction === 'up'"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+            >
+              <polyline points="18 15 12 9 6 15" />
             </svg>
-            <svg v-else-if="pomodoroTrend.direction === 'down'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <polyline points="6 9 12 15 18 9"/>
+            <svg
+              v-else-if="pomodoroTrend.direction === 'down'"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+            >
+              <polyline points="6 9 12 15 18 9" />
             </svg>
-            <span v-if="pomodoroTrend.direction !== 'same'">{{ pomodoroTrend.value }}</span>
+            <span v-if="pomodoroTrend.direction !== 'same'">{{
+              pomodoroTrend.value
+            }}</span>
           </div>
         </div>
 
         <!-- 总专注时间 -->
         <div class="stat-card">
-          <div class="stat-card-icon" style="background: rgba(163, 113, 247, 0.15); color: #A371F7;">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+          <div
+            class="stat-card-icon"
+            style="background: rgba(163, 113, 247, 0.15); color: #a371f7"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
             </svg>
           </div>
           <div class="stat-card-content">
@@ -512,12 +576,24 @@ onMounted(async () => {
 
         <!-- 连续天数 -->
         <div class="stat-card">
-          <div class="stat-card-icon" style="background: rgba(63, 185, 80, 0.15); color: #3FB950;">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>
-              <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
-              <line x1="9" y1="9" x2="9.01" y2="9"/>
-              <line x1="15" y1="9" x2="15.01" y2="9"/>
+          <div
+            class="stat-card-icon"
+            style="background: rgba(63, 185, 80, 0.15); color: #3fb950"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path
+                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"
+              />
+              <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+              <line x1="9" y1="9" x2="9.01" y2="9" />
+              <line x1="15" y1="9" x2="15.01" y2="9" />
             </svg>
           </div>
           <div class="stat-card-content">
@@ -528,10 +604,20 @@ onMounted(async () => {
 
         <!-- 任务完成率 -->
         <div class="stat-card">
-          <div class="stat-card-icon" style="background: rgba(240, 136, 62, 0.15); color: #F0883E;">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-              <polyline points="22 4 12 14.01 9 11.01"/>
+          <div
+            class="stat-card-icon"
+            style="background: rgba(240, 136, 62, 0.15); color: #f0883e"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+              <polyline points="22 4 12 14.01 9 11.01" />
             </svg>
           </div>
           <div class="stat-card-content">
@@ -547,7 +633,25 @@ onMounted(async () => {
         <div class="chart-card">
           <h3 class="chart-title">番茄钟趋势</h3>
           <div class="chart-body bar-chart">
-            <div v-if="dailyPomodoroData.length === 0" class="chart-empty">暂无数据</div>
+            <div v-if="dailyPomodoroData.length === 0" class="chart-empty">
+              <svg
+                width="32"
+                height="32"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                opacity="0.3"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <line x1="3" y1="9" x2="21" y2="9" />
+                <line x1="9" y1="21" x2="9" y2="9" />
+              </svg>
+              <span>暂无数据</span>
+              <button class="empty-action" @click="router.push('/')">
+                开始专注 →
+              </button>
+            </div>
             <template v-else>
               <div class="bar-chart-area">
                 <div class="bar-chart-y-axis">
@@ -566,7 +670,10 @@ onMounted(async () => {
                         class="bar-fill"
                         :class="{ animated: chartsReady }"
                         :style="{
-                          height: barChartMax > 0 ? `${(day.count / barChartMax) * 100}%` : '0%',
+                          height:
+                            barChartMax > 0
+                              ? `${(day.count / barChartMax) * 100}%`
+                              : '0%',
                         }"
                         :title="`${day.label}: ${day.count} 个番茄钟`"
                       />
@@ -583,13 +690,34 @@ onMounted(async () => {
         <div class="chart-card">
           <h3 class="chart-title">时间分布</h3>
           <div class="chart-body donut-chart">
-            <div v-if="tagTimeData.length === 0" class="chart-empty">暂无数据</div>
+            <div v-if="tagTimeData.length === 0" class="chart-empty">
+              <svg
+                width="32"
+                height="32"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                opacity="0.3"
+              >
+                <path
+                  d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"
+                />
+                <line x1="7" y1="7" x2="7.01" y2="7" />
+              </svg>
+              <span>暂无数据</span>
+              <button class="empty-action" @click="router.push('/')">
+                开始专注 →
+              </button>
+            </div>
             <template v-else>
               <div class="donut-container">
                 <svg viewBox="0 0 100 100" class="donut-svg">
                   <!-- 背景圆 -->
                   <circle
-                    cx="50" cy="50" r="35"
+                    cx="50"
+                    cy="50"
+                    r="35"
                     fill="none"
                     stroke="var(--border)"
                     stroke-width="12"
@@ -598,7 +726,9 @@ onMounted(async () => {
                   <circle
                     v-for="(seg, i) in donutSegments"
                     :key="i"
-                    cx="50" cy="50" r="35"
+                    cx="50"
+                    cy="50"
+                    r="35"
                     fill="none"
                     :stroke="seg.color"
                     stroke-width="12"
@@ -610,7 +740,9 @@ onMounted(async () => {
                   />
                 </svg>
                 <div class="donut-center">
-                  <span class="donut-total">{{ formatMinutes(totalFocusMinutes) }}</span>
+                  <span class="donut-total">{{
+                    formatMinutes(totalFocusMinutes)
+                  }}</span>
                   <span class="donut-label">总专注</span>
                 </div>
               </div>
@@ -620,9 +752,17 @@ onMounted(async () => {
                   :key="item.tag"
                   class="legend-item"
                 >
-                  <span class="legend-dot" :style="{ background: donutSegments.find(s => s.tag === item.tag)?.color }" />
+                  <span
+                    class="legend-dot"
+                    :style="{
+                      background: donutSegments.find((s) => s.tag === item.tag)
+                        ?.color,
+                    }"
+                  />
                   <span class="legend-label">{{ item.tag }}</span>
-                  <span class="legend-value">{{ item.percentage.toFixed(0) }}%</span>
+                  <span class="legend-value"
+                    >{{ item.percentage.toFixed(0) }}%</span
+                  >
                 </div>
               </div>
             </template>
@@ -633,24 +773,56 @@ onMounted(async () => {
         <div class="chart-card">
           <h3 class="chart-title">心情趋势</h3>
           <div class="chart-body line-chart">
-            <div v-if="moodLinePoints.length < 2" class="chart-empty">需要至少2天的反思数据</div>
+            <div v-if="moodLinePoints.length < 2" class="chart-empty">
+              <svg
+                width="32"
+                height="32"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                opacity="0.3"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+                <line x1="9" y1="9" x2="9.01" y2="9" />
+                <line x1="15" y1="9" x2="15.01" y2="9" />
+              </svg>
+              <span>需要至少2天的反思数据</span>
+            </div>
             <template v-else>
               <div class="line-chart-area">
                 <div class="line-chart-y-axis">
-                  <span v-for="m in MOODS.slice().reverse()" :key="m.value" class="y-label-mood">
+                  <span
+                    v-for="m in MOODS.slice().reverse()"
+                    :key="m.value"
+                    class="y-label-mood"
+                  >
                     {{ m.emoji }}
                   </span>
                 </div>
-                <svg viewBox="0 0 100 80" class="line-chart-svg" preserveAspectRatio="none">
+                <svg
+                  viewBox="0 0 100 80"
+                  class="line-chart-svg"
+                  preserveAspectRatio="none"
+                >
                   <!-- 网格线 -->
-                  <line v-for="i in 5" :key="i"
-                    :x1="5" :y1="5 + (i - 1) * 17.5"
-                    :x2="95" :y2="5 + (i - 1) * 17.5"
-                    stroke="var(--border)" stroke-width="0.3" stroke-dasharray="2 2"
+                  <line
+                    v-for="i in 5"
+                    :key="i"
+                    :x1="5"
+                    :y1="5 + (i - 1) * 17.5"
+                    :x2="95"
+                    :y2="5 + (i - 1) * 17.5"
+                    stroke="var(--border)"
+                    stroke-width="0.3"
+                    stroke-dasharray="2 2"
                   />
                   <!-- 折线 -->
                   <polyline
-                    :points="moodLinePoints.map(p => `${p.x},${p.y}`).join(' ')"
+                    :points="
+                      moodLinePoints.map((p) => `${p.x},${p.y}`).join(' ')
+                    "
                     fill="none"
                     stroke="var(--accent)"
                     stroke-width="1.5"
@@ -663,7 +835,9 @@ onMounted(async () => {
                   <circle
                     v-for="(p, i) in moodLinePoints"
                     :key="i"
-                    :cx="p.x" :cy="p.y" r="2"
+                    :cx="p.x"
+                    :cy="p.y"
+                    r="2"
                     :fill="getMoodColor(p.moodType)"
                     stroke="var(--surface)"
                     stroke-width="1"
@@ -680,7 +854,21 @@ onMounted(async () => {
         <div class="chart-card">
           <h3 class="chart-title">最佳专注时段</h3>
           <div class="chart-body h-bar-chart">
-            <div v-if="bestFocusHours.length === 0" class="chart-empty">暂无数据</div>
+            <div v-if="bestFocusHours.length === 0" class="chart-empty">
+              <svg
+                width="32"
+                height="32"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                opacity="0.3"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+              <span>暂无数据</span>
+            </div>
             <template v-else>
               <div class="h-bar-list">
                 <div
@@ -694,7 +882,10 @@ onMounted(async () => {
                       class="h-bar-fill"
                       :class="{ animated: chartsReady }"
                       :style="{
-                        width: focusHourMax > 0 ? `${(item.count / focusHourMax) * 100}%` : '0%',
+                        width:
+                          focusHourMax > 0
+                            ? `${(item.count / focusHourMax) * 100}%`
+                            : '0%',
                       }"
                     />
                   </div>
@@ -712,34 +903,70 @@ onMounted(async () => {
         <div class="recent-sessions">
           <h3 class="section-title">最近会话</h3>
           <div class="sessions-list">
-            <div v-if="recentSessions.length === 0" class="chart-empty">暂无会话记录</div>
+            <div v-if="recentSessions.length === 0" class="chart-empty">
+              <svg
+                width="32"
+                height="32"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                opacity="0.3"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+              <span>暂无会话记录</span>
+            </div>
             <div
               v-for="session in recentSessions"
               :key="session.id"
               class="session-item"
             >
               <div class="session-icon" :class="session.type">
-                <svg v-if="session.type === 'work'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="10"/>
-                  <polyline points="12 6 12 12 16 14"/>
+                <svg
+                  v-if="session.type === 'work'"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
                 </svg>
-                <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-                  <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                <svg
+                  v-else
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
                 </svg>
               </div>
               <div class="session-info">
                 <span class="session-task">{{ session.taskTitle }}</span>
                 <span class="session-time">{{ session.startedAt }}</span>
               </div>
-              <span class="session-duration">{{ formatMinutes(Math.round(session.duration / 60)) }}</span>
+              <span class="session-duration">{{
+                formatMinutes(Math.round(session.duration / 60))
+              }}</span>
             </div>
           </div>
         </div>
 
         <!-- 导出 -->
         <div class="export-section">
-          <select v-model="exportFormat" class="format-select" :disabled="isExporting">
+          <select
+            v-model="exportFormat"
+            class="format-select"
+            :disabled="isExporting"
+          >
             <option value="markdown">Markdown</option>
             <option value="csv">CSV</option>
             <option value="json">JSON</option>
@@ -749,12 +976,19 @@ onMounted(async () => {
             :disabled="isExporting"
             @click="exportReport"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="7 10 12 15 17 10"/>
-              <line x1="12" y1="15" x2="12" y2="3"/>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
-            <span>{{ isExporting ? '导出中...' : '导出报告' }}</span>
+            <span>{{ isExporting ? "导出中..." : "导出报告" }}</span>
           </button>
         </div>
       </div>
@@ -770,15 +1004,29 @@ onMounted(async () => {
 
 /* ---- Orb Keyframes ---- */
 @keyframes orb-drift-1 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(30px, 40px) scale(1.05); }
-  66% { transform: translate(-20px, 20px) scale(0.95); }
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(30px, 40px) scale(1.05);
+  }
+  66% {
+    transform: translate(-20px, 20px) scale(0.95);
+  }
 }
 
 @keyframes orb-drift-2 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(-30px, -30px) scale(1.08); }
-  66% { transform: translate(20px, -10px) scale(0.92); }
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(-30px, -30px) scale(1.08);
+  }
+  66% {
+    transform: translate(20px, -10px) scale(0.92);
+  }
 }
 
 /* ---- Root Layout ---- */
@@ -793,7 +1041,7 @@ onMounted(async () => {
 /* Floating Orbs */
 .stats-view::before,
 .stats-view::after {
-  content: '';
+  content: "";
   position: absolute;
   border-radius: 50%;
   filter: blur(100px);
@@ -805,7 +1053,11 @@ onMounted(async () => {
 .stats-view::before {
   width: 600px;
   height: 600px;
-  background: radial-gradient(circle, rgba(88,166,255,0.12) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(88, 166, 255, 0.12) 0%,
+    transparent 70%
+  );
   top: -20%;
   right: -10%;
   animation: orb-drift-1 25s ease-in-out infinite;
@@ -814,7 +1066,11 @@ onMounted(async () => {
 .stats-view::after {
   width: 450px;
   height: 450px;
-  background: radial-gradient(circle, rgba(63,185,80,0.1) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(63, 185, 80, 0.1) 0%,
+    transparent 70%
+  );
   bottom: -10%;
   left: -5%;
   animation: orb-drift-2 30s ease-in-out infinite;
@@ -948,7 +1204,9 @@ onMounted(async () => {
 .stat-card:hover {
   transform: translateY(-2px);
   border-color: var(--accent-glow);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), 0 0 20px rgba(88, 166, 255, 0.1);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.2),
+    0 0 20px rgba(88, 166, 255, 0.1);
 }
 
 .stat-card-icon {
@@ -1057,8 +1315,10 @@ onMounted(async () => {
 
 .chart-empty {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 10px;
   height: 100%;
   min-height: 160px;
   color: var(--text-muted);
@@ -1161,8 +1421,9 @@ onMounted(async () => {
 }
 
 .donut-segment {
-  transition: stroke-dasharray 1s cubic-bezier(0.34, 1.56, 0.64, 1),
-              stroke-dashoffset 1s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition:
+    stroke-dasharray 1s cubic-bezier(0.34, 1.56, 0.64, 1),
+    stroke-dashoffset 1s cubic-bezier(0.34, 1.56, 0.64, 1);
   filter: drop-shadow(0 0 3px currentColor);
 }
 
@@ -1363,14 +1624,14 @@ onMounted(async () => {
 
 .session-icon.work {
   background: rgba(88, 166, 255, 0.15);
-  color: #58A6FF;
+  color: #58a6ff;
   filter: drop-shadow(0 0 4px rgba(88, 166, 255, 0.4));
 }
 
 .session-icon.short_break,
 .session-icon.long_break {
   background: rgba(63, 185, 80, 0.15);
-  color: #3FB950;
+  color: #3fb950;
   filter: drop-shadow(0 0 4px rgba(63, 185, 80, 0.4));
 }
 
@@ -1438,7 +1699,9 @@ onMounted(async () => {
 
 .btn-export:hover:not(:disabled) {
   border-color: var(--accent-glow);
-  box-shadow: 0 0 24px rgba(88, 166, 255, 0.2), var(--glass-shadow);
+  box-shadow:
+    0 0 24px rgba(88, 166, 255, 0.2),
+    var(--glass-shadow);
   transform: translateY(-1px);
   color: var(--text);
   background: var(--surface-hover);
@@ -1508,12 +1771,11 @@ onMounted(async () => {
     padding: 12px;
   }
 
-  .chart-container {
+  .chart-card {
     padding: 12px;
-    min-height: 200px;
   }
 
-  .chart-container svg {
+  .chart-body svg {
     width: 100%;
     height: auto;
   }
@@ -1553,5 +1815,4 @@ onMounted(async () => {
     font-size: 0.8rem;
   }
 }
-
 </style>

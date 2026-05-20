@@ -1,194 +1,219 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { formatDate } from '@/utils/format'
-import { useSessionStore } from '@/stores/session'
-import { useTaskStore } from '@/stores/task'
-import type { Session, Task } from '@/types'
+import { ref, computed, onMounted } from "vue";
+import { formatDate } from "@/utils/format";
+import { useSessionStore } from "@/stores/session";
+import { useTaskStore } from "@/stores/task";
+import type { Session, Task } from "@/types";
 
-const sessionStore = useSessionStore()
-const taskStore = useTaskStore()
+const sessionStore = useSessionStore();
+const taskStore = useTaskStore();
 
 const emit = defineEmits<{
-  (e: 'openTaskDetail', task: Task): void
-}>()
+  (e: "openTaskDetail", task: Task): void;
+}>();
 
-const CELL_SIZE = 11
-const CELL_GAP = 3
-const WEEKS_TO_SHOW = 53
+const CELL_SIZE = 11;
+const CELL_GAP = 3;
+const WEEKS_TO_SHOW = 53;
 
-const heatmapTooltip = ref<{ date: string; count: number; x: number; y: number } | null>(null)
-const selectedDay = ref<{ date: string; count: number; sessions: Session[] } | null>(null)
+const heatmapTooltip = ref<{
+  date: string;
+  count: number;
+  x: number;
+  y: number;
+} | null>(null);
+const selectedDay = ref<{
+  date: string;
+  count: number;
+  sessions: Session[];
+} | null>(null);
 
 /** 当日任务汇总 */
 const dayTaskSummaries = computed(() => {
-  if (!selectedDay.value) return []
-  const map = new Map<string | null, { taskId: string | null; taskTitle: string; count: number; totalDuration: number }>()
+  if (!selectedDay.value) return [];
+  const map = new Map<
+    string | null,
+    {
+      taskId: string | null;
+      taskTitle: string;
+      count: number;
+      totalDuration: number;
+    }
+  >();
   for (const s of selectedDay.value.sessions) {
-    const existing = map.get(s.taskId)
+    const existing = map.get(s.taskId);
     if (existing) {
-      existing.count++
-      existing.totalDuration += s.duration || 0
+      existing.count++;
+      existing.totalDuration += s.duration || 0;
     } else {
       map.set(s.taskId, {
         taskId: s.taskId,
         taskTitle: getTaskTitle(s.taskId),
         count: 1,
         totalDuration: s.duration || 0,
-      })
+      });
     }
   }
-  return Array.from(map.values()).sort((a, b) => b.totalDuration - a.totalDuration)
-})
+  return Array.from(map.values()).sort(
+    (a, b) => b.totalDuration - a.totalDuration
+  );
+});
 
 /** 日历热力图数据 - 最近 53 周（GitHub 风格） */
 const heatmapData = computed(() => {
-  const today = new Date()
-  const days: { date: string; count: number; isFuture: boolean }[] = []
+  const today = new Date();
+  const days: { date: string; count: number; isFuture: boolean }[] = [];
 
-  const endDate = new Date(today)
-  endDate.setDate(today.getDate() + 1)
+  const endDate = new Date(today);
+  endDate.setDate(today.getDate() + 1);
 
-  const totalDays = WEEKS_TO_SHOW * 7
+  const totalDays = WEEKS_TO_SHOW * 7;
 
-  const startDate = new Date(endDate)
-  startDate.setDate(endDate.getDate() - totalDays)
+  const startDate = new Date(endDate);
+  startDate.setDate(endDate.getDate() - totalDays);
 
   // 对齐到周日（GitHub 标准）
-  const dayOfWeek = startDate.getDay()
-  startDate.setDate(startDate.getDate() - dayOfWeek)
+  const dayOfWeek = startDate.getDay();
+  startDate.setDate(startDate.getDate() - dayOfWeek);
 
-  const renderDays = totalDays + dayOfWeek
+  const renderDays = totalDays + dayOfWeek;
 
-  const pomodoroMap = new Map<string, number>()
+  const pomodoroMap = new Map<string, number>();
   sessionStore.sessions.forEach((s) => {
-    if (s.completed && s.type === 'work' && s.startedAt) {
-      const dateKey = s.startedAt.substring(0, 10)
-      pomodoroMap.set(dateKey, (pomodoroMap.get(dateKey) || 0) + 1)
+    if (s.completed && s.type === "work" && s.startedAt) {
+      const dateKey = s.startedAt.substring(0, 10);
+      pomodoroMap.set(dateKey, (pomodoroMap.get(dateKey) || 0) + 1);
     }
-  })
+  });
 
   for (let i = 0; i < renderDays; i++) {
-    const d = new Date(startDate)
-    d.setDate(startDate.getDate() + i)
-    const dateStr = formatDate(d)
-    const isFuture = d > today
+    const d = new Date(startDate);
+    d.setDate(startDate.getDate() + i);
+    const dateStr = formatDate(d);
+    const isFuture = d > today;
     days.push({
       date: dateStr,
-      count: isFuture ? 0 : (pomodoroMap.get(dateStr) || 0),
+      count: isFuture ? 0 : pomodoroMap.get(dateStr) || 0,
       isFuture,
-    })
+    });
   }
 
-  return days
-})
+  return days;
+});
 
 /** 热力图周数据（按周分组） */
 const heatmapWeeks = computed(() => {
-  const weeks: typeof heatmapData.value[] = []
+  const weeks: (typeof heatmapData.value)[] = [];
   for (let i = 0; i < heatmapData.value.length; i += 7) {
-    weeks.push(heatmapData.value.slice(i, i + 7))
+    weeks.push(heatmapData.value.slice(i, i + 7));
   }
-  return weeks
-})
+  return weeks;
+});
 
 /** 月份标签精确计算 —— 基于每个月首日在网格中的精确列位置，碰撞时向右偏移一列 */
 const monthLabels = computed(() => {
-  const labels: { label: string; x: number }[] = []
-  const seen = new Set<number>()
-  const COL_WIDTH = CELL_SIZE + CELL_GAP
+  const labels: { label: string; x: number }[] = [];
+  const seen = new Set<number>();
+  const COL_WIDTH = CELL_SIZE + CELL_GAP;
 
   heatmapData.value.forEach((day, dayIndex) => {
-    const d = new Date(day.date + 'T00:00:00')
-    const monthKey = d.getFullYear() * 12 + d.getMonth()
+    const d = new Date(day.date + "T00:00:00");
+    const monthKey = d.getFullYear() * 12 + d.getMonth();
 
     if (!seen.has(monthKey)) {
-      seen.add(monthKey)
-      const weekIndex = Math.floor(dayIndex / 7)
-      let x = weekIndex * COL_WIDTH
+      seen.add(monthKey);
+      const weekIndex = Math.floor(dayIndex / 7);
+      let x = weekIndex * COL_WIDTH;
 
       // 若与前一个标签同列，则右移一列避免重叠
-      const prev = labels[labels.length - 1]
+      const prev = labels[labels.length - 1];
       if (prev && Math.abs(x - prev.x) < COL_WIDTH) {
-        x += COL_WIDTH
+        x += COL_WIDTH;
       }
 
       labels.push({
-        label: d.toLocaleDateString('zh-CN', { month: 'short' }),
+        label: d.toLocaleDateString("zh-CN", { month: "short" }),
         x,
-      })
+      });
     }
-  })
+  });
 
-  return labels
-})
+  return labels;
+});
 
 /** 热力图统计 */
 const heatmapStats = computed(() => {
-  const total = heatmapData.value.reduce((s, d) => s + d.count, 0)
-  const activeDays = heatmapData.value.filter((d) => d.count > 0).length
-  const maxDay = Math.max(...heatmapData.value.map((d) => d.count), 0)
-  const avgPerDay = activeDays > 0 ? (total / activeDays).toFixed(1) : '0'
-  return { total, activeDays, maxDay, avgPerDay }
-})
+  const total = heatmapData.value.reduce((s, d) => s + d.count, 0);
+  const activeDays = heatmapData.value.filter((d) => d.count > 0).length;
+  const maxDay = Math.max(...heatmapData.value.map((d) => d.count), 0);
+  const avgPerDay = activeDays > 0 ? (total / activeDays).toFixed(1) : "0";
+  return { total, activeDays, maxDay, avgPerDay };
+});
 
 /** 5 级颜色 */
 function getHeatColor(count: number): string {
-  if (count === 0) return 'var(--border)'
-  if (count <= 2) return 'rgba(88, 166, 255, 0.35)'
-  if (count <= 5) return 'rgba(88, 166, 255, 0.55)'
-  if (count <= 8) return 'rgba(88, 166, 255, 0.75)'
-  return 'rgba(88, 166, 255, 0.95)'
+  if (count === 0) return "var(--border)";
+  if (count <= 2) return "rgba(88, 166, 255, 0.35)";
+  if (count <= 5) return "rgba(88, 166, 255, 0.55)";
+  if (count <= 8) return "rgba(88, 166, 255, 0.75)";
+  return "rgba(88, 166, 255, 0.95)";
 }
 
 function onHeatmapCellMouseEnter(e: MouseEvent, date: string, count: number) {
-  const rect = (e.target as HTMLElement).getBoundingClientRect()
+  const rect = (e.target as HTMLElement).getBoundingClientRect();
   heatmapTooltip.value = {
     date,
     count,
     x: rect.left + rect.width / 2,
     y: rect.top - 6,
-  }
+  };
 }
 
 function onHeatmapCellMouseLeave() {
-  heatmapTooltip.value = null
+  heatmapTooltip.value = null;
 }
 
 function onCellClick(date: string, count: number) {
   const sessions = sessionStore.sessions.filter((s) => {
-    return s.completed && s.type === 'work' && s.startedAt && s.startedAt.startsWith(date)
-  })
-  selectedDay.value = { date, count, sessions }
+    return (
+      s.completed &&
+      s.type === "work" &&
+      s.startedAt &&
+      s.startedAt.startsWith(date)
+    );
+  });
+  selectedDay.value = { date, count, sessions };
 }
 
 function closeDetail() {
-  selectedDay.value = null
+  selectedDay.value = null;
 }
 
 function getTaskTitle(taskId: string | null | undefined): string {
-  if (!taskId) return '未关联任务'
-  return taskStore.getTaskById(taskId)?.title || '未知任务'
+  if (!taskId) return "未关联任务";
+  return taskStore.getTaskById(taskId)?.title || "未知任务";
 }
 
 function handleTaskSummaryClick(taskId: string | null) {
-  if (!taskId) return
-  const task = taskStore.getTaskById(taskId)
+  if (!taskId) return;
+  const task = taskStore.getTaskById(taskId);
   if (task) {
-    emit('openTaskDetail', task)
+    emit("openTaskDetail", task);
   }
 }
 
+const scrollWrapperRef = ref<HTMLElement | null>(null);
+
 onMounted(() => {
-  const wrapper = document.querySelector('.heatmap-scroll-wrapper') as HTMLElement | null
-  if (wrapper) {
-    wrapper.scrollLeft = wrapper.scrollWidth
+  if (scrollWrapperRef.value) {
+    scrollWrapperRef.value.scrollLeft = scrollWrapperRef.value.scrollWidth;
   }
-})
+});
 </script>
 
 <template>
   <div class="calendar-view">
-    <div class="heatmap-scroll-wrapper">
+    <div ref="scrollWrapperRef" class="heatmap-scroll-wrapper">
       <div class="heatmap-inner">
         <!-- 月份标签（精确对齐到列） -->
         <div class="heatmap-months">
@@ -231,8 +256,14 @@ onMounted(() => {
                   active: !day.isFuture && day.count > 0,
                   selected: selectedDay?.date === day.date,
                 }"
-                :style="{ backgroundColor: day.isFuture ? 'transparent' : getHeatColor(day.count) }"
-                @mouseenter="onHeatmapCellMouseEnter($event, day.date, day.count)"
+                :style="{
+                  backgroundColor: day.isFuture
+                    ? 'transparent'
+                    : getHeatColor(day.count),
+                }"
+                @mouseenter="
+                  onHeatmapCellMouseEnter($event, day.date, day.count)
+                "
                 @mouseleave="onHeatmapCellMouseLeave"
                 @click="!day.isFuture && onCellClick(day.date, day.count)"
               />
@@ -247,10 +278,22 @@ onMounted(() => {
       <span class="legend-label">少</span>
       <div class="legend-cells">
         <div class="legend-cell" style="background-color: var(--border)" />
-        <div class="legend-cell" style="background-color: rgba(88, 166, 255, 0.35)" />
-        <div class="legend-cell" style="background-color: rgba(88, 166, 255, 0.55)" />
-        <div class="legend-cell" style="background-color: rgba(88, 166, 255, 0.75)" />
-        <div class="legend-cell" style="background-color: rgba(88, 166, 255, 0.95)" />
+        <div
+          class="legend-cell"
+          style="background-color: rgba(88, 166, 255, 0.35)"
+        />
+        <div
+          class="legend-cell"
+          style="background-color: rgba(88, 166, 255, 0.55)"
+        />
+        <div
+          class="legend-cell"
+          style="background-color: rgba(88, 166, 255, 0.75)"
+        />
+        <div
+          class="legend-cell"
+          style="background-color: rgba(88, 166, 255, 0.95)"
+        />
       </div>
       <span class="legend-label">多</span>
     </div>
@@ -286,7 +329,10 @@ onMounted(() => {
         <div
           v-if="heatmapTooltip"
           class="heatmap-tooltip"
-          :style="{ left: heatmapTooltip.x + 'px', top: heatmapTooltip.y + 'px' }"
+          :style="{
+            left: heatmapTooltip.x + 'px',
+            top: heatmapTooltip.y + 'px',
+          }"
         >
           <strong>{{ heatmapTooltip.count }}</strong> 个番茄钟
           <span class="tooltip-date">{{ heatmapTooltip.date }}</span>
@@ -322,7 +368,10 @@ onMounted(() => {
                 @click="handleTaskSummaryClick(summary.taskId)"
               >
                 <span class="task-summary-title">{{ summary.taskTitle }}</span>
-                <span class="task-summary-meta">{{ summary.count }}次 · {{ Math.round(summary.totalDuration / 60) }}分钟</span>
+                <span class="task-summary-meta"
+                  >{{ summary.count }}次 ·
+                  {{ Math.round(summary.totalDuration / 60) }}分钟</span
+                >
               </div>
             </div>
           </div>
@@ -580,14 +629,18 @@ onMounted(() => {
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--glass-shadow), 0 20px 60px rgba(0, 0, 0, 0.3);
+  box-shadow:
+    var(--glass-shadow),
+    0 20px 60px rgba(0, 0, 0, 0.3);
   width: 100%;
   max-width: 600px;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: transform 0.25s ease, opacity 0.25s ease;
+  transition:
+    transform 0.25s ease,
+    opacity 0.25s ease;
 }
 
 .detail-header {

@@ -1,69 +1,78 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import MarkdownPreview from '@/components/MarkdownPreview.vue'
-import type { Reflection } from '@/types'
-import { formatFriendlyDate, getWeekdayName } from '@/utils/format'
-import { downloadReflection } from '@/utils/exportReflection'
+import { ref, computed, onMounted } from "vue";
+import MarkdownPreview from "@/components/MarkdownPreview.vue";
+import type { Reflection } from "@/types";
+import { formatFriendlyDate, getWeekdayName } from "@/utils/format";
+import { downloadReflection } from "@/utils/exportReflection";
 
 const props = defineProps<{
-  reflection: Reflection
-}>()
+  reflection: Reflection;
+}>();
 
 const emit = defineEmits<{
-  (e: 'close'): void
-  (e: 'save', id: string, payload: { content: string }): void
-}>()
+  (e: "close"): void;
+  (e: "save", id: string, payload: { content: string }): void;
+}>();
 
-const editedContent = ref(props.reflection.content)
-const showPreview = ref(false)
-const isSaving = ref(false)
-const showExportMenu = ref(false)
+const editedContent = ref(props.reflection.content);
+const showPreview = ref(false);
+const isSaving = ref(false);
+const showExportMenu = ref(false);
+const panelRef = ref<HTMLDivElement | null>(null);
+
+onMounted(() => {
+  panelRef.value?.focus();
+});
 
 const dateDisplay = computed(() => {
-  const friendly = formatFriendlyDate(props.reflection.date)
-  const weekday = getWeekdayName(props.reflection.date)
-  return `${friendly} ${weekday}`
-})
+  const friendly = formatFriendlyDate(props.reflection.date);
+  const weekday = getWeekdayName(props.reflection.date);
+  return `${friendly} ${weekday}`;
+});
 
 function getMoodInfo(mood: string) {
   const map: Record<string, { emoji: string; color: string }> = {
-    great: { emoji: '\u{1F604}', color: '#3FB950' },
-    good: { emoji: '\u{1F642}', color: '#58A6FF' },
-    normal: { emoji: '\u{1F610}', color: '#D29922' },
-    bad: { emoji: '\u{1F61F}', color: '#F0883E' },
-    terrible: { emoji: '\u{1F61E}', color: '#F85149' },
-  }
-  return map[mood] || map.normal
+    great: { emoji: "\u{1F604}", color: "#3FB950" },
+    good: { emoji: "\u{1F642}", color: "#58A6FF" },
+    normal: { emoji: "\u{1F610}", color: "#D29922" },
+    bad: { emoji: "\u{1F61F}", color: "#F0883E" },
+    terrible: { emoji: "\u{1F61E}", color: "#F85149" },
+  };
+  return map[mood] || map.normal;
 }
 
 function onSave() {
-  if (isSaving.value) return
-  isSaving.value = true
-  emit('save', props.reflection.id, { content: editedContent.value })
-  isSaving.value = false
+  if (isSaving.value) return;
+  isSaving.value = true;
+  emit("save", props.reflection.id, { content: editedContent.value });
+  isSaving.value = false;
 }
 
 function onClose() {
-  emit('close')
+  emit("close");
 }
 </script>
 
 <template>
   <Teleport to="body">
     <div class="modal-overlay" @click.self="onClose">
-      <div class="modal-container">
+      <div
+        ref="panelRef"
+        class="modal-container"
+        tabindex="-1"
+        @keydown.esc="onClose"
+      >
         <!-- 头部 -->
         <div class="modal-header">
           <div class="modal-meta">
             <span class="modal-date">{{ dateDisplay }}</span>
-            <span class="modal-mood" :style="{ color: getMoodInfo(reflection.mood).color }">
+            <span
+              class="modal-mood"
+              :style="{ color: getMoodInfo(reflection.mood).color }"
+            >
               {{ getMoodInfo(reflection.mood).emoji }}
             </span>
-            <span
-              v-for="tag in reflection.tags"
-              :key="tag"
-              class="modal-tag"
-            >
+            <span v-for="tag in reflection.tags" :key="tag" class="modal-tag">
               {{ tag }}
             </span>
           </div>
@@ -96,11 +105,7 @@ function onClose() {
             class="modal-textarea"
             placeholder="写下反思内容..."
           />
-          <MarkdownPreview
-            v-else
-            :content="editedContent"
-            show-toc
-          />
+          <MarkdownPreview v-else :content="editedContent" show-toc />
         </div>
 
         <!-- 底部操作栏 -->
@@ -112,18 +117,37 @@ function onClose() {
                 :disabled="isSaving"
                 @mouseenter="showExportMenu = true"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="7 10 12 15 17 10"/>
-                  <line x1="12" y1="15" x2="12" y2="3"/>
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
                 </svg>
                 导出
               </button>
               <div v-if="showExportMenu" class="export-menu">
-                <button class="export-menu-item" @click="downloadReflection(reflection, 'md'); showExportMenu = false">
+                <button
+                  class="export-menu-item"
+                  @click="
+                    downloadReflection(reflection, 'md');
+                    showExportMenu = false;
+                  "
+                >
                   Markdown (.md)
                 </button>
-                <button class="export-menu-item" @click="downloadReflection(reflection, 'json'); showExportMenu = false">
+                <button
+                  class="export-menu-item"
+                  @click="
+                    downloadReflection(reflection, 'json');
+                    showExportMenu = false;
+                  "
+                >
                   JSON (.json)
                 </button>
               </div>
@@ -136,7 +160,7 @@ function onClose() {
               :disabled="isSaving || editedContent === reflection.content"
               @click="onSave"
             >
-              {{ isSaving ? '保存中...' : '保存' }}
+              {{ isSaving ? "保存中..." : "保存" }}
             </button>
           </div>
         </div>

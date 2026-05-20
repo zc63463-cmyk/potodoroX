@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useAppStore } from "@/stores/app";
 import { useReflectionStore } from "@/stores/reflection";
 import { useSessionStore } from "@/stores/session";
@@ -23,11 +23,7 @@ const syncStore = useSyncStore();
 const sessionStore = useSessionStore();
 
 // ---- 状态 ----
-const showToken = ref(false);
-const isTestingConnection = ref(false);
-const testResult = ref<{ success: boolean; message: string } | null>(null);
-const isSyncing = ref(false);
-const syncResult = ref<{ success: boolean; message: string } | null>(null);
+
 const showClearConfirm = ref(false);
 const isExporting = ref(false);
 const isImporting = ref(false);
@@ -72,13 +68,6 @@ const canTestWebDav = computed(() => {
  */
 const canSyncWebDav = computed(() => canTestWebDav.value);
 
-// ---- 本地编辑副本（避免直接修改 store） ----
-const localSettings = ref({
-  githubToken: "",
-  githubRepo: "",
-  githubOwner: "",
-});
-
 // ---- 主题配置 ----
 const themeOptions: {
   name: ThemeName;
@@ -114,20 +103,6 @@ const themeOptions: {
 
 /** 当前主题 */
 const currentTheme = computed(() => settingsStore.settings.theme);
-
-/** 是否已配置 GitHub */
-const githubConfigured = computed(() => {
-  return !!(
-    localSettings.value.githubToken &&
-    localSettings.value.githubOwner &&
-    localSettings.value.githubRepo
-  );
-});
-
-/** 上次同步时间 */
-const lastSyncTime = computed(() => {
-  return appStore.syncStatus.lastSyncAt || "从未同步";
-});
 
 /** 数据库统计 */
 const dbStats = ref({
@@ -194,127 +169,20 @@ const autoStartPomodoro = computed({
 });
 
 // ---- Debounce 工具 ----
-function debounce<T extends (...args: any[]) => void>(fn: T, ms: number) {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  return (...args: Parameters<T>) => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), ms);
-  };
-}
-
-/** 延迟写入 store（防抖 500ms） */
-const debouncedUpdateToken = debounce((value: string) => {
-  settingsStore.updateSetting("githubToken", value);
-}, 500);
-const debouncedUpdateOwner = debounce((value: string) => {
-  settingsStore.updateSetting("githubOwner", value);
-}, 500);
-const debouncedUpdateRepo = debounce((value: string) => {
-  settingsStore.updateSetting("githubRepo", value);
-}, 500);
 
 // ---- 方法 ----
-
-/** 更新 GitHub Token */
-function updateGithubToken(value: string) {
-  localSettings.value.githubToken = value;
-  debouncedUpdateToken(value);
-}
-
-/** 更新 GitHub Owner */
-function updateGithubOwner(value: string) {
-  localSettings.value.githubOwner = value;
-  debouncedUpdateOwner(value);
-}
-
-/** 更新 GitHub Repo */
-function updateGithubRepo(value: string) {
-  localSettings.value.githubRepo = value;
-  debouncedUpdateRepo(value);
-}
-
-/** 测试 GitHub 连接 */
-async function testConnection() {
-  isTestingConnection.value = true;
-  testResult.value = null;
-
-  try {
-    syncStore.authenticate(localSettings.value.githubToken);
-    syncStore.setRepo(
-      localSettings.value.githubOwner,
-      localSettings.value.githubRepo
-    );
-
-    await syncStore.loadSyncStatus();
-    testResult.value = {
-      success: true,
-      message: `连接成功！待同步: ${syncStore.pendingCount} 条`,
-    };
-  } catch (err) {
-    testResult.value = {
-      success: false,
-      message: err instanceof Error ? err.message : "连接失败",
-    };
-  } finally {
-    isTestingConnection.value = false;
-  }
-}
-
-/** 执行同步 */
-async function syncNow() {
-  isSyncing.value = true;
-  syncResult.value = null;
-
-  try {
-    syncStore.authenticate(localSettings.value.githubToken);
-    syncStore.setRepo(
-      localSettings.value.githubOwner,
-      localSettings.value.githubRepo
-    );
-
-    appStore.setSyncStatus({ isSyncing: true });
-
-    const result = await syncStore.fullSyncAction();
-    syncResult.value = result;
-
-    // 更新同步状态
-    await syncStore.loadSyncStatus();
-    appStore.setSyncStatus({
-      isSyncing: false,
-      lastSyncAt: new Date().toISOString(),
-      pendingCount: syncStore.pendingCount,
-    });
-  } catch (err) {
-    syncResult.value = {
-      success: false,
-      message: err instanceof Error ? err.message : "同步失败",
-    };
-    appStore.setSyncStatus({ isSyncing: false });
-  } finally {
-    isSyncing.value = false;
-  }
-}
 
 /** 选择主题 */
 function selectTheme(theme: ThemeName) {
   settingsStore.updateSetting("theme", theme);
 }
 
-/** 导出数据 */
+/** 导出完整备份（v2 格式，含 outbox、墓碑、设置） */
 async function exportData() {
   isExporting.value = true;
   try {
-    const { tasks, reflections, sessions } = await syncStore.exportAllData();
-
-    const data = {
-      version: "1.0.0",
-      exportedAt: new Date().toISOString(),
-      tasks,
-      reflections,
-      sessions,
-    };
-
-    const json = JSON.stringify(data, null, 2);
+    const backup = await syncStore.exportFullBackup();
+    const json = JSON.stringify(backup, null, 2);
     const blob = new Blob([json], { type: "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -323,15 +191,20 @@ async function exportData() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    appStore.showToast(
+      `备份导出成功：${backup.data.tasks.length} 任务 / ${backup.data.reflections.length} 反思 / ${backup.data.sessions.length} 会话`,
+      "success"
+    );
   } catch (err) {
-    console.error("导出数据失败:", err);
+    if (import.meta.env.DEV) console.error("导出数据失败:", err);
+    appStore.showToast("导出失败", "error");
   } finally {
     isExporting.value = false;
   }
 }
 
-/** 导入数据 */
+/** 导入完整备份（支持 v1 / v2 格式，覆盖/合并模式） */
 async function importData() {
   const input = document.createElement("input");
   input.type = "file";
@@ -345,68 +218,81 @@ async function importData() {
       const text = await file.text();
       const data = JSON.parse(text);
 
-      // 校验 schema
-      if (!data.tasks || !data.reflections || !data.sessions) {
+      // 校验基本结构
+      const hasV1Shape =
+        data &&
+        typeof data === "object" &&
+        Array.isArray(data.tasks) &&
+        Array.isArray(data.reflections) &&
+        Array.isArray(data.sessions);
+      const hasV2Shape =
+        data.version === "2.0" && data.data && Array.isArray(data.data.tasks);
+      if (!hasV1Shape && !hasV2Shape) {
         appStore.showToast("无效的备份文件格式", "error");
         return;
       }
-      if (
-        !Array.isArray(data.tasks) ||
-        !Array.isArray(data.reflections) ||
-        !Array.isArray(data.sessions)
-      ) {
-        appStore.showToast("备份数据格式不正确", "error");
-        return;
-      }
 
-      // 通过 SyncStore 批量导入
-      const validTasks = data.tasks
-        .filter((t: any) => t.title)
-        .map((t: any) => ({
-          title: t.title,
-          description: t.description || "",
-          priority: t.priority || "medium",
-          estimatedPomodoros: t.estimatedPomodoros || 1,
-          tags: t.tags || [],
-          dueDate: t.dueDate || null,
-        }));
-
-      const validReflections = data.reflections
-        .filter((r: any) => r.date)
-        .map((r: any) => ({
-          date: r.date,
-          content: r.content || "",
-          mood: r.mood || "normal",
-          relatedTaskIds: r.relatedTaskIds || [],
-          tags: r.tags || [],
-        }));
-
-      const validSessions = data.sessions
-        .filter((s: any) => s.type && s.duration)
-        .map((s: any) => ({
-          taskId: s.taskId,
-          type: s.type,
-          duration: s.duration,
-          completed: s.completed ?? false,
-          startedAt: s.startedAt,
-        }));
-
-      await syncStore.importRecords(
-        validTasks,
-        validReflections,
-        validSessions
+      // 选择导入模式
+      const useOverwrite = confirm(
+        "选择导入模式：\n\n【确定】覆盖恢复 — 清空现有数据，完全用备份恢复（推荐换设备/重装后使用）\n\n【取消】合并导入 — 保留现有数据，追加备份中的内容"
       );
+      const mode = useOverwrite ? "overwrite" : "merge";
+
+      let result;
+      if (hasV2Shape) {
+        // v2 完整备份
+        result = await syncStore.importFullBackup(data, mode);
+      } else {
+        // v1 兼容（仅 tasks/reflections/sessions）
+        const validTasks = data.tasks
+          .filter((t: any) => t.title)
+          .map((t: any) => ({
+            title: t.title,
+            description: t.description || "",
+            priority: t.priority || "medium",
+            estimatedPomodoros: t.estimatedPomodoros || 1,
+            tags: t.tags || [],
+            dueDate: t.dueDate || null,
+          }));
+        const validReflections = data.reflections
+          .filter((r: any) => r.date)
+          .map((r: any) => ({
+            date: r.date,
+            content: r.content || "",
+            mood: r.mood || "normal",
+            relatedTaskIds: r.relatedTaskIds || [],
+            tags: r.tags || [],
+          }));
+        const validSessions = data.sessions
+          .filter((s: any) => s.type && s.duration)
+          .map((s: any) => ({
+            taskId: s.taskId,
+            type: s.type,
+            duration: s.duration,
+            completed: s.completed ?? false,
+            startedAt: s.startedAt,
+          }));
+        result = await syncStore.importRecords(
+          validTasks,
+          validReflections,
+          validSessions
+        );
+      }
 
       // 刷新 store 内存状态
       await Promise.all([
         taskStore.loadTasks(),
         reflectionStore.loadReflections(),
         timerStore.loadTodaySessions(),
+        sessionStore.loadAllSessions(),
       ]);
 
-      appStore.showToast("数据导入成功！", "success");
+      const msg = hasV2Shape
+        ? `导入成功：${result.taskCount} 任务 / ${result.reflectionCount} 反思 / ${result.sessionCount} 会话 / ${result.outboxCount} 待同步事件`
+        : `导入成功：${result.taskCount} 任务 / ${result.reflectionCount} 反思 / ${result.sessionCount} 会话`;
+      appStore.showToast(msg, "success");
     } catch (err) {
-      console.error("导入数据失败:", err);
+      if (import.meta.env.DEV) console.error("导入数据失败:", err);
       appStore.showToast("导入失败：文件格式不正确", "error");
     } finally {
       isImporting.value = false;
@@ -468,7 +354,7 @@ async function importReflectionData() {
       showConflictModal.value = true;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "导入失败";
-      console.error("导入反思失败:", err);
+      if (import.meta.env.DEV) console.error("导入反思失败:", err);
       appStore.showToast(`导入失败：${msg}`, "error");
     } finally {
       isImportingReflection.value = false;
@@ -553,9 +439,10 @@ async function confirmClearData() {
     ]);
 
     appStore.showToast("数据已清除，页面即将刷新", "success");
-    setTimeout(() => window.location.reload(), 1500);
+    if (reloadTimer) clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(() => window.location.reload(), 1500);
   } catch (err) {
-    console.error("清除数据失败:", err);
+    if (import.meta.env.DEV) console.error("清除数据失败:", err);
     appStore.showToast("清除数据失败", "error");
   } finally {
     isClearing.value = false;
@@ -622,7 +509,8 @@ async function syncWebDav() {
       taskStore.loadTasks(),
     ]);
   } catch (err) {
-    console.error("[SettingsView] 刷新本地 store 失败:", err);
+    if (import.meta.env.DEV)
+      console.error("[SettingsView] 刷新本地 store 失败:", err);
   }
 
   if (result.error) {
@@ -649,7 +537,7 @@ async function loadDbStats() {
       reflections: syncStore.dbStats.reflectionCount,
     };
   } catch (err) {
-    console.error("加载数据库统计失败:", err);
+    if (import.meta.env.DEV) console.error("加载数据库统计失败:", err);
   }
 }
 
@@ -657,15 +545,13 @@ async function loadDbStats() {
 onMounted(async () => {
   await settingsStore.loadSettings();
 
-  // 同步本地编辑副本
-  localSettings.value = {
-    githubToken: settingsStore.settings.githubToken,
-    githubRepo: settingsStore.settings.githubRepo,
-    githubOwner: settingsStore.settings.githubOwner,
-  };
-
   // 加载数据库统计
   await loadDbStats();
+});
+
+let reloadTimer: ReturnType<typeof setTimeout> | null = null;
+onUnmounted(() => {
+  if (reloadTimer) clearTimeout(reloadTimer);
 });
 </script>
 
@@ -682,173 +568,6 @@ onMounted(async () => {
 
     <!-- 主内容 -->
     <div class="settings-body">
-      <!-- GitHub 同步 -->
-      <section class="settings-section">
-        <h2 class="section-title">
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            class="section-icon"
-          >
-            <path
-              d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"
-            />
-          </svg>
-          GitHub 同步
-        </h2>
-        <div class="section-content">
-          <!-- Token -->
-          <div class="form-group">
-            <label class="form-label">GitHub Token</label>
-            <div class="input-with-toggle">
-              <input
-                :type="showToken ? 'text' : 'password'"
-                :value="localSettings.githubToken"
-                @input="
-                  updateGithubToken(($event.target as HTMLInputElement).value)
-                "
-                class="form-input"
-                placeholder="ghp_xxxxxxxxxxxx"
-              />
-              <button
-                class="input-toggle"
-                @click="showToken = !showToken"
-                :title="showToken ? '隐藏' : '显示'"
-              >
-                <svg
-                  v-if="showToken"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <path
-                    d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"
-                  />
-                  <line x1="1" y1="1" x2="23" y2="23" />
-                </svg>
-                <svg
-                  v-else
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          <!-- Owner -->
-          <div class="form-group">
-            <label class="form-label">仓库 Owner</label>
-            <input
-              type="text"
-              :value="localSettings.githubOwner"
-              @input="
-                updateGithubOwner(($event.target as HTMLInputElement).value)
-              "
-              class="form-input"
-              placeholder="your-username"
-            />
-          </div>
-
-          <!-- Repo -->
-          <div class="form-group">
-            <label class="form-label">仓库名称</label>
-            <input
-              type="text"
-              :value="localSettings.githubRepo"
-              @input="
-                updateGithubRepo(($event.target as HTMLInputElement).value)
-              "
-              class="form-input"
-              placeholder="promoX-data"
-            />
-          </div>
-
-          <!-- 操作按钮 -->
-          <div class="form-actions">
-            <button
-              class="btn-secondary"
-              :disabled="isTestingConnection || !githubConfigured"
-              @click="testConnection"
-            >
-              <svg
-                v-if="isTestingConnection"
-                class="spin-icon"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path d="M21 12a9 9 0 11-6.219-8.56" />
-              </svg>
-              <span>{{ isTestingConnection ? "测试中..." : "测试连接" }}</span>
-            </button>
-            <button
-              class="btn-primary"
-              :disabled="isSyncing || !githubConfigured"
-              @click="syncNow"
-            >
-              <svg
-                v-if="isSyncing"
-                class="spin-icon"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path d="M21 12a9 9 0 11-6.219-8.56" />
-              </svg>
-              <span>{{ isSyncing ? "同步中..." : "立即同步" }}</span>
-            </button>
-          </div>
-
-          <!-- 测试结果 -->
-          <div
-            v-if="testResult"
-            class="result-message"
-            :class="{ success: testResult.success, error: !testResult.success }"
-          >
-            {{ testResult.message }}
-          </div>
-
-          <!-- 同步结果 -->
-          <div
-            v-if="syncResult"
-            class="result-message"
-            :class="{ success: syncResult.success, error: !syncResult.success }"
-          >
-            <pre class="result-pre">{{ syncResult.message }}</pre>
-          </div>
-
-          <!-- 同步状态 -->
-          <div class="sync-status">
-            <span class="sync-status-label">上次同步：</span>
-            <span class="sync-status-value">{{ lastSyncTime }}</span>
-            <span
-              v-if="appStore.syncStatus.pendingCount > 0"
-              class="sync-pending"
-            >
-              ({{ appStore.syncStatus.pendingCount }} 项待同步)
-            </span>
-          </div>
-        </div>
-      </section>
-
       <!-- WebDAV 同步 -->
       <section class="settings-section">
         <h2 class="section-title">
@@ -1009,13 +728,13 @@ onMounted(async () => {
               <span class="slider-value">{{ sliderWorkDuration }} 分钟</span>
             </div>
             <input
-              type="range"
               v-model.number="sliderWorkDuration"
-              @change="workDuration = sliderWorkDuration"
+              type="range"
               min="15"
               max="60"
               step="5"
               class="form-slider"
+              @change="workDuration = sliderWorkDuration"
             />
             <div class="slider-labels">
               <span>15</span>
@@ -1032,13 +751,13 @@ onMounted(async () => {
               <span class="slider-value">{{ sliderShortBreak }} 分钟</span>
             </div>
             <input
-              type="range"
               v-model.number="sliderShortBreak"
-              @change="shortBreakDuration = sliderShortBreak"
+              type="range"
               min="3"
               max="15"
               step="1"
               class="form-slider"
+              @change="shortBreakDuration = sliderShortBreak"
             />
             <div class="slider-labels">
               <span>3</span>
@@ -1055,13 +774,13 @@ onMounted(async () => {
               <span class="slider-value">{{ sliderLongBreak }} 分钟</span>
             </div>
             <input
-              type="range"
               v-model.number="sliderLongBreak"
-              @change="longBreakDuration = sliderLongBreak"
+              type="range"
               min="10"
               max="30"
               step="5"
               class="form-slider"
+              @change="longBreakDuration = sliderLongBreak"
             />
             <div class="slider-labels">
               <span>10</span>
@@ -1100,13 +819,13 @@ onMounted(async () => {
               <span class="slider-value">{{ sliderFreeDuration }} 分钟</span>
             </div>
             <input
-              type="range"
               v-model.number="sliderFreeDuration"
-              @change="freeDuration = sliderFreeDuration"
+              type="range"
               min="1"
               max="180"
               step="1"
               class="form-slider"
+              @change="freeDuration = sliderFreeDuration"
             />
             <div class="slider-labels">
               <span>1</span>
@@ -2432,10 +2151,6 @@ onMounted(async () => {
     width: 100%;
     min-height: 44px;
     justify-content: center;
-  }
-
-  .github-section {
-    padding: 14px;
   }
 
   .config-row {

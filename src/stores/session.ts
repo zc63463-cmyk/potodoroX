@@ -11,20 +11,10 @@ import { formatDate } from "@/utils/format";
 import { useSyncStore } from "@/stores/sync";
 import { useTaskStore } from "@/stores/task";
 
-async function recordEvent(
-  type: "session.created" | "session.updated" | "session.deleted",
-  id: string,
-  payload: unknown
-) {
-  try {
-    const syncStore = useSyncStore();
-    await syncStore.recordEvent(type, id, payload);
-  } catch (err) {
-    console.error("[SessionStore] 同步事件写入失败（业务操作已成功）:", err);
-  }
-}
-
 export const useSessionStore = defineStore("session", () => {
+  // 使用 SyncStore 的 recordEvent（已内置错误隔离）
+  const syncStore = useSyncStore();
+  const recordEvent = syncStore.recordEvent;
   // ---- 状态 ----
   /** 所有会话列表 */
   const sessions = ref<Session[]>([]);
@@ -144,38 +134,41 @@ export const useSessionStore = defineStore("session", () => {
       const target = await db.getSession(id);
       if (!target) return false;
 
-      // 业务先：删除 db 与内存
-      const ok = await db.deleteSession(id);
-      if (!ok) return false;
-      const idx = sessions.value.findIndex((s) => s.id === id);
-      if (idx !== -1) sessions.value.splice(idx, 1);
-
-      // 事件后（失败仅日志、不回滚业务，遵循 I-9/I-10）
-      await recordEvent("session.deleted", id, { id });
-
-      // 联动回退任务番茄计数（仅 work + completed + 有 taskId）
-      if (target.type === "work" && target.completed && target.taskId) {
-        try {
-          const taskStore = useTaskStore();
-          const task =
-            taskStore.getTaskById(target.taskId) ??
-            (await db.getTask(target.taskId));
+      // 原子操作：task 计数回退 + session 删除在同一个事务中
+      const ok = await db.transaction(async () => {
+        if (target.type === "work" && target.completed && target.taskId) {
+          const task = await db.getTask(target.taskId);
           if (task) {
             const next = Math.max(0, (task.actualPomodoros ?? 0) - 1);
             if (next !== task.actualPomodoros) {
-              await taskStore.updateTask(target.taskId, {
+              await db.updateTask(target.taskId, {
                 actualPomodoros: next,
               });
             }
           }
-        } catch (err) {
-          console.error(
-            "[SessionStore] 回退 task.actualPomodoros 失败（session 已删除）:",
-            err
-          );
+        }
+        return db.deleteSession(id);
+      });
+
+      if (!ok) return false;
+
+      // 事务成功后同步内存状态
+      const idx = sessions.value.findIndex((s) => s.id === id);
+      if (idx !== -1) sessions.value.splice(idx, 1);
+
+      // 同步 task store 内存状态（如果 task 在内存中）
+      if (target.type === "work" && target.completed && target.taskId) {
+        const taskStore = useTaskStore();
+        const task = taskStore.getTaskById(target.taskId);
+        if (task) {
+          const next = Math.max(0, (task.actualPomodoros ?? 0) - 1);
+          if (next !== task.actualPomodoros) {
+            task.actualPomodoros = next;
+          }
         }
       }
 
+      await recordEvent("session.deleted", id, { id });
       return true;
     } catch (err) {
       console.error("[SessionStore] 删除会话失败:", err);

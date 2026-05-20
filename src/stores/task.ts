@@ -19,23 +19,10 @@ import { PRIORITIES } from "@/utils/constants";
 import { useSyncStore } from "@/stores/sync";
 import { markTombstone } from "@/services/outbox";
 
-/** 记录 outbox 事件 */
-async function recordEvent(
-  type: "task.created" | "task.updated" | "task.deleted",
-  id: string,
-  payload: unknown
-) {
-  try {
-    const syncStore = useSyncStore();
-    await syncStore.recordEvent(type, id, payload);
-  } catch (err) {
-    // outbox 写入失败不影响业务操作返回值
-    // 本地数据已更新，事件可在下次写入时重新生成
-    console.error("[TaskStore] 同步事件写入失败（业务操作已成功）:", err);
-  }
-}
-
 export const useTaskStore = defineStore("task", () => {
+  // 使用 SyncStore 的 recordEvent（已内置错误隔离）
+  const syncStore = useSyncStore();
+  const recordEvent = syncStore.recordEvent;
   // ---- 状态 ----
   /** 所有任务列表 */
   const tasks = ref<Task[]>([]);

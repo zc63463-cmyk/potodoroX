@@ -23,7 +23,7 @@ function setupTimer(opts: Partial<Parameters<typeof useTimer>[0]> = {}) {
 describe("useTimer", () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: false });
-    vi.setSystemTime(new Date("2026-05-19 14:00:00"));
+    vi.setSystemTime(new Date("2026-05-19T14:00:00"));
   });
 
   afterEach(() => {

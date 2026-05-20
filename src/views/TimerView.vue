@@ -4,7 +4,15 @@
 // 沉浸式番茄钟计时器，大气背景 + 环形进度 + 呼吸动画
 // ============================================================
 
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
+import {
+  ref,
+  computed,
+  watch,
+  onMounted,
+  onUnmounted,
+  nextTick,
+  defineAsyncComponent,
+} from "vue";
 import { useTimerStore } from "@/stores/timer";
 import { useTaskStore } from "@/stores/task";
 import { useSettingsStore } from "@/stores/settings";
@@ -21,8 +29,12 @@ import { TIMER_MODES } from "@/utils/constants";
 import { formatMinutes, getWeekdayName, formatDate } from "@/utils/format";
 import type { Task, SessionType } from "@/types";
 import { animate, spring } from "animejs";
-import MagicRings from "@/components/MagicRings.vue";
 import GooeyNav from "@/components/GooeyNav.vue";
+
+// MagicRings 拆分为异步 chunk，避免 Three.js 拖累 TimerView 主包
+const MagicRings = defineAsyncComponent(
+  () => import("@/components/MagicRings.vue")
+);
 
 // ---- Stores ----
 const timerStore = useTimerStore();
@@ -32,7 +44,7 @@ const sessionStore = useSessionStore();
 const appStore = useAppStore();
 
 // ---- Composables ----
-const { sendNotification, requestPermission } = useNotification();
+const { sendNotification, permissionState } = useNotification();
 
 // ---- 本地状态 ----
 const showTaskSelector = ref(false);
@@ -273,7 +285,13 @@ function toggleTimer() {
 }
 
 /** 实际开始计时 */
-function doStartTimer(plan?: string) {
+async function doStartTimer(plan?: string) {
+  // 首次开始计时时请求通知权限（基于用户手势，不会被浏览器静默拒绝）
+  if (permissionState.value === "default") {
+    const { requestPermission } = await import("@/composables/useNotification");
+    await requestPermission();
+  }
+
   if (timerStore.sessionType === "free") {
     const customDuration = freeMinutes.value * 60 + freeSeconds.value;
     if (customDuration <= 0) return; // 防止零时长开始
@@ -289,13 +307,15 @@ function doStartTimer(plan?: string) {
   }
 }
 
+let sessionPlanTimer: ReturnType<typeof setTimeout> | null = null;
+
 /** 确认 Session 规划并开始 */
 function confirmSessionPlan() {
   showSessionPlanPrompt.value = false;
   const plan = sessionPlanInput.value.trim();
   doStartTimer(plan);
   // 清空输入，为下次准备
-  setTimeout(() => {
+  sessionPlanTimer = setTimeout(() => {
     sessionPlanInput.value = "";
   }, 300);
 }
@@ -314,8 +334,8 @@ function resetTimer() {
 /** 处理快进请求 */
 const showFastForwardConfirm = ref(false);
 
-function handleFastForward() {
-  const result = timerStore.fastForward();
+async function handleFastForward() {
+  const result = await timerStore.fastForward();
   if (result.success) return;
   if (result.reason === "quota_exhausted") {
     showFastForwardConfirm.value = true;
@@ -324,9 +344,9 @@ function handleFastForward() {
 }
 
 /** 确认超额快进 */
-function confirmFastForward() {
+async function confirmFastForward() {
   showFastForwardConfirm.value = false;
-  timerStore.fastForward(true);
+  await timerStore.fastForward(true);
 }
 
 /** 取消超额快进 */
@@ -344,6 +364,8 @@ function selectTask(taskId: string | null) {
 function toggleTaskSelector() {
   showTaskSelector.value = !showTaskSelector.value;
 }
+
+let celebrationTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** 触发庆祝动画 */
 function triggerCelebration() {
@@ -367,7 +389,7 @@ function triggerCelebration() {
   }));
 
   // 3秒后清除
-  setTimeout(() => {
+  celebrationTimer = setTimeout(() => {
     showCelebration.value = false;
     celebrationParticles.value = [];
   }, 3000);
@@ -642,9 +664,6 @@ onMounted(async () => {
   // 如果计时器未初始化（remaining 为 0），设置默认时长
   timerStore.initRemainingIfZero();
 
-  // 请求通知权限
-  await requestPermission();
-
   // 注册键盘事件
   document.addEventListener("keydown", handleKeyDown);
   document.addEventListener("click", handleDocumentClick);
@@ -667,6 +686,8 @@ onMounted(async () => {
 onUnmounted(() => {
   document.removeEventListener("keydown", handleKeyDown);
   document.removeEventListener("click", handleDocumentClick);
+  if (sessionPlanTimer) clearTimeout(sessionPlanTimer);
+  if (celebrationTimer) clearTimeout(celebrationTimer);
 });
 </script>
 
@@ -826,27 +847,27 @@ onUnmounted(() => {
           <div class="magic-rings-wrap">
             <MagicRings
               :color="sessionColor"
-              :colorTwo="ringSecondaryColor"
-              :ringCount="6"
+              :color-two="ringSecondaryColor"
+              :ring-count="6"
               :speed="0.8"
               :attenuation="8"
-              :lineThickness="2"
-              :baseRadius="0.35"
-              :radiusStep="0.1"
-              :scaleRate="0.08"
+              :line-thickness="2"
+              :base-radius="0.35"
+              :radius-step="0.1"
+              :scale-rate="0.08"
               :opacity="0.8"
               :blur="5"
-              :noiseAmount="0.05"
+              :noise-amount="0.05"
               :rotation="0"
-              :ringGap="1.6"
-              :fadeIn="0.6"
-              :fadeOut="0.4"
-              :followMouse="true"
-              :mouseInfluence="0.15"
-              :hoverScale="1.1"
+              :ring-gap="1.6"
+              :fade-in="0.6"
+              :fade-out="0.4"
+              :follow-mouse="true"
+              :mouse-influence="0.15"
+              :hover-scale="1.1"
               :parallax="0.03"
-              :clickBurst="false"
-              :isActive="isActive"
+              :click-burst="false"
+              :is-active="isActive"
             />
           </div>
 
@@ -941,7 +962,7 @@ onUnmounted(() => {
             <div class="timer-digits" :style="{ color: sessionColor }">
               <span
                 v-for="(ch, i) in displayTime.split('')"
-                :key="i"
+                :key="ch + '-' + i"
                 class="digit-char"
                 :class="{ 'digit-colon': ch === ':' }"
                 >{{ ch }}</span

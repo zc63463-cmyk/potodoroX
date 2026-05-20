@@ -4,43 +4,51 @@
 // 新建 / 编辑 任务的统一表单界面
 // ============================================================
 
-import { ref, watch } from 'vue'
-import { PRIORITIES, STATUSES, DEFAULT_TAGS } from '@/utils/constants'
-import type { Task, CreateTaskInput, UpdateTaskInput, TaskStatus } from '@/types'
+import { ref, watch, nextTick } from "vue";
+import { PRIORITIES, STATUSES, DEFAULT_TAGS } from "@/utils/constants";
+import type {
+  Task,
+  CreateTaskInput,
+  UpdateTaskInput,
+  TaskStatus,
+} from "@/types";
 
 interface Props {
-  visible: boolean
-  editingTask: Task | null
-  initialStatus?: TaskStatus
+  visible: boolean;
+  editingTask: Task | null;
+  initialStatus?: TaskStatus;
 }
 
-const props = defineProps<Props>()
+const props = defineProps<Props>();
 
 const emit = defineEmits<{
-  (e: 'create', input: CreateTaskInput): void
-  (e: 'update', id: string, input: UpdateTaskInput): void
-  (e: 'cancel'): void
-}>()
+  (e: "create", input: CreateTaskInput): void;
+  (e: "update", id: string, input: UpdateTaskInput): void;
+  (e: "cancel"): void;
+}>();
 
 // ---- 表单数据 ----
 const form = ref({
-  title: '',
-  description: '',
-  status: 'todo' as TaskStatus,
-  priority: 'medium' as Task['priority'],
+  title: "",
+  description: "",
+  status: "todo" as TaskStatus,
+  priority: "medium" as Task["priority"],
   estimatedPomodoros: 1,
   tags: [] as string[],
-  dueDate: '' as string,
-})
-const tagInput = ref('')
-const formError = ref('')
+  dueDate: "" as string,
+});
+const tagInput = ref("");
+const formError = ref("");
 
 // ---- 初始化表单 ----
-watch(() => props.visible, (visible) => {
-  if (visible) {
-    initForm()
+watch(
+  () => props.visible,
+  (visible) => {
+    if (visible) {
+      initForm();
+    }
   }
-})
+);
 
 function initForm() {
   if (props.editingTask) {
@@ -51,54 +59,54 @@ function initForm() {
       priority: props.editingTask.priority,
       estimatedPomodoros: props.editingTask.estimatedPomodoros,
       tags: [...props.editingTask.tags],
-      dueDate: props.editingTask.dueDate || '',
-    }
+      dueDate: props.editingTask.dueDate || "",
+    };
   } else {
     form.value = {
-      title: '',
-      description: '',
-      status: props.initialStatus || 'todo',
-      priority: 'medium',
+      title: "",
+      description: "",
+      status: props.initialStatus || "todo",
+      priority: "medium",
       estimatedPomodoros: 1,
       tags: [],
-      dueDate: '',
-    }
+      dueDate: "",
+    };
   }
-  tagInput.value = ''
-  formError.value = ''
+  tagInput.value = "";
+  formError.value = "";
 }
 
 // ---- 标签管理 ----
 function addTag() {
-  const tag = tagInput.value.trim()
+  const tag = tagInput.value.trim();
   if (tag && !form.value.tags.includes(tag)) {
-    form.value.tags.push(tag)
+    form.value.tags.push(tag);
   }
-  tagInput.value = ''
+  tagInput.value = "";
 }
 
 function removeTag(tag: string) {
-  form.value.tags = form.value.tags.filter((t) => t !== tag)
+  form.value.tags = form.value.tags.filter((t) => t !== tag);
 }
 
 function onTagInputKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter') {
-    e.preventDefault()
-    addTag()
+  if (e.key === "Enter") {
+    e.preventDefault();
+    addTag();
   }
 }
 
 function selectDefaultTag(tag: string) {
   if (!form.value.tags.includes(tag)) {
-    form.value.tags.push(tag)
+    form.value.tags.push(tag);
   }
 }
 
 // ---- 保存 ----
 function saveTask() {
   if (!form.value.title.trim()) {
-    formError.value = '任务标题不能为空'
-    return
+    formError.value = "任务标题不能为空";
+    return;
   }
 
   const input: CreateTaskInput = {
@@ -108,29 +116,40 @@ function saveTask() {
     estimatedPomodoros: form.value.estimatedPomodoros,
     tags: [...form.value.tags],
     dueDate: form.value.dueDate || null,
-    plan: '',
-    completion: '',
-  }
+    plan: "",
+    completion: "",
+  };
 
   if (props.editingTask) {
     const updateInput: UpdateTaskInput = {
       ...input,
       status: form.value.status,
-    }
-    emit('update', props.editingTask.id, updateInput)
+    };
+    emit("update", props.editingTask.id, updateInput);
   } else {
-    emit('create', input)
+    emit("create", input);
   }
 }
 
 function close() {
-  emit('cancel')
+  emit("cancel");
 }
+
+const panelRef = ref<HTMLDivElement | null>(null);
+
+watch(
+  () => props.visible,
+  (visible) => {
+    if (visible) {
+      nextTick(() => panelRef.value?.focus());
+    }
+  }
+);
 
 // ---- 键盘 ----
 function handleKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape') {
-    close()
+  if (e.key === "Escape") {
+    close();
   }
 }
 </script>
@@ -138,13 +157,30 @@ function handleKeydown(e: KeyboardEvent) {
 <template>
   <Transition name="modal">
     <div v-if="visible" class="modal-overlay" @click.self="close">
-      <div class="modal-panel" @keydown="handleKeydown" tabindex="-1">
+      <div
+        ref="panelRef"
+        class="modal-panel"
+        tabindex="-1"
+        @keydown="handleKeydown"
+      >
         <!-- 头部 -->
         <div class="modal-header">
-          <h2 class="modal-title">{{ editingTask ? '编辑任务' : '新建任务' }}</h2>
+          <h2 class="modal-title">
+            {{ editingTask ? "编辑任务" : "新建任务" }}
+          </h2>
           <button class="modal-close" @click="close">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
@@ -153,8 +189,19 @@ function handleKeydown(e: KeyboardEvent) {
         <div class="modal-body">
           <!-- 错误提示 -->
           <div v-if="formError" class="form-error">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
             {{ formError }}
           </div>
@@ -219,11 +266,7 @@ function handleKeydown(e: KeyboardEvent) {
             </div>
             <div class="form-group half">
               <label class="form-label">截止日期</label>
-              <input
-                v-model="form.dueDate"
-                type="date"
-                class="form-input"
-              />
+              <input v-model="form.dueDate" type="date" class="form-input" />
             </div>
           </div>
 
@@ -239,8 +282,18 @@ function handleKeydown(e: KeyboardEvent) {
                 >
                   {{ tag }}
                   <button class="tag-remove" @click="removeTag(tag)">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    <svg
+                      width="10"
+                      height="10"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="3"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
                     </svg>
                   </button>
                 </span>
@@ -256,7 +309,9 @@ function handleKeydown(e: KeyboardEvent) {
               <div class="quick-tags">
                 <span class="quick-tags-label">快速添加：</span>
                 <button
-                  v-for="tag in DEFAULT_TAGS.filter(t => !form.tags.includes(t))"
+                  v-for="tag in DEFAULT_TAGS.filter(
+                    (t) => !form.tags.includes(t)
+                  )"
                   :key="tag"
                   class="quick-tag-btn"
                   @click="selectDefaultTag(tag)"
@@ -272,7 +327,7 @@ function handleKeydown(e: KeyboardEvent) {
         <div class="modal-footer">
           <button class="btn btn-secondary" @click="close">取消</button>
           <button class="btn btn-primary" @click="saveTask">
-            {{ editingTask ? '保存修改' : '创建任务' }}
+            {{ editingTask ? "保存修改" : "创建任务" }}
           </button>
         </div>
       </div>
@@ -306,7 +361,9 @@ function handleKeydown(e: KeyboardEvent) {
   border-radius: 16px;
   display: flex;
   flex-direction: column;
-  box-shadow: var(--glass-shadow), 0 20px 60px rgba(0, 0, 0, 0.4);
+  box-shadow:
+    var(--glass-shadow),
+    0 20px 60px rgba(0, 0, 0, 0.4);
   overflow: hidden;
 }
 
@@ -413,7 +470,9 @@ function handleKeydown(e: KeyboardEvent) {
 .form-select:focus,
 .form-textarea:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--active-bg), 0 0 15px var(--accent-glow);
+  box-shadow:
+    0 0 0 3px var(--active-bg),
+    0 0 15px var(--accent-glow);
 }
 
 .form-textarea {
@@ -448,7 +507,9 @@ function handleKeydown(e: KeyboardEvent) {
 
 .tags-chips:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--active-bg), 0 0 15px var(--accent-glow);
+  box-shadow:
+    0 0 0 3px var(--active-bg),
+    0 0 15px var(--accent-glow);
 }
 
 .tag-chip {
@@ -565,7 +626,9 @@ function handleKeydown(e: KeyboardEvent) {
 
 .btn-primary:hover {
   filter: brightness(1.1);
-  box-shadow: 0 0 20px var(--accent-glow), 0 4px 12px rgba(0, 0, 0, 0.2);
+  box-shadow:
+    0 0 20px var(--accent-glow),
+    0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 /* ---- 过渡动画 ---- */

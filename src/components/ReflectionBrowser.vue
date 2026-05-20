@@ -84,22 +84,22 @@ function clearDateRange() {
           type="date"
           class="date-filter-input"
           :value="dateFrom"
-          @change="handleDateFromChange"
           placeholder="开始日期"
+          @change="handleDateFromChange"
         />
         <span class="date-filter-separator">-</span>
         <input
           type="date"
           class="date-filter-input"
           :value="dateTo"
-          @change="handleDateToChange"
           placeholder="结束日期"
+          @change="handleDateToChange"
         />
         <button
           v-if="dateFrom || dateTo"
           class="date-filter-clear"
-          @click="clearDateRange"
           title="清除日期筛选"
+          @click="clearDateRange"
         >
           ✕
         </button>

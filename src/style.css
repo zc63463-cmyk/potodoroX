@@ -9,39 +9,39 @@
 /* ---- CSS 自定义属性（主题色） ---- */
 :root {
   /* 基础色彩 - 深邃暗色 */
-  --bg: #070B14;
-  --bg-elevated: #0D1117;
+  --bg: #070b14;
+  --bg-elevated: #0d1117;
   --surface: rgba(22, 27, 34, 0.6);
-  --surface-solid: #161B22;
+  --surface-solid: #161b22;
   --surface-hover: rgba(30, 36, 46, 0.8);
 
   /* 强调色 */
-  --accent: #58A6FF;
+  --accent: #58a6ff;
   --accent-glow: rgba(88, 166, 255, 0.4);
   --accent-dim: rgba(88, 166, 255, 0.15);
 
   /* 文字色彩 */
-  --text: #E6EDF3;
-  --text-secondary: #8B949E;
-  --text-tertiary: #484F58;
-  --text-muted: #30363D;
+  --text: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-tertiary: #484f58;
+  --text-muted: #30363d;
 
   /* 边框 */
   --border: rgba(48, 54, 61, 0.6);
-  --border-solid: #30363D;
+  --border-solid: #30363d;
 
   /* 功能色 */
-  --success: #3FB950;
-  --warning: #F0883E;
-  --danger: #F85149;
-  --info: #58A6FF;
+  --success: #3fb950;
+  --warning: #f0883e;
+  --danger: #f85149;
+  --info: #58a6ff;
 
   /* 会话类型色彩 */
-  --work-color: #FF6B6B;
+  --work-color: #ff6b6b;
   --work-glow: rgba(255, 107, 107, 0.3);
-  --short-break-color: #4ECDC4;
+  --short-break-color: #4ecdc4;
   --short-break-glow: rgba(78, 205, 196, 0.3);
-  --long-break-color: #A78BFA;
+  --long-break-color: #a78bfa;
   --long-break-glow: rgba(167, 139, 250, 0.3);
 
   /* 玻璃拟态 */
@@ -67,7 +67,9 @@
   --radius-full: 9999px;
 
   /* 字体 */
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', Roboto, Helvetica, Arial, sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", Roboto,
+    Helvetica, Arial, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -76,60 +78,60 @@
 
 /* ---- 暗夜主题（默认） ---- */
 .theme-dark-night {
-  --bg: #070B14;
-  --bg-elevated: #0D1117;
+  --bg: #070b14;
+  --bg-elevated: #0d1117;
   --surface: rgba(22, 27, 34, 0.6);
-  --surface-solid: #161B22;
+  --surface-solid: #161b22;
   --surface-hover: rgba(30, 36, 46, 0.8);
-  --accent: #58A6FF;
+  --accent: #58a6ff;
   --accent-glow: rgba(88, 166, 255, 0.4);
   --accent-dim: rgba(88, 166, 255, 0.15);
-  --text: #E6EDF3;
-  --text-secondary: #8B949E;
-  --text-tertiary: #484F58;
-  --text-muted: #30363D;
+  --text: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-tertiary: #484f58;
+  --text-muted: #30363d;
   --border: rgba(48, 54, 61, 0.6);
-  --border-solid: #30363D;
+  --border-solid: #30363d;
   --glass-bg: rgba(22, 27, 34, 0.7);
   --glass-border: rgba(255, 255, 255, 0.08);
 }
 
 /* ---- 晨雾主题 ---- */
 .theme-morning-mist {
-  --bg: #0F0F23;
-  --bg-elevated: #1A1A2E;
+  --bg: #0f0f23;
+  --bg-elevated: #1a1a2e;
   --surface: rgba(22, 33, 62, 0.6);
-  --surface-solid: #16213E;
+  --surface-solid: #16213e;
   --surface-hover: rgba(30, 45, 80, 0.8);
-  --accent: #E94560;
+  --accent: #e94560;
   --accent-glow: rgba(233, 69, 96, 0.4);
   --accent-dim: rgba(233, 69, 96, 0.15);
-  --text: #E0E0E0;
-  --text-secondary: #A0A0B0;
+  --text: #e0e0e0;
+  --text-secondary: #a0a0b0;
   --text-tertiary: #606080;
   --text-muted: #404060;
   --border: rgba(42, 42, 74, 0.6);
-  --border-solid: #2A2A4A;
+  --border-solid: #2a2a4a;
   --glass-bg: rgba(22, 33, 62, 0.7);
   --glass-border: rgba(255, 255, 255, 0.06);
 }
 
 /* ---- 日光主题 ---- */
 .theme-daylight {
-  --bg: #F0F2F5;
-  --bg-elevated: #FFFFFF;
+  --bg: #f0f2f5;
+  --bg-elevated: #ffffff;
   --surface: rgba(255, 255, 255, 0.8);
-  --surface-solid: #FFFFFF;
+  --surface-solid: #ffffff;
   --surface-hover: rgba(240, 242, 245, 0.9);
-  --accent: #FF6B35;
+  --accent: #ff6b35;
   --accent-glow: rgba(255, 107, 53, 0.3);
   --accent-dim: rgba(255, 107, 53, 0.1);
-  --text: #1A1A2E;
-  --text-secondary: #4A5568;
-  --text-tertiary: #A0AEC0;
-  --text-muted: #CBD5E0;
+  --text: #1a1a2e;
+  --text-secondary: #4a5568;
+  --text-tertiary: #a0aec0;
+  --text-muted: #cbd5e0;
   --border: rgba(203, 213, 224, 0.6);
-  --border-solid: #CBD5E0;
+  --border-solid: #cbd5e0;
   --glass-bg: rgba(255, 255, 255, 0.7);
   --glass-border: rgba(0, 0, 0, 0.06);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
@@ -154,7 +156,9 @@ body {
   overflow: hidden;
   background: var(--bg);
   color: var(--text);
-  transition: background var(--transition-slow), color var(--transition-slow);
+  transition:
+    background var(--transition-slow),
+    color var(--transition-slow);
 }
 
 #app {
@@ -238,7 +242,9 @@ select {
   border-radius: var(--radius-md);
   padding: 10px 14px;
   outline: none;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
 input:focus,
@@ -252,52 +258,101 @@ select:focus {
 
 /* 脉冲动画 */
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 /* 淡入动画 */
 @keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* 上滑动画 */
 @keyframes slide-up {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* 呼吸动画 */
 @keyframes breathe {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.03); opacity: 0.95; }
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.03);
+    opacity: 0.95;
+  }
 }
 
 /* 旋转动画 */
 @keyframes rotate {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* 弹入动画 */
 @keyframes bounce-in {
-  0% { opacity: 0; transform: scale(0.9); }
-  50% { transform: scale(1.02); }
-  100% { opacity: 1; transform: scale(1); }
+  0% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  50% {
+    transform: scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 /* 发光脉冲 */
 @keyframes glow-pulse {
-  0%, 100% { box-shadow: 0 0 20px var(--accent-glow), 0 0 40px var(--accent-dim); }
-  50% { box-shadow: 0 0 30px var(--accent-glow), 0 0 60px var(--accent-dim); }
+  0%,
+  100% {
+    box-shadow:
+      0 0 20px var(--accent-glow),
+      0 0 40px var(--accent-dim);
+  }
+  50% {
+    box-shadow:
+      0 0 30px var(--accent-glow),
+      0 0 60px var(--accent-dim);
+  }
 }
 
 /* 渐变流动 */
 @keyframes gradient-shift {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
 }
 
 /* ---- 工具类 ---- */
@@ -359,7 +414,7 @@ select:focus {
 
 /* 渐变文字 */
 .gradient-text {
-  background: linear-gradient(135deg, var(--accent), #A78BFA);
+  background: linear-gradient(135deg, var(--accent), #a78bfa);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -375,57 +430,128 @@ select:focus {
 
 /* TimerView 浮动动画 */
 @keyframes orb-float-timer-1 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(50px, -40px) scale(1.1); }
-  66% { transform: translate(-30px, 30px) scale(0.95); }
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(50px, -40px) scale(1.1);
+  }
+  66% {
+    transform: translate(-30px, 30px) scale(0.95);
+  }
 }
 
 @keyframes orb-float-timer-2 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(-40px, 50px) scale(1.05); }
-  66% { transform: translate(40px, -30px) scale(0.9); }
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(-40px, 50px) scale(1.05);
+  }
+  66% {
+    transform: translate(40px, -30px) scale(0.9);
+  }
 }
 
 @keyframes orb-float-timer-3 {
-  0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.4; }
-  50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.7; }
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.2);
+    opacity: 0.7;
+  }
 }
 
 /* ReflectionsView 漂移动画 */
 @keyframes orb-drift-reflections-1 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(40px, 30px) scale(1.05); }
-  66% { transform: translate(-20px, 50px) scale(0.95); }
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(40px, 30px) scale(1.05);
+  }
+  66% {
+    transform: translate(-20px, 50px) scale(0.95);
+  }
 }
 
 @keyframes orb-drift-reflections-2 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(-30px, -20px) scale(1.08); }
-  66% { transform: translate(20px, -40px) scale(0.92); }
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(-30px, -20px) scale(1.08);
+  }
+  66% {
+    transform: translate(20px, -40px) scale(0.92);
+  }
 }
 
 /* SettingsView 漂移动画 */
 @keyframes orb-drift-settings-1 {
-  0%, 100% { transform: translate(0, 0); }
-  33% { transform: translate(-30px, 20px); }
-  66% { transform: translate(20px, -15px); }
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  33% {
+    transform: translate(-30px, 20px);
+  }
+  66% {
+    transform: translate(20px, -15px);
+  }
 }
 
 @keyframes orb-drift-settings-2 {
-  0%, 100% { transform: translate(0, 0); }
-  33% { transform: translate(25px, -20px); }
-  66% { transform: translate(-15px, 15px); }
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  33% {
+    transform: translate(25px, -20px);
+  }
+  66% {
+    transform: translate(-15px, 15px);
+  }
 }
 
 /* TasksView 漂移动画 */
 @keyframes orb-drift-tasks-1 {
-  0%, 100% { transform: translate(0, 0); }
-  50% { transform: translate(-40px, 30px); }
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(-40px, 30px);
+  }
 }
 
 @keyframes orb-drift-tasks-2 {
-  0%, 100% { transform: translate(0, 0); }
-  50% { transform: translate(30px, -20px); }
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(30px, -20px);
+  }
+}
+
+/* ---- 减少动画偏好支持 ---- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ---- 模态框 ---- */
@@ -450,7 +576,9 @@ select:focus {
   border-radius: 16px;
   padding: 24px;
   width: 420px;
-  box-shadow: var(--glass-shadow), 0 24px 48px rgba(0, 0, 0, 0.3);
+  box-shadow:
+    var(--glass-shadow),
+    0 24px 48px rgba(0, 0, 0, 0.3);
   max-width: 90vw;
   animation: bounce-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }

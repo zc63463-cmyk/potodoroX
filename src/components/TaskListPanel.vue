@@ -1,83 +1,87 @@
 <script setup lang="ts">
-import { ref, nextTick } from 'vue'
-import { PRIORITIES, STATUSES } from '@/utils/constants'
-import { formatDate, formatRelativeTime, formatFriendlyDate } from '@/utils/format'
-import { useTaskStore } from '@/stores/task'
-import type { Task, TaskStatus, Priority } from '@/types'
+import { ref, nextTick } from "vue";
+import { PRIORITIES, STATUSES } from "@/utils/constants";
+import {
+  formatDate,
+  formatRelativeTime,
+  formatFriendlyDate,
+} from "@/utils/format";
+import { useTaskStore } from "@/stores/task";
+import type { Task, TaskStatus, Priority } from "@/types";
 
 interface Props {
-  tasks: Task[]
-  searchQuery?: string
+  tasks: Task[];
+  searchQuery?: string;
 }
 
-const props = defineProps<Props>()
+const props = defineProps<Props>();
 
 const emit = defineEmits<{
-  toggleDone: [task: Task]
-  openDetail: [task: Task]
-  openEdit: [task: Task]
-  delete: [taskId: string]
-  create: []
-}>()
+  toggleDone: [task: Task];
+  openDetail: [task: Task];
+  openEdit: [task: Task];
+  delete: [taskId: string];
+  create: [];
+}>();
 
-const taskStore = useTaskStore()
-const expandedTaskId = ref<string | null>(null)
-const inlineEditingId = ref<string | null>(null)
-const inlineEditTitle = ref('')
+const taskStore = useTaskStore();
+const expandedTaskId = ref<string | null>(null);
+const inlineEditingId = ref<string | null>(null);
+const inlineEditTitle = ref("");
+const inlineEditInputRef = ref<HTMLInputElement | null>(null);
 
 function getPriorityInfo(priority: Priority) {
-  return PRIORITIES.find((p) => p.value === priority) || PRIORITIES[1]
+  return PRIORITIES.find((p) => p.value === priority) || PRIORITIES[1];
 }
 
 function getStatusInfo(status: TaskStatus) {
-  return STATUSES.find((s) => s.value === status) || STATUSES[0]
+  return STATUSES.find((s) => s.value === status) || STATUSES[0];
 }
 
 function isOverdue(dueDate: string | null): boolean {
-  if (!dueDate) return false
-  return dueDate < formatDate(new Date())
+  if (!dueDate) return false;
+  return dueDate < formatDate(new Date());
 }
 
 function isDueSoon(dueDate: string | null): boolean {
-  if (!dueDate) return false
-  const due = new Date(dueDate)
-  const now = new Date()
-  const diff = due.getTime() - now.getTime()
-  return diff > 0 && diff < 3 * 24 * 60 * 60 * 1000
+  if (!dueDate) return false;
+  const due = new Date(dueDate);
+  const now = new Date();
+  const diff = due.getTime() - now.getTime();
+  return diff > 0 && diff < 3 * 24 * 60 * 60 * 1000;
 }
 
 function toggleExpand(taskId: string) {
-  expandedTaskId.value = expandedTaskId.value === taskId ? null : taskId
+  expandedTaskId.value = expandedTaskId.value === taskId ? null : taskId;
 }
 
 function startInlineEdit(task: Task) {
-  inlineEditingId.value = task.id
-  inlineEditTitle.value = task.title
+  inlineEditingId.value = task.id;
+  inlineEditTitle.value = task.title;
   nextTick(() => {
-    const input = document.querySelector<HTMLInputElement>('.inline-edit-input')
-    input?.focus()
-    input?.select()
-  })
+    inlineEditInputRef.value?.focus();
+    inlineEditInputRef.value?.select();
+  });
 }
 
 async function saveInlineEdit(task: Task) {
-  const newTitle = inlineEditTitle.value.trim()
+  const newTitle = inlineEditTitle.value.trim();
   if (newTitle && newTitle !== task.title) {
-    await taskStore.updateTask(task.id, { title: newTitle })
+    await taskStore.updateTask(task.id, { title: newTitle });
   }
-  inlineEditingId.value = null
+  inlineEditingId.value = null;
 }
 
 function cancelInlineEdit() {
-  inlineEditingId.value = null
+  inlineEditingId.value = null;
 }
 
 function onInlineEditKeydown(e: KeyboardEvent, task: Task) {
-  if (e.key === 'Enter') {
-    e.preventDefault()
-    saveInlineEdit(task)
-  } else if (e.key === 'Escape') {
-    cancelInlineEdit()
+  if (e.key === "Enter") {
+    e.preventDefault();
+    saveInlineEdit(task);
+  } else if (e.key === "Escape") {
+    cancelInlineEdit();
   }
 }
 </script>
@@ -86,15 +90,49 @@ function onInlineEditKeydown(e: KeyboardEvent, task: Task) {
   <div class="list-view">
     <div v-if="tasks.length === 0" class="empty-state">
       <div class="empty-icon">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.4">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/>
+        <svg
+          width="48"
+          height="48"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          opacity="0.4"
+        >
+          <path
+            d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+          />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="9" y1="15" x2="15" y2="15" />
         </svg>
       </div>
       <p class="empty-title">暂无任务</p>
-      <p class="empty-desc">{{ props.searchQuery ? '没有匹配的搜索结果' : '点击「新建任务」或按 N 键创建第一个任务' }}</p>
-      <button v-if="!props.searchQuery" class="empty-action" @click="emit('create')">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+      <p class="empty-desc">
+        {{
+          props.searchQuery
+            ? "没有匹配的搜索结果"
+            : "点击「新建任务」或按 N 键创建第一个任务"
+        }}
+      </p>
+      <button
+        v-if="!props.searchQuery"
+        class="empty-action"
+        @click="emit('create')"
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <line x1="12" y1="5" x2="12" y2="19" />
+          <line x1="5" y1="12" x2="19" y2="12" />
         </svg>
         新建任务
       </button>
@@ -113,32 +151,162 @@ function onInlineEditKeydown(e: KeyboardEvent, task: Task) {
           }"
         >
           <div class="task-row" @click="toggleExpand(task.id)">
-            <button class="task-checkbox" :class="{ checked: task.status === 'done' }" @click.stop="emit('toggleDone', task)">
-              <svg v-if="task.status === 'done'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            <button
+              class="task-checkbox"
+              :class="{ checked: task.status === 'done' }"
+              @click.stop="emit('toggleDone', task)"
+            >
+              <svg
+                v-if="task.status === 'done'"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="3"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
             </button>
             <div class="task-title-area" @dblclick.stop="startInlineEdit(task)">
-              <input v-if="inlineEditingId === task.id" v-model="inlineEditTitle" class="inline-edit-input" @blur="saveInlineEdit(task)" @keydown="onInlineEditKeydown($event, task)" @click.stop />
-              <span v-else class="task-title" :class="{ 'line-through opacity-50': task.status === 'done' }" @click.stop="emit('openDetail', task)">{{ task.title }}</span>
+              <input
+                v-if="inlineEditingId === task.id"
+                ref="inlineEditInputRef"
+                v-model="inlineEditTitle"
+                class="inline-edit-input"
+                @blur="saveInlineEdit(task)"
+                @keydown="onInlineEditKeydown($event, task)"
+                @click.stop
+              />
+              <span
+                v-else
+                class="task-title"
+                :class="{ 'line-through opacity-50': task.status === 'done' }"
+                @click.stop="emit('openDetail', task)"
+                >{{ task.title }}</span
+              >
             </div>
-            <span class="priority-badge" :style="{ backgroundColor: getPriorityInfo(task.priority).color + '20', color: getPriorityInfo(task.priority).color }">{{ getPriorityInfo(task.priority).label }}</span>
+            <span
+              class="priority-badge"
+              :style="{
+                backgroundColor: getPriorityInfo(task.priority).color + '20',
+                color: getPriorityInfo(task.priority).color,
+              }"
+              >{{ getPriorityInfo(task.priority).label }}</span
+            >
             <div class="task-tags">
-              <span v-for="tag in task.tags.slice(0, 2)" :key="tag" class="tag-chip">{{ tag }}</span>
-              <span v-if="task.tags.length > 2" class="tag-more">+{{ task.tags.length - 2 }}</span>
+              <span
+                v-for="tag in task.tags.slice(0, 2)"
+                :key="tag"
+                class="tag-chip"
+                >{{ tag }}</span
+              >
+              <span v-if="task.tags.length > 2" class="tag-more"
+                >+{{ task.tags.length - 2 }}</span
+              >
             </div>
-            <span v-if="task.actualPomodoros > 0 || task.estimatedPomodoros > 0" class="pomodoro-count">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" opacity="0.7"><circle cx="12" cy="13" r="9" fill="#F85149" opacity="0.8"/><rect x="9" y="1" width="6" height="4" rx="1" fill="#3FB950" opacity="0.7"/><path d="M12 7v3M9 10l3 3 3-3" stroke="white" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+            <span
+              v-if="task.actualPomodoros > 0 || task.estimatedPomodoros > 0"
+              class="pomodoro-count"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                opacity="0.7"
+              >
+                <circle cx="12" cy="13" r="9" fill="#F85149" opacity="0.8" />
+                <rect
+                  x="9"
+                  y="1"
+                  width="6"
+                  height="4"
+                  rx="1"
+                  fill="#3FB950"
+                  opacity="0.7"
+                />
+                <path
+                  d="M12 7v3M9 10l3 3 3-3"
+                  stroke="white"
+                  stroke-width="1.5"
+                  fill="none"
+                  stroke-linecap="round"
+                />
+              </svg>
               {{ task.actualPomodoros }}/{{ task.estimatedPomodoros }}
             </span>
-            <span v-if="task.dueDate" class="due-date" :class="{ overdue: isOverdue(task.dueDate) && task.status !== 'done', 'due-soon': isDueSoon(task.dueDate) && task.status !== 'done' }">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <span
+              v-if="task.dueDate"
+              class="due-date"
+              :class="{
+                overdue: isOverdue(task.dueDate) && task.status !== 'done',
+                'due-soon': isDueSoon(task.dueDate) && task.status !== 'done',
+              }"
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+              </svg>
               {{ formatFriendlyDate(task.dueDate) }}
             </span>
             <div class="task-actions">
-              <button class="action-btn" title="编辑" @click.stop="emit('openEdit', task)">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              <button
+                class="action-btn"
+                title="编辑"
+                @click.stop="emit('openEdit', task)"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path
+                    d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
+                  />
+                  <path
+                    d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+                  />
+                </svg>
               </button>
-              <button class="action-btn delete-btn" title="删除" @click.stop="emit('delete', task.id)">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              <button
+                class="action-btn delete-btn"
+                title="删除"
+                @click.stop="emit('delete', task.id)"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="3 6 5 6 21 6" />
+                  <path
+                    d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                  />
+                </svg>
               </button>
             </div>
           </div>
@@ -148,7 +316,14 @@ function onInlineEditKeydown(e: KeyboardEvent, task: Task) {
             <div v-if="expandedTaskId === task.id" class="task-detail">
               <div class="detail-section">
                 <div class="detail-label">状态</div>
-                <span class="status-badge" :style="{ color: getStatusInfo(task.status).color, backgroundColor: getStatusInfo(task.status).color + '15' }">{{ getStatusInfo(task.status).label }}</span>
+                <span
+                  class="status-badge"
+                  :style="{
+                    color: getStatusInfo(task.status).color,
+                    backgroundColor: getStatusInfo(task.status).color + '15',
+                  }"
+                  >{{ getStatusInfo(task.status).label }}</span
+                >
               </div>
               <div v-if="task.description" class="detail-section">
                 <div class="detail-label">描述</div>
@@ -156,20 +331,36 @@ function onInlineEditKeydown(e: KeyboardEvent, task: Task) {
               </div>
               <div v-if="task.plan || task.completion" class="detail-section">
                 <div class="detail-label">计划</div>
-                <p v-if="task.plan" class="detail-description">{{ task.plan }}</p>
-                <p v-else-if="task.completion" class="detail-description text-muted">暂无计划</p>
+                <p v-if="task.plan" class="detail-description">
+                  {{ task.plan }}
+                </p>
+                <p
+                  v-else-if="task.completion"
+                  class="detail-description text-muted"
+                >
+                  暂无计划
+                </p>
               </div>
               <div class="detail-section">
                 <div class="detail-label">番茄钟</div>
-                <div class="detail-meta">已完成 {{ task.actualPomodoros }} / 预计 {{ task.estimatedPomodoros }}</div>
+                <div class="detail-meta">
+                  已完成 {{ task.actualPomodoros }} / 预计
+                  {{ task.estimatedPomodoros }}
+                </div>
               </div>
               <div v-if="task.dueDate" class="detail-section">
                 <div class="detail-label">截止日期</div>
-                <div class="detail-meta">{{ formatFriendlyDate(task.dueDate) }} ({{ formatRelativeTime(task.dueDate) }})</div>
+                <div class="detail-meta">
+                  {{ formatFriendlyDate(task.dueDate) }} ({{
+                    formatRelativeTime(task.dueDate)
+                  }})
+                </div>
               </div>
               <div class="detail-section">
                 <div class="detail-label">创建时间</div>
-                <div class="detail-meta">{{ formatRelativeTime(task.createdAt) }}</div>
+                <div class="detail-meta">
+                  {{ formatRelativeTime(task.createdAt) }}
+                </div>
               </div>
             </div>
           </Transition>
@@ -205,7 +396,9 @@ function onInlineEditKeydown(e: KeyboardEvent, task: Task) {
 
 .task-card:hover {
   border-color: var(--accent-dim);
-  box-shadow: 0 0 16px var(--accent-glow), var(--glass-shadow);
+  box-shadow:
+    0 0 16px var(--accent-glow),
+    var(--glass-shadow);
   transform: translateY(-1px);
 }
 
@@ -214,11 +407,13 @@ function onInlineEditKeydown(e: KeyboardEvent, task: Task) {
 }
 
 .task-card.overdue {
-  border-left: 3px solid #F85149;
+  border-left: 3px solid #f85149;
 }
 
 .task-card.expanded {
-  box-shadow: 0 0 20px var(--accent-glow), var(--glass-shadow);
+  box-shadow:
+    0 0 20px var(--accent-glow),
+    var(--glass-shadow);
 }
 
 .task-row {
@@ -252,8 +447,8 @@ function onInlineEditKeydown(e: KeyboardEvent, task: Task) {
 }
 
 .task-checkbox.checked {
-  background: #3FB950;
-  border-color: #3FB950;
+  background: #3fb950;
+  border-color: #3fb950;
 }
 
 .task-checkbox.checked:hover {
@@ -287,7 +482,9 @@ function onInlineEditKeydown(e: KeyboardEvent, task: Task) {
   border-radius: var(--radius-md);
   color: var(--text);
   outline: none;
-  box-shadow: 0 0 0 3px var(--active-bg), 0 0 15px var(--accent-glow);
+  box-shadow:
+    0 0 0 3px var(--active-bg),
+    0 0 15px var(--accent-glow);
   min-width: 0;
 }
 
@@ -341,12 +538,12 @@ function onInlineEditKeydown(e: KeyboardEvent, task: Task) {
 }
 
 .due-date.overdue {
-  color: #F85149;
+  color: #f85149;
   font-weight: 600;
 }
 
 .due-date.due-soon {
-  color: #E3B341;
+  color: #e3b341;
 }
 
 .task-actions {
@@ -384,9 +581,9 @@ function onInlineEditKeydown(e: KeyboardEvent, task: Task) {
 }
 
 .action-btn.delete-btn:hover {
-  border-color: #F85149;
-  color: #F85149;
-  background: color-mix(in srgb, #F85149 10%, transparent);
+  border-color: #f85149;
+  color: #f85149;
+  background: color-mix(in srgb, #f85149 10%, transparent);
   box-shadow: 0 0 12px rgba(248, 81, 73, 0.3);
 }
 

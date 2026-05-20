@@ -9,14 +9,14 @@
  */
 export function formatMinutes(minutes: number): string {
   if (minutes < 60) {
-    return `${minutes}分钟`
+    return `${minutes}分钟`;
   }
-  const hrs = Math.floor(minutes / 60)
-  const mins = minutes % 60
+  const hrs = Math.floor(minutes / 60);
+  const mins = minutes % 60;
   if (mins === 0) {
-    return `${hrs}小时`
+    return `${hrs}小时`;
   }
-  return `${hrs}小时${mins}分钟`
+  return `${hrs}小时${mins}分钟`;
 }
 
 /**
@@ -25,11 +25,11 @@ export function formatMinutes(minutes: number): string {
  * @returns 格式化后的日期字符串
  */
 export function formatDate(date: Date | string): string {
-  const d = typeof date === 'string' ? new Date(date) : date
-  const year = d.getFullYear()
-  const month = (d.getMonth() + 1).toString().padStart(2, '0')
-  const day = d.getDate().toString().padStart(2, '0')
-  return `${year}-${month}-${day}`
+  const d = typeof date === "string" ? new Date(date) : date;
+  const year = d.getFullYear();
+  const month = (d.getMonth() + 1).toString().padStart(2, "0");
+  const day = d.getDate().toString().padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 /**
@@ -38,10 +38,10 @@ export function formatDate(date: Date | string): string {
  * @returns 格式化后的日期时间字符串
  */
 export function formatDateTime(date: Date | string): string {
-  const d = typeof date === 'string' ? new Date(date) : date
-  const datePart = formatDate(d)
-  const timePart = formatTimeOfDay(d)
-  return `${datePart} ${timePart}`
+  const d = typeof date === "string" ? new Date(date) : date;
+  const datePart = formatDate(d);
+  const timePart = formatTimeOfDay(d);
+  return `${datePart} ${timePart}`;
 }
 
 /**
@@ -50,10 +50,10 @@ export function formatDateTime(date: Date | string): string {
  * @returns 格式化后的时间字符串
  */
 export function formatTimeOfDay(date: Date): string {
-  const hrs = date.getHours().toString().padStart(2, '0')
-  const mins = date.getMinutes().toString().padStart(2, '0')
-  const secs = date.getSeconds().toString().padStart(2, '0')
-  return `${hrs}:${mins}:${secs}`
+  const hrs = date.getHours().toString().padStart(2, "0");
+  const mins = date.getMinutes().toString().padStart(2, "0");
+  const secs = date.getSeconds().toString().padStart(2, "0");
+  return `${hrs}:${mins}:${secs}`;
 }
 
 /**
@@ -62,22 +62,22 @@ export function formatTimeOfDay(date: Date): string {
  * @returns 如 "3分钟前"、"2小时前"、"昨天"
  */
 export function formatRelativeTime(date: Date | string): string {
-  const d = typeof date === 'string' ? new Date(date) : date
-  const now = new Date()
-  const diffMs = now.getTime() - d.getTime()
-  const diffSecs = Math.floor(diffMs / 1000)
-  const diffMins = Math.floor(diffSecs / 60)
-  const diffHours = Math.floor(diffMins / 60)
-  const diffDays = Math.floor(diffHours / 24)
+  const d = typeof date === "string" ? new Date(date) : date;
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
 
-  if (diffSecs < 60) return '刚刚'
-  if (diffMins < 60) return `${diffMins}分钟前`
-  if (diffHours < 24) return `${diffHours}小时前`
-  if (diffDays === 1) return '昨天'
-  if (diffDays < 7) return `${diffDays}天前`
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)}周前`
-  if (diffDays < 365) return `${Math.floor(diffDays / 30)}个月前`
-  return `${Math.floor(diffDays / 365)}年前`
+  if (diffSecs < 60) return "刚刚";
+  if (diffMins < 60) return `${diffMins}分钟前`;
+  if (diffHours < 24) return `${diffHours}小时前`;
+  if (diffDays === 1) return "昨天";
+  if (diffDays < 7) return `${diffDays}天前`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}周前`;
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)}个月前`;
+  return `${Math.floor(diffDays / 365)}年前`;
 }
 
 /**
@@ -86,11 +86,11 @@ export function formatRelativeTime(date: Date | string): string {
  * @returns 如 "今天"、"昨天"、"2024-01-15"
  */
 export function formatFriendlyDate(dateStr: string): string {
-  const today = formatDate(new Date())
-  const yesterday = formatDate(new Date(Date.now() - 86400000))
-  if (dateStr === today) return '今天'
-  if (dateStr === yesterday) return '昨天'
-  return dateStr
+  const today = formatDate(new Date());
+  const yesterday = formatDate(new Date(Date.now() - 86400000));
+  if (dateStr === today) return "今天";
+  if (dateStr === yesterday) return "昨天";
+  return dateStr;
 }
 
 /**
@@ -99,9 +99,21 @@ export function formatFriendlyDate(dateStr: string): string {
  * @returns 如 "星期一"
  */
 export function getWeekdayName(date: Date | string): string {
-  const d = typeof date === 'string' ? new Date(date) : date
-  const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
-  return weekdays[d.getDay()]
+  const weekdays = [
+    "星期日",
+    "星期一",
+    "星期二",
+    "星期三",
+    "星期四",
+    "星期五",
+    "星期六",
+  ];
+  if (typeof date === "string") {
+    // 纯日期字符串（如 '2026-05-03'）统一按 UTC 解析，避免时区差异导致星期几变化
+    const d = new Date(date + "T00:00:00Z");
+    return weekdays[d.getUTCDay()];
+  }
+  return weekdays[date.getDay()];
 }
 
 /**
@@ -109,7 +121,7 @@ export function getWeekdayName(date: Date | string): string {
  * @returns YYYY-MM-DD 格式的日期
  */
 export function getToday(): string {
-  return formatDate(new Date())
+  return formatDate(new Date());
 }
 
 /**
@@ -117,15 +129,15 @@ export function getToday(): string {
  * @returns [startDate, endDate] YYYY-MM-DD 格式
  */
 export function getThisWeek(): [string, string] {
-  const now = new Date()
-  const dayOfWeek = now.getDay()
+  const now = new Date();
+  const dayOfWeek = now.getDay();
   // 以周一为起始
-  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
-  const monday = new Date(now)
-  monday.setDate(now.getDate() + mondayOffset)
-  const sunday = new Date(monday)
-  sunday.setDate(monday.getDate() + 6)
-  return [formatDate(monday), formatDate(sunday)]
+  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + mondayOffset);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return [formatDate(monday), formatDate(sunday)];
 }
 
 /**
@@ -133,8 +145,8 @@ export function getThisWeek(): [string, string] {
  * @returns [startDate, endDate] YYYY-MM-DD 格式
  */
 export function getThisMonth(): [string, string] {
-  const now = new Date()
-  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
-  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-  return [formatDate(firstDay), formatDate(lastDay)]
+  const now = new Date();
+  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  return [formatDate(firstDay), formatDate(lastDay)];
 }

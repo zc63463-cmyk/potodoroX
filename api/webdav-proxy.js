@@ -167,11 +167,25 @@ export default async function handler(request, response) {
   forwardHeaders["User-Agent"] =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
+  /** 请求体大小限制（10MB） */
+  const MAX_BODY_SIZE = 10 * 1024 * 1024;
+
   // 读取 request body（Node.js IncomingMessage 不能直接传给 fetch）
   let bodyText = undefined;
   if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
     const chunks = [];
+    let totalSize = 0;
     for await (const chunk of request) {
+      totalSize += chunk.length;
+      if (totalSize > MAX_BODY_SIZE) {
+        Object.entries(CORS_HEADERS).forEach(([key, value]) => {
+          response.setHeader(key, value);
+        });
+        return response.status(413).json({
+          error: "Request body too large",
+          maxBytes: MAX_BODY_SIZE,
+        });
+      }
       chunks.push(chunk);
     }
     if (chunks.length > 0) {
@@ -180,12 +194,17 @@ export default async function handler(request, response) {
   }
 
   try {
-    // Node.js 18+ 内置 fetch
+    // Node.js 18+ 内置 fetch，带 30s 超时和手动重定向（防 SSRF）
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
     const proxyResponse = await fetch(targetUrl.toString(), {
       method: upstreamMethod,
       headers: forwardHeaders,
       body: bodyText,
+      redirect: "manual",
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     // 设置 CORS 响应头
     Object.entries(CORS_HEADERS).forEach(([key, value]) => {
@@ -194,7 +213,15 @@ export default async function handler(request, response) {
     // 暴露上游状态
     response.setHeader("X-Upstream-Status", String(proxyResponse.status));
 
-    // 上游 5xx 时读取 body
+    // 3xx 重定向直接透传（manual 模式下 fetch 不会自动跟随）
+    if (proxyResponse.status >= 300 && proxyResponse.status < 400) {
+      const location = proxyResponse.headers.get("location");
+      if (location) {
+        response.setHeader("Location", location);
+      }
+    }
+
+    // 上游 5xx 时读取 body（限制长度避免内存爆炸）
     if (proxyResponse.status >= 500) {
       const upstreamBody = await proxyResponse.text();
       return response.status(502).json({
@@ -208,20 +235,31 @@ export default async function handler(request, response) {
       });
     }
 
-    // 透传上游响应
+    // 透传上游响应（限制 50MB，避免大文件缓冲导致内存爆炸）
+    const MAX_PROXY_BODY = 50 * 1024 * 1024;
     const contentType = proxyResponse.headers.get("content-type");
     if (contentType) {
       response.setHeader("Content-Type", contentType);
     }
-    const upstreamBody = await proxyResponse.text();
-    return response.status(proxyResponse.status).send(upstreamBody);
+    const upstreamBuffer = await proxyResponse.arrayBuffer();
+    if (upstreamBuffer.byteLength > MAX_PROXY_BODY) {
+      return response.status(413).json({
+        error: "Upstream response exceeds 50MB limit",
+        limit: "50MB",
+        receivedBytes: upstreamBuffer.byteLength,
+      });
+    }
+    return response
+      .status(proxyResponse.status)
+      .send(Buffer.from(upstreamBuffer));
   } catch (err) {
     Object.entries(CORS_HEADERS).forEach(([key, value]) => {
       response.setHeader(key, value);
     });
     const message = err instanceof Error ? err.message : "Unknown proxy error";
-    return response.status(502).json({
-      error: "Proxy fetch failed",
+    const isTimeout = message?.includes("abort") || message?.includes("Abort");
+    return response.status(isTimeout ? 504 : 502).json({
+      error: isTimeout ? "Proxy timeout" : "Proxy fetch failed",
       message,
       target: targetUrl.toString(),
       method: upstreamMethod,

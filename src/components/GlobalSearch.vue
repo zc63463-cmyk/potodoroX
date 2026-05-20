@@ -1,127 +1,147 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { useAppStore } from '@/stores/app'
-import { useTaskStore } from '@/stores/task'
-import { useReflectionStore } from '@/stores/reflection'
+import { ref, computed, watch, onMounted, onUnmounted } from "vue";
+import { useRouter } from "vue-router";
+import { useAppStore } from "@/stores/app";
+import { useTaskStore } from "@/stores/task";
+import { useReflectionStore } from "@/stores/reflection";
 
-const router = useRouter()
-const appStore = useAppStore()
-const taskStore = useTaskStore()
-const reflectionStore = useReflectionStore()
+const router = useRouter();
+const appStore = useAppStore();
+const taskStore = useTaskStore();
+const reflectionStore = useReflectionStore();
 
-const query = ref('')
-const selectedIndex = ref(0)
-const inputRef = ref<HTMLInputElement | null>(null)
+const query = ref("");
+const selectedIndex = ref(0);
+const inputRef = ref<HTMLInputElement | null>(null);
 
 // 搜索结果
 const results = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  if (!q) return []
+  const q = query.value.trim().toLowerCase();
+  if (!q) return [];
 
   const items: Array<{
-    id: string
-    type: 'task' | 'reflection'
-    title: string
-    subtitle: string
-    icon: string
-    action: () => void
-  }> = []
+    id: string;
+    type: "task" | "reflection";
+    title: string;
+    subtitle: string;
+    icon: string;
+    action: () => void;
+  }> = [];
 
   // 搜索任务
   taskStore.tasks.forEach((task) => {
-    if (task.title.toLowerCase().includes(q) || task.description.toLowerCase().includes(q)) {
+    if (
+      task.title.toLowerCase().includes(q) ||
+      task.description.toLowerCase().includes(q)
+    ) {
       items.push({
         id: `task-${task.id}`,
-        type: 'task',
+        type: "task",
         title: task.title,
-        subtitle: task.status === 'done' ? '已完成' : task.status === 'in_progress' ? '进行中' : '待办',
-        icon: '📋',
+        subtitle:
+          task.status === "done"
+            ? "已完成"
+            : task.status === "in_progress"
+              ? "进行中"
+              : "待办",
+        icon: "📋",
         action: () => {
-          router.push('/tasks')
-          appStore.closeGlobalSearch()
+          router.push("/tasks");
+          appStore.closeGlobalSearch();
         },
-      })
+      });
     }
-  })
+  });
 
   // 搜索反思
   reflectionStore.reflections.forEach((reflection) => {
-    const preview = reflection.content.slice(0, 50)
+    const preview = reflection.content.slice(0, 50);
     if (preview.toLowerCase().includes(q) || reflection.date.includes(q)) {
       items.push({
         id: `reflection-${reflection.id}`,
-        type: 'reflection',
+        type: "reflection",
         title: reflection.date,
-        subtitle: preview || '无内容',
-        icon: '💭',
+        subtitle: preview || "无内容",
+        icon: "💭",
         action: () => {
-          router.push('/reflections')
-          appStore.closeGlobalSearch()
+          router.push("/reflections");
+          appStore.closeGlobalSearch();
         },
-      })
+      });
     }
-  })
+  });
 
-  return items.slice(0, 10)
-})
+  return items.slice(0, 10);
+});
 
 // 选中项变化时重置索引
 watch(results, () => {
-  selectedIndex.value = 0
-})
+  selectedIndex.value = 0;
+});
 
 // 键盘导航
 function handleKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape') {
-    appStore.closeGlobalSearch()
-    return
+  if (e.key === "Escape") {
+    appStore.closeGlobalSearch();
+    return;
   }
 
-  if (e.key === 'ArrowDown') {
-    e.preventDefault()
-    selectedIndex.value = Math.min(selectedIndex.value + 1, results.value.length - 1)
-  } else if (e.key === 'ArrowUp') {
-    e.preventDefault()
-    selectedIndex.value = Math.max(selectedIndex.value - 1, 0)
-  } else if (e.key === 'Enter') {
-    e.preventDefault()
-    const item = results.value[selectedIndex.value]
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    selectedIndex.value = Math.min(
+      selectedIndex.value + 1,
+      results.value.length - 1
+    );
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    selectedIndex.value = Math.max(selectedIndex.value - 1, 0);
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    const item = results.value[selectedIndex.value];
     if (item) {
-      item.action()
+      item.action();
     }
   }
 }
 
 // 自动聚焦
-watch(() => appStore.showGlobalSearch, (show) => {
-  if (show) {
-    query.value = ''
-    selectedIndex.value = 0
-    setTimeout(() => inputRef.value?.focus(), 100)
+let focusTimer: ReturnType<typeof setTimeout> | null = null;
+watch(
+  () => appStore.showGlobalSearch,
+  (show) => {
+    if (show) {
+      query.value = "";
+      selectedIndex.value = 0;
+      focusTimer = setTimeout(() => inputRef.value?.focus(), 100);
+    }
   }
-})
+);
 
 // 点击外部关闭
 function handleBackdropClick(e: MouseEvent) {
   if (e.target === e.currentTarget) {
-    appStore.closeGlobalSearch()
+    appStore.closeGlobalSearch();
   }
 }
 
 onMounted(() => {
-  document.addEventListener('keydown', handleGlobalKeydown)
-})
+  document.addEventListener("keydown", handleGlobalKeydown);
+});
 
 onUnmounted(() => {
-  document.removeEventListener('keydown', handleGlobalKeydown)
-})
+  document.removeEventListener("keydown", handleGlobalKeydown);
+  if (focusTimer) clearTimeout(focusTimer);
+});
+
+onUnmounted(() => {
+  document.removeEventListener("keydown", handleGlobalKeydown);
+});
 
 function handleGlobalKeydown(e: KeyboardEvent) {
   // Ctrl+K 或 Cmd+K 打开搜索
-  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-    e.preventDefault()
-    appStore.toggleGlobalSearch()
+  if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+    e.preventDefault();
+    appStore.toggleGlobalSearch();
   }
 }
 </script>

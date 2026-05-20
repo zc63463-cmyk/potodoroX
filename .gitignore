@@ -33,7 +33,12 @@ src-tauri/icons/*.svg
 
 # Test artifacts
 .playwright-cli/
+coverage/
 
 # Tauri generated schemas
 src-tauri/gen/
 .vercel
+
+# AI workspace & misc
+.workbuddy/
+dist-verify/

@@ -1,38 +1,35 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
-import tailwindcss from '@tailwindcss/vite'
-import { resolve } from 'path'
+import { defineConfig } from "vite";
+import vue from "@vitejs/plugin-vue";
+import tailwindcss from "@tailwindcss/vite";
+import { resolve } from "path";
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [
-    vue(),
-    tailwindcss(),
-  ],
+  plugins: [vue(), tailwindcss()],
 
   // Tauri 生产构建使用相对路径，开发时使用默认绝对路径
   base: process.env.TAURI_ENV_PLATFORM
-    ? './'
+    ? "./"
     : process.env.VITE_BUILD_WEB
-      ? '/'
-      : '/',
+      ? "/"
+      : "/",
 
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src'),
+      "@": resolve(__dirname, "src"),
     },
   },
 
   // 测试配置
   test: {
-    environment: 'happy-dom',
+    environment: "happy-dom",
     globals: true,
-    include: ['src/**/*.test.ts'],
+    include: ["src/**/*.test.ts"],
     coverage: {
-      provider: 'v8',
-      include: ['src/**/*.ts'],
-      exclude: ['src/**/*.test.ts', 'src/types/**', 'src/**/*.d.ts'],
+      provider: "v8",
+      include: ["src/**/*.ts"],
+      exclude: ["src/**/*.test.ts", "src/types/**", "src/**/*.d.ts"],
     },
   },
 
@@ -44,7 +41,7 @@ export default defineConfig({
     host: true,
     watch: {
       // 告知 vite 监听 `src` 目录以外的文件变化
-      ignored: ['**/src-tauri/**'],
+      ignored: ["**/src-tauri/**"],
     },
   },
 
@@ -52,21 +49,25 @@ export default defineConfig({
   build: {
     // Tauri 使用 Chromium on Windows 和 WebKit on macOS/Linux
     // 使用现代浏览器目标以支持解构等语法
-    target: process.env.TAURI_ENV_PLATFORM === 'windows'
-      ? 'chrome105'
-      : process.env.VITE_BUILD_WEB
-        ? 'es2015'
-        : 'safari16',
+    target:
+      process.env.TAURI_ENV_PLATFORM === "windows"
+        ? "chrome105"
+        : process.env.VITE_BUILD_WEB
+          ? "es2015"
+          : "safari16",
     // 开发构建时不要 minify，方便调试
-    minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
+    minify: !process.env.TAURI_ENV_DEBUG ? "esbuild" : false,
     // 为 Tauri 产出 sourcemap
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
+    // 生产构建移除诊断日志，保留 console.error
+    esbuild: {
+      pure: ["console.log", "console.warn", "console.info", "console.debug"],
+    },
   },
 
   // 环境变量前缀
-  envPrefix: ['VITE_', 'TAURI_ENV_*'],
+  envPrefix: ["VITE_", "TAURI_ENV_*"],
 
-  // TypeScript 类型检查
-  // 在 build 时禁用，让 tsc 单独处理
+  // 保留终端历史输出，不清屏
   clearScreen: false,
-})
+});

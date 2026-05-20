@@ -4,7 +4,7 @@
 // 规划 / 完成情况 / 专注记录 三 Tab 设计
 // ============================================================
 
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, onUnmounted, nextTick } from "vue";
 import { useSessionStore } from "@/stores/session";
 import { PRIORITIES, STATUSES } from "@/utils/constants";
 import { formatRelativeTime, formatFriendlyDate } from "@/utils/format";
@@ -22,6 +22,20 @@ const emit = defineEmits<{
   (e: "close"): void;
   (e: "update", id: string, input: UpdateTaskInput): void;
 }>();
+
+const modalPanelRef = ref<HTMLElement | null>(null);
+
+// 模态框打开时自动聚焦，确保 ESC 键可被捕获
+watch(
+  () => props.visible,
+  (visible) => {
+    if (visible) {
+      nextTick(() => {
+        modalPanelRef.value?.focus();
+      });
+    }
+  }
+);
 
 // ---- Stores ----
 const sessionStore = useSessionStore();
@@ -102,9 +116,24 @@ watch(
     sessionSavingIds.value.clear();
     sessionSaveTimeouts.value.forEach((t) => clearTimeout(t));
     sessionSaveTimeouts.value.clear();
+    // task 切换时清空 task 自动保存
+    if (saveTimeout) {
+      clearTimeout(saveTimeout);
+      saveTimeout = null;
+    }
   },
   { immediate: true }
 );
+
+// 组件卸载时清理所有 pending timeout
+onUnmounted(() => {
+  if (saveTimeout) {
+    clearTimeout(saveTimeout);
+    saveTimeout = null;
+  }
+  sessionSaveTimeouts.value.forEach((t) => clearTimeout(t));
+  sessionSaveTimeouts.value.clear();
+});
 
 watch(
   () => props.initialTab,
@@ -302,7 +331,12 @@ function close() {
 <template>
   <Transition name="modal">
     <div v-if="visible && task" class="modal-overlay" @click.self="close">
-      <div class="modal-panel">
+      <div
+        ref="modalPanelRef"
+        class="modal-panel"
+        tabindex="-1"
+        @keydown.esc="close"
+      >
         <!-- 头部 -->
         <div class="modal-header">
           <h2 class="modal-title">{{ task.title }}</h2>
