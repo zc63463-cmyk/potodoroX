@@ -61,11 +61,11 @@ export const useSyncStore = defineStore("sync", () => {
 
   function serialized<T>(fn: () => Promise<T>): Promise<T> {
     const prev = _syncLock;
-    let release: () => void;
+    let release: (() => void) | undefined;
     _syncLock = new Promise((resolve) => {
       release = resolve;
     });
-    return prev.then(() => fn()).finally(() => release!());
+    return prev.then(() => fn()).finally(() => release?.());
   }
 
   // ---- 计算属性 ----
