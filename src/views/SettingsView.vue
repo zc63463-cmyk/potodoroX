@@ -533,6 +533,20 @@ async function syncWebDav() {
     return;
   }
 
+  // 全为 0 时给出更友好的提示（事件流同步的正常状态）
+  if (
+    result.pushed === 0 &&
+    result.pulled === 0 &&
+    result.processed === 0 &&
+    result.errors === 0
+  ) {
+    appStore.showToast(
+      "同步完成：当前无待同步数据。尝试创建任务或完成一次番茄钟后再同步。",
+      "success"
+    );
+    return;
+  }
+
   const summary = `推 ${result.pushed}，拉 ${result.pulled}，处理 ${result.processed}${
     result.errors > 0 ? `，失败 ${result.errors}` : ""
   }`;

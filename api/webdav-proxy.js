@@ -60,8 +60,8 @@ export default async function handler(request, response) {
       .json({ status: "ok", service: "pomodorox-webdav-proxy" });
   }
 
-  // 根路径文档
-  if (!url.searchParams.has("url")) {
+  // 根路径文档（无 url 且无 t 参数时）
+  if (!url.searchParams.has("url") && !url.searchParams.has("t")) {
     Object.entries({ ...CORS_HEADERS, "Content-Type": "text/plain" }).forEach(
       ([key, value]) => {
         response.setHeader(key, value);
@@ -71,7 +71,7 @@ export default async function handler(request, response) {
       .status(200)
       .send(
         "PomodoroX WebDAV Proxy (Vercel)\n\n" +
-          "Usage: <method> /api/webdav-proxy?url=<webdav-target-url>\n" +
+          "Usage: <method> /api/webdav-proxy?t=<base64-target-url>\n" +
           "Allowed hosts: " +
           ALLOWED_HOSTS.join(", ") +
           "\n"
