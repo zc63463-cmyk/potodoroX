@@ -250,9 +250,10 @@ async function importData() {
         result = await syncStore.importFullBackup(data, mode);
       } else {
         // v1 兼容（仅 tasks/reflections/sessions）
-        const validTasks = data.tasks
-          .filter((t: any) => t.title)
-          .map((t: any) => ({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const validTasks = (data.tasks as any[])
+          .filter((t) => t.title)
+          .map((t) => ({
             title: t.title,
             description: t.description || "",
             priority: t.priority || "medium",
@@ -260,18 +261,19 @@ async function importData() {
             tags: t.tags || [],
             dueDate: t.dueDate || null,
           }));
-        const validReflections = data.reflections
-          .filter((r: any) => r.date)
-          .map((r: any) => ({
+        // v1 兼容（仅 tasks/reflections/sessions）
+        const validReflections = (data.reflections as any[])
+          .filter((r) => r.date)
+          .map((r) => ({
             date: r.date,
             content: r.content || "",
             mood: r.mood || "normal",
             relatedTaskIds: r.relatedTaskIds || [],
             tags: r.tags || [],
           }));
-        const validSessions = data.sessions
-          .filter((s: any) => s.type && s.duration)
-          .map((s: any) => ({
+        const validSessions = (data.sessions as any[])
+          .filter((s) => s.type && s.duration)
+          .map((s) => ({
             taskId: s.taskId,
             type: s.type,
             duration: s.duration,

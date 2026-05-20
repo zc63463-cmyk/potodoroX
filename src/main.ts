@@ -23,7 +23,7 @@ app.config.errorHandler = (err, _instance, info) => {
   if (import.meta.env.DEV) console.error("[Vue Error]", err, info);
   // 标记已处理，避免 window.onerror 重复显示 Toast
   if (err instanceof Error) {
-    (err as any).__vueHandled = true;
+    (err as unknown as Record<string, unknown>).__vueHandled = true;
   }
   try {
     const appStore = useAppStore();
@@ -35,7 +35,11 @@ app.config.errorHandler = (err, _instance, info) => {
 
 // 捕获全局 JS 错误（过滤已被 Vue errorHandler 处理的错误）
 window.addEventListener("error", (event) => {
-  if (event.error && (event.error as any).__vueHandled) return;
+  if (
+    event.error &&
+    (event.error as unknown as Record<string, unknown>).__vueHandled
+  )
+    return;
   if (import.meta.env.DEV) console.error("[Global Error]", event.error);
   try {
     const appStore = useAppStore();

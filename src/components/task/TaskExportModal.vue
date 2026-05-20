@@ -93,7 +93,7 @@ async function handleExport() {
         : undefined;
 
     const content = exportAdvancedReport({
-      type: exportType.value as any,
+      type: exportType.value,
       format: exportFormat.value,
       tasks: filteredTasks.value,
       sessions: filteredSessions.value,

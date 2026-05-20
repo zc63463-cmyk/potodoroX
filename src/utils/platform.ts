@@ -3,9 +3,12 @@
  */
 
 export function isTauri(): boolean {
-  return typeof window !== 'undefined' && (window as any).__TAURI__ !== undefined
+  return (
+    typeof window !== "undefined" &&
+    (window as unknown as Record<string, unknown>).__TAURI__ !== undefined
+  );
 }
 
 export function isWeb(): boolean {
-  return typeof window !== 'undefined' && !isTauri()
+  return typeof window !== "undefined" && !isTauri();
 }

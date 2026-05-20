@@ -5,7 +5,7 @@ import ReflectionBrowser from "@/components/reflection/ReflectionBrowser.vue";
 import ReflectionDetailModal from "@/components/reflection/ReflectionDetailModal.vue";
 import { useReflectionStore } from "@/stores/reflection";
 import { useTaskStore } from "@/stores/task";
-import type { Mood, Reflection } from "@/types";
+import type { Mood, Reflection, ReflectionFilter } from "@/types";
 import { formatDate, formatFriendlyDate } from "@/utils/format";
 
 // ---- Stores ----
@@ -212,7 +212,7 @@ function handleDateRangeFilter(dateFrom: string | null, dateTo: string | null) {
 }
 
 function updateStoreFilter() {
-  const filter: any = {};
+  const filter: Partial<ReflectionFilter> = {};
   if (browseActiveTag.value) {
     filter.tag = browseActiveTag.value;
   }
