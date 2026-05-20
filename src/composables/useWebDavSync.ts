@@ -858,9 +858,18 @@ export function useWebDavSync() {
       }
     }
 
-    // Web 端：通过代理发一个 PROPFIND 到根路径
+    // Web 端：通过代理发一个 PROPFIND 到实际使用的 pomodorox/ 目录
+    // 根路径可能 207 但子路径 400（如 URL 缺少 /dav/），所以测实际路径更可靠
     try {
-      const res = await webProxyRequest(config.value, "PROPFIND", "");
+      const res = await webProxyRequest(
+        config.value,
+        "PROPFIND",
+        "pomodorox/",
+        undefined,
+        {
+          depth: "0",
+        }
+      );
       return res.status >= 200 && res.status < 400;
     } catch (err) {
       console.error("[WebDAV] 代理连接测试失败:", err);

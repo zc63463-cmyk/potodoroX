@@ -472,6 +472,18 @@ function saveWebDavConfig() {
       };
       return;
     }
+    // 坚果云：自动补全 /dav/ 路径（常见错误）
+    try {
+      const parsed = new URL(url);
+      if (
+        parsed.hostname.includes("jianguoyun.com") &&
+        !parsed.pathname.startsWith("/dav/")
+      ) {
+        url = `${parsed.protocol}//${parsed.host}/dav/`;
+      }
+    } catch {
+      // 忽略无效 URL
+    }
     webDav.setConfig({
       url,
       username: webDavUsername.value,
