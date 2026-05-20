@@ -607,7 +607,12 @@ async function webProxyRequest(
       body ??
       '<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:allprop/></D:propfind>';
   } else if (method === "PUT") {
-    headers["Content-Type"] = "application/json";
+    // 根据文件扩展名推断 Content-Type，避免坚果云因类型不匹配返回 400
+    const ext = path.split(".").pop()?.toLowerCase() ?? "";
+    headers["Content-Type"] =
+      ext === "md" || ext === "txt"
+        ? "text/plain; charset=utf-8"
+        : "application/json; charset=utf-8";
   } else if (body !== undefined) {
     headers["Content-Type"] = "application/json";
   }
