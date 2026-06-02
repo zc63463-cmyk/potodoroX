@@ -498,6 +498,10 @@ function skipSessionCompletion() {
 
 /** 点击计时器中心 */
 function onTimerCenterClick() {
+  // 自由计时 idle 态：大计时器区域不触发计时，避免与输入框编辑冲突
+  if (timerStore.sessionType === "free" && isIdle.value) {
+    return;
+  }
   toggleTimer();
   // 移动端沉浸模式：双击计时器区域切换全屏
   if (
@@ -1136,57 +1140,61 @@ onUnmounted(() => {
 
           <!-- 中心内容 -->
           <div class="timer-center-content">
-            <div class="timer-digits" :style="{ color: sessionColor }">
-              <span
-                v-for="(ch, i) in displayTime.split('')"
-                :key="ch + '-' + i"
-                class="digit-char"
-                :class="{ 'digit-colon': ch === ':' }"
-                >{{ ch }}</span
+            <!-- 自由计时 idle 态：大数字变为可编辑输入框 -->
+            <template v-if="isIdle && timerStore.sessionType === 'free'">
+              <div
+                class="free-duration-editor"
+                :style="{ color: sessionColor }"
+                @click.stop
               >
-            </div>
-            <!-- 自由计时输入（仅 idle + free 模式） -->
-            <div
-              v-if="isIdle && timerStore.sessionType === 'free'"
-              class="free-duration-input"
-            >
-              <div class="duration-field">
-                <input
-                  ref="minInputRef"
-                  v-model.number="freeMinutes"
-                  type="number"
-                  min="1"
-                  max="999"
-                  class="duration-input"
-                  :style="{
-                    borderColor: sessionColor + '40',
-                    color: sessionColor,
-                  }"
-                  @keydown.stop
-                />
-                <span class="duration-unit" :style="{ color: sessionColor }"
-                  >分</span
+                <div class="editor-field">
+                  <input
+                    ref="minInputRef"
+                    v-model.number="freeMinutes"
+                    type="number"
+                    min="1"
+                    max="999"
+                    class="editor-input"
+                    :style="{
+                      borderColor: sessionColor + '40',
+                      color: sessionColor,
+                    }"
+                    @keydown.stop
+                  />
+                  <span class="editor-unit">分</span>
+                </div>
+                <span class="editor-sep">:</span>
+                <div class="editor-field">
+                  <input
+                    v-model.number="freeSeconds"
+                    type="number"
+                    min="0"
+                    max="59"
+                    class="editor-input"
+                    :style="{
+                      borderColor: sessionColor + '40',
+                      color: sessionColor,
+                    }"
+                    @keydown.stop
+                  />
+                  <span class="editor-unit">秒</span>
+                </div>
+              </div>
+              <div class="editor-hint">点击数字直接编辑时长</div>
+            </template>
+
+            <!-- 非自由计时 idle 态：正常大数字显示 -->
+            <template v-else>
+              <div class="timer-digits" :style="{ color: sessionColor }">
+                <span
+                  v-for="(ch, i) in displayTime.split('')"
+                  :key="ch + '-' + i"
+                  class="digit-char"
+                  :class="{ 'digit-colon': ch === ':' }"
+                  >{{ ch }}</span
                 >
               </div>
-              <span class="duration-sep">:</span>
-              <div class="duration-field">
-                <input
-                  v-model.number="freeSeconds"
-                  type="number"
-                  min="0"
-                  max="59"
-                  class="duration-input"
-                  :style="{
-                    borderColor: sessionColor + '40',
-                    color: sessionColor,
-                  }"
-                  @keydown.stop
-                />
-                <span class="duration-unit" :style="{ color: sessionColor }"
-                  >秒</span
-                >
-              </div>
-            </div>
+            </template>
             <div v-if="isPausedState" class="timer-status-badge paused-badge">
               已暂停
             </div>
@@ -2154,55 +2162,77 @@ onUnmounted(() => {
   transition: all var(--transition-slow);
 }
 
-/* 自由计时时长输入 */
-.free-duration-input {
+/* 自由计时编辑器（idle 态替代大数字） */
+.free-duration-editor {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: center;
-  gap: 4px;
-  margin-top: 4px;
+  gap: 8px;
+  line-height: 1;
 }
 
-.duration-field {
+.editor-field {
   display: flex;
-  align-items: center;
-  gap: 2px;
+  align-items: baseline;
+  gap: 4px;
 }
 
-.duration-input {
-  width: 48px;
+.editor-input {
+  width: 2.5em;
   background: transparent;
-  border: 1px solid;
-  border-radius: var(--radius-sm);
-  padding: 4px 4px 4px 8px;
-  font-size: 1.1rem;
-  font-weight: 600;
+  border: 2px solid;
+  border-radius: var(--radius-md);
+  padding: 4px 8px;
+  font-size: 3.5rem;
+  font-weight: 200;
+  font-variant-numeric: tabular-nums;
   text-align: center;
   outline: none;
+  line-height: 1;
+  transition: all var(--transition-fast);
   -moz-appearance: textfield;
 }
 
-.duration-input::-webkit-outer-spin-button,
-.duration-input::-webkit-inner-spin-button {
+.editor-input::-webkit-outer-spin-button,
+.editor-input::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
 
-.duration-input:focus {
-  box-shadow: 0 0 0 2px var(--accent-dim);
+.editor-input:hover {
+  border-color: var(--accent) !important;
+  background: var(--surface-hover);
 }
 
-.duration-sep {
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin: 0 2px;
+.editor-input:focus {
+  border-color: var(--accent) !important;
+  background: var(--bg);
+  box-shadow:
+    0 0 0 3px var(--accent-dim),
+    0 0 20px var(--accent-dim);
 }
 
-.duration-unit {
-  font-size: 0.75rem;
+.editor-sep {
+  font-size: 3rem;
+  font-weight: 200;
+  opacity: 0.4;
+  margin: 0 4px;
+  user-select: none;
+}
+
+.editor-unit {
+  font-size: 1rem;
   font-weight: 500;
+  opacity: 0.6;
+  user-select: none;
+}
+
+.editor-hint {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  margin-top: 8px;
   opacity: 0.7;
+  user-select: none;
 }
 
 /* ---- 环形进度容器 ---- */
@@ -2699,6 +2729,20 @@ onUnmounted(() => {
     font-size: 4rem;
   }
 
+  .editor-input {
+    font-size: 3rem;
+    width: 2.2em;
+    padding: 2px 6px;
+  }
+
+  .editor-sep {
+    font-size: 2.5rem;
+  }
+
+  .editor-unit {
+    font-size: 0.85rem;
+  }
+
   .timer-center-content {
     width: 240px;
     height: 240px;
@@ -2759,6 +2803,25 @@ onUnmounted(() => {
 @media (max-height: 700px) {
   .timer-digits {
     font-size: 3.2rem;
+  }
+
+  .editor-input {
+    font-size: 2.5rem;
+    width: 2em;
+    padding: 2px 4px;
+  }
+
+  .editor-sep {
+    font-size: 2rem;
+  }
+
+  .editor-unit {
+    font-size: 0.75rem;
+  }
+
+  .editor-hint {
+    margin-top: 4px;
+    font-size: 0.65rem;
   }
 
   .timer-center-content {
