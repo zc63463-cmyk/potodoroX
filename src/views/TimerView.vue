@@ -2308,7 +2308,7 @@ onUnmounted(() => {
 
 /* 会话类型标签 */
 .session-label-wrapper {
-  margin-bottom: 4px;
+  margin-bottom: 16px;
 }
 
 .session-type-badge {
@@ -3177,7 +3177,7 @@ onUnmounted(() => {
   }
 
   .session-label-wrapper {
-    margin-bottom: 0;
+    margin-bottom: 12px;
   }
 
   .pomodoro-indicators {
