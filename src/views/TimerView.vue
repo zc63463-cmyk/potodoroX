@@ -2330,6 +2330,11 @@ onUnmounted(() => {
   gap: 20px;
   margin-top: -4px;
   margin-bottom: 4px;
+  padding: 16px 28px;
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
 }
 
 /* 圆环滑块容器 */
@@ -2977,6 +2982,7 @@ onUnmounted(() => {
 
   .free-duration-setter {
     gap: 14px;
+    padding: 12px 20px;
   }
 
   .setter-ring {
@@ -3059,6 +3065,7 @@ onUnmounted(() => {
     gap: 12px;
     margin-top: -4px;
     margin-bottom: 4px;
+    padding: 10px 16px;
   }
 
   .setter-ring {
