@@ -230,7 +230,7 @@ const freeMinutes = ref(30);
 const freeSeconds = ref(0);
 
 // ---- 自由计时外置圆环滑块 ----
-const RING_SLIDER_RADIUS = 48;
+const RING_SLIDER_RADIUS = 32;
 const RING_SLIDER_CIRCUMFERENCE = 2 * Math.PI * RING_SLIDER_RADIUS;
 const RING_SLIDER_MIN = 1;
 const RING_SLIDER_MAX = 180;
@@ -262,11 +262,11 @@ const ringSliderThumbAngle = computed(
 );
 
 const ringSliderThumbX = computed(
-  () => 60 + RING_SLIDER_RADIUS * Math.cos(ringSliderThumbAngle.value)
+  () => 40 + RING_SLIDER_RADIUS * Math.cos(ringSliderThumbAngle.value)
 );
 
 const ringSliderThumbY = computed(
-  () => 60 + RING_SLIDER_RADIUS * Math.sin(ringSliderThumbAngle.value)
+  () => 40 + RING_SLIDER_RADIUS * Math.sin(ringSliderThumbAngle.value)
 );
 
 function updateFreeMinutesFromEvent(e: MouseEvent | TouchEvent) {
@@ -1305,36 +1305,36 @@ onUnmounted(() => {
           v-if="isIdle && timerStore.sessionType === 'free'"
           class="free-duration-setter"
         >
-          <!-- 圆环滑块 + 中心分钟输入 -->
+          <!-- 小圆环滑块（快速调整） -->
           <div class="setter-ring">
             <svg
               ref="ringSliderRef"
-              viewBox="0 0 120 120"
+              viewBox="0 0 80 80"
               class="ring-slider"
               @mousedown.prevent="onRingSliderDown"
               @touchstart.prevent="onRingSliderDown"
             >
               <!-- 背景轨道 -->
               <circle
-                cx="60"
-                cy="60"
+                cx="40"
+                cy="40"
                 :r="RING_SLIDER_RADIUS"
                 fill="none"
                 stroke="var(--border)"
-                stroke-width="4"
+                stroke-width="5"
               />
               <!-- 进度弧 -->
               <circle
-                cx="60"
-                cy="60"
+                cx="40"
+                cy="40"
                 :r="RING_SLIDER_RADIUS"
                 fill="none"
                 :stroke="sessionColor"
-                stroke-width="4"
+                stroke-width="5"
                 stroke-linecap="round"
                 :stroke-dasharray="RING_SLIDER_CIRCUMFERENCE"
                 :stroke-dashoffset="ringSliderOffset"
-                transform="rotate(-90 60 60)"
+                transform="rotate(-90 40 40)"
                 class="ring-slider-progress"
                 :class="{ 'is-dragging': isDraggingRing }"
               />
@@ -1342,42 +1342,44 @@ onUnmounted(() => {
               <circle
                 :cx="ringSliderThumbX"
                 :cy="ringSliderThumbY"
-                r="6"
+                r="5"
                 :fill="sessionColor"
                 class="ring-slider-thumb"
                 :class="{ 'is-dragging': isDraggingRing }"
               />
             </svg>
-            <!-- 中心分钟输入 -->
-            <div class="ring-center-input">
+          </div>
+
+          <!-- 分隔线 -->
+          <div class="setter-divider" />
+
+          <!-- 精确输入区（分钟 + 秒） -->
+          <div class="setter-inputs">
+            <div class="setter-input-group">
               <input
                 v-model.number="freeMinutes"
                 type="number"
                 min="1"
                 max="180"
-                class="ring-minutes-input"
+                class="setter-input-num"
                 :style="{ color: sessionColor }"
                 @keydown.stop
               />
-              <span class="ring-minutes-label">分钟</span>
+              <span class="setter-input-label">分</span>
             </div>
-          </div>
-
-          <!-- 秒数输入 -->
-          <div class="setter-seconds">
-            <input
-              v-model.number="freeSeconds"
-              type="number"
-              min="0"
-              max="59"
-              class="setter-seconds-input"
-              :style="{
-                color: sessionColor,
-                borderColor: sessionColor + '40',
-              }"
-              @keydown.stop
-            />
-            <span class="setter-seconds-label">秒</span>
+            <span class="setter-input-sep">:</span>
+            <div class="setter-input-group">
+              <input
+                v-model.number="freeSeconds"
+                type="number"
+                min="0"
+                max="59"
+                class="setter-input-num"
+                :style="{ color: sessionColor }"
+                @keydown.stop
+              />
+              <span class="setter-input-label">秒</span>
+            </div>
           </div>
         </div>
       </Transition>
@@ -2311,16 +2313,15 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 20px;
-  margin-top: -8px;
-  margin-bottom: 8px;
+  gap: 16px;
+  margin-top: -4px;
+  margin-bottom: 4px;
 }
 
-/* 圆环滑块容器 */
+/* 圆环滑块（快速调整） */
 .setter-ring {
-  position: relative;
-  width: 130px;
-  height: 130px;
+  width: 72px;
+  height: 72px;
   flex-shrink: 0;
 }
 
@@ -2344,98 +2345,83 @@ onUnmounted(() => {
   transition:
     r 0.15s ease,
     filter 0.15s ease;
-  filter: drop-shadow(0 0 4px currentColor);
+  filter: drop-shadow(0 0 3px currentColor);
 }
 
 .ring-slider-thumb.is-dragging {
   cursor: grabbing;
-  r: 8;
-  filter: drop-shadow(0 0 8px currentColor);
+  r: 7;
+  filter: drop-shadow(0 0 6px currentColor);
 }
 
-/* 中心分钟输入 */
-.ring-center-input {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+/* 分隔线 */
+.setter-divider {
+  width: 1px;
+  height: 48px;
+  background: var(--border);
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
+/* 精确输入区 */
+.setter-inputs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.setter-input-group {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  pointer-events: auto;
 }
 
-.ring-minutes-input {
-  width: 2em;
-  background: transparent;
-  border: none;
-  border-bottom: 1.5px solid var(--border);
-  padding: 0;
-  font-size: 1.6rem;
-  font-weight: 300;
+.setter-input-num {
+  width: 2.2em;
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 6px 4px;
+  font-size: 1.3rem;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   text-align: center;
   outline: none;
   line-height: 1;
-  transition: border-color var(--transition-fast);
+  transition: all var(--transition-fast);
   -moz-appearance: textfield;
 }
 
-.ring-minutes-input::-webkit-outer-spin-button,
-.ring-minutes-input::-webkit-inner-spin-button {
+.setter-input-num::-webkit-outer-spin-button,
+.setter-input-num::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
 
-.ring-minutes-input:focus {
-  border-color: var(--accent);
+.setter-input-num:hover {
+  border-color: var(--text-tertiary);
 }
 
-.ring-minutes-label {
+.setter-input-num:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.setter-input-label {
   font-size: 0.65rem;
   color: var(--text-tertiary);
   font-weight: 500;
   user-select: none;
 }
 
-/* 秒数输入 */
-.setter-seconds {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-
-.setter-seconds-input {
-  width: 3em;
-  background: var(--bg);
-  border: 1.5px solid;
-  border-radius: var(--radius-md);
-  padding: 6px 4px;
-  font-size: 1.1rem;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-  outline: none;
-  transition: all var(--transition-fast);
-  -moz-appearance: textfield;
-}
-
-.setter-seconds-input::-webkit-outer-spin-button,
-.setter-seconds-input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-.setter-seconds-input:focus {
-  border-color: var(--accent) !important;
-  box-shadow: 0 0 0 2px var(--accent-dim);
-}
-
-.setter-seconds-label {
-  font-size: 0.7rem;
+.setter-input-sep {
+  font-size: 1.2rem;
+  font-weight: 300;
   color: var(--text-tertiary);
+  opacity: 0.5;
+  margin: 0 2px;
+  align-self: center;
   user-select: none;
 }
 
@@ -2942,21 +2928,25 @@ onUnmounted(() => {
   }
 
   .free-duration-setter {
-    gap: 16px;
+    gap: 12px;
   }
 
   .setter-ring {
-    width: 110px;
-    height: 110px;
+    width: 60px;
+    height: 60px;
   }
 
-  .ring-minutes-input {
-    font-size: 1.3rem;
+  .setter-divider {
+    height: 36px;
   }
 
-  .setter-seconds-input {
-    font-size: 1rem;
+  .setter-input-num {
+    font-size: 1.1rem;
     padding: 4px;
+  }
+
+  .setter-input-sep {
+    font-size: 1rem;
   }
 
   .timer-center-content {
@@ -3022,27 +3012,27 @@ onUnmounted(() => {
   }
 
   .free-duration-setter {
-    gap: 12px;
+    gap: 10px;
     margin-top: -4px;
     margin-bottom: 4px;
   }
 
   .setter-ring {
-    width: 90px;
-    height: 90px;
+    width: 52px;
+    height: 52px;
   }
 
-  .ring-minutes-input {
-    font-size: 1.1rem;
+  .setter-divider {
+    height: 32px;
   }
 
-  .ring-minutes-label {
-    font-size: 0.55rem;
-  }
-
-  .setter-seconds-input {
-    font-size: 0.85rem;
+  .setter-input-num {
+    font-size: 1rem;
     padding: 3px;
+  }
+
+  .setter-input-sep {
+    font-size: 0.9rem;
   }
 
   .editor-hint {
