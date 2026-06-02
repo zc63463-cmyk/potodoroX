@@ -25,7 +25,7 @@ import {
   playSessionComplete,
   playSuccess,
 } from "@/composables/useAudio";
-import { TIMER_MODES } from "@/utils/constants";
+import { TIMER_MODES, PRIORITIES } from "@/utils/constants";
 import { formatMinutes, getWeekdayName, formatDate } from "@/utils/format";
 import type { Task, SessionType } from "@/types";
 import { animate, spring } from "animejs";
@@ -179,8 +179,50 @@ const longBreakInterval = computed(
   () => settingsStore.settings.longBreakInterval
 );
 
-/** 可选任务列表（活跃任务） */
-const selectableTasks = computed(() => taskStore.activeTasks);
+// ---- 任务选择器筛选状态 ----
+const taskTagFilter = ref<string | null>(null);
+const taskSearchQuery = ref("");
+
+/** 可选任务列表（活跃任务，in_progress 置顶） */
+const selectableTasks = computed(() => {
+  const list = [...taskStore.activeTasks];
+  // in_progress 任务置顶
+  list.sort((a, b) => {
+    if (a.status === "in_progress" && b.status !== "in_progress") return -1;
+    if (a.status !== "in_progress" && b.status === "in_progress") return 1;
+    return b.createdAt.localeCompare(a.createdAt);
+  });
+  return list;
+});
+
+/** 综合筛选后的任务列表（搜索 + 标签） */
+const filteredSelectableTasks = computed(() => {
+  let list = selectableTasks.value;
+
+  // 标签筛选
+  if (taskTagFilter.value) {
+    list = list.filter((t) => t.tags.includes(taskTagFilter.value!));
+  }
+
+  // 搜索筛选
+  if (taskSearchQuery.value.trim()) {
+    const q = taskSearchQuery.value.trim().toLowerCase();
+    list = list.filter(
+      (t) =>
+        t.title.toLowerCase().includes(q) ||
+        t.tags.some((tag) => tag.toLowerCase().includes(q))
+    );
+  }
+
+  return list;
+});
+
+/** 下拉中可用的标签（仅出现在活跃任务中的标签） */
+const taskDropdownTags = computed(() => {
+  const tags = new Set<string>();
+  taskStore.activeTasks.forEach((t) => t.tags.forEach((tag) => tags.add(tag)));
+  return Array.from(tags).sort();
+});
 
 /** 自由计时分钟输入 */
 const freeMinutes = ref(30);
@@ -358,11 +400,24 @@ function cancelFastForward() {
 function selectTask(taskId: string | null) {
   timerStore.setCurrentTaskId(taskId);
   showTaskSelector.value = false;
+  taskTagFilter.value = null;
+  taskSearchQuery.value = "";
 }
 
 /** 切换任务选择器 */
 function toggleTaskSelector() {
   showTaskSelector.value = !showTaskSelector.value;
+  if (showTaskSelector.value) {
+    // 打开时重置筛选，避免上次筛选残留
+    taskTagFilter.value = null;
+    taskSearchQuery.value = "";
+  }
+}
+
+/** 清除任务筛选 */
+function clearTaskFilter() {
+  taskTagFilter.value = null;
+  taskSearchQuery.value = "";
 }
 
 let celebrationTimer: ReturnType<typeof setTimeout> | null = null;
@@ -762,44 +817,166 @@ onUnmounted(() => {
 
             <!-- 任务下拉选择 -->
             <Transition name="dropdown">
-              <div
-                v-if="showTaskSelector"
-                class="task-dropdown glass-strong"
-                @click.stop
-              >
+              <div v-if="showTaskSelector" class="task-dropdown" @click.stop>
                 <div class="dropdown-header">选择任务</div>
+
+                <!-- 搜索框 -->
+                <div class="dropdown-search">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  </svg>
+                  <input
+                    v-model="taskSearchQuery"
+                    type="text"
+                    placeholder="搜索任务或标签..."
+                    @click.stop
+                  />
+                  <button
+                    v-if="taskSearchQuery"
+                    class="search-clear"
+                    @click.stop="taskSearchQuery = ''"
+                  >
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                </div>
+
+                <!-- 标签筛选栏 -->
+                <div
+                  v-if="taskDropdownTags.length > 0"
+                  class="dropdown-tag-bar"
+                >
+                  <button
+                    class="tag-chip"
+                    :class="{ active: taskTagFilter === null }"
+                    @click.stop="taskTagFilter = null"
+                  >
+                    全部
+                  </button>
+                  <button
+                    v-for="tag in taskDropdownTags"
+                    :key="tag"
+                    class="tag-chip"
+                    :class="{ active: taskTagFilter === tag }"
+                    @click.stop="
+                      taskTagFilter = taskTagFilter === tag ? null : tag
+                    "
+                  >
+                    {{ tag }}
+                  </button>
+                </div>
+
+                <!-- 无任务 / 清除选择 -->
                 <button
                   class="dropdown-item"
                   :class="{ active: timerStore.currentTaskId === null }"
                   @click="selectTask(null)"
                 >
                   <span class="item-indicator" />
-                  <span>无任务</span>
+                  <span class="item-title dim">不关联任务</span>
                 </button>
                 <div class="dropdown-divider" />
-                <button
-                  v-for="task in selectableTasks"
-                  :key="task.id"
-                  class="dropdown-item"
-                  :class="{ active: timerStore.currentTaskId === task.id }"
-                  @click="selectTask(task.id)"
-                >
-                  <span
-                    class="item-indicator"
-                    :style="{
-                      backgroundColor:
-                        task.status === 'in_progress'
-                          ? '#58A6FF'
-                          : 'transparent',
+
+                <!-- 任务列表 -->
+                <div class="dropdown-scroll">
+                  <button
+                    v-for="task in filteredSelectableTasks"
+                    :key="task.id"
+                    class="dropdown-item"
+                    :class="{
+                      active: timerStore.currentTaskId === task.id,
+                      'is-in-progress': task.status === 'in_progress',
                     }"
-                  />
-                  <span class="item-title">{{ task.title }}</span>
-                  <span class="item-meta">
-                    {{ task.actualPomodoros }}/{{ task.estimatedPomodoros }}
-                  </span>
-                </button>
-                <div v-if="selectableTasks.length === 0" class="dropdown-empty">
-                  暂无任务，去添加一个吧
+                    @click="selectTask(task.id)"
+                  >
+                    <span
+                      class="item-indicator"
+                      :style="{
+                        backgroundColor:
+                          task.status === 'in_progress'
+                            ? '#58A6FF'
+                            : 'transparent',
+                        borderColor:
+                          task.status === 'in_progress'
+                            ? '#58A6FF'
+                            : 'var(--text-tertiary)',
+                      }"
+                    />
+                    <div class="item-body">
+                      <div class="item-title-row">
+                        <span class="item-title">{{ task.title }}</span>
+                        <span class="item-meta">
+                          {{ task.actualPomodoros }}/{{
+                            task.estimatedPomodoros
+                          }}
+                        </span>
+                      </div>
+                      <div v-if="task.tags.length > 0" class="item-tags-row">
+                        <span
+                          v-for="tag in task.tags.slice(0, 3)"
+                          :key="tag"
+                          class="item-tag-badge"
+                        >
+                          {{ tag }}
+                        </span>
+                        <span v-if="task.tags.length > 3" class="item-tag-more">
+                          +{{ task.tags.length - 3 }}
+                        </span>
+                      </div>
+                    </div>
+                    <span
+                      class="item-priority-dot"
+                      :style="{
+                        backgroundColor:
+                          PRIORITIES.find((p) => p.value === task.priority)
+                            ?.color ?? '#8B949E',
+                      }"
+                      :title="
+                        PRIORITIES.find((p) => p.value === task.priority)
+                          ?.label ?? ''
+                      "
+                    />
+                  </button>
+                </div>
+
+                <!-- 空状态 -->
+                <div
+                  v-if="filteredSelectableTasks.length === 0"
+                  class="dropdown-empty"
+                >
+                  <template v-if="selectableTasks.length === 0">
+                    暂无任务，去添加一个吧
+                  </template>
+                  <template v-else>
+                    没有匹配的任务
+                    <button
+                      class="clear-filter-link"
+                      @click.stop="clearTaskFilter"
+                    >
+                      清除筛选
+                    </button>
+                  </template>
                 </div>
               </div>
             </Transition>
@@ -1660,43 +1837,164 @@ onUnmounted(() => {
   position: absolute;
   top: calc(100% + 8px);
   left: 0;
-  min-width: 300px;
-  max-width: 400px;
-  max-height: 360px;
-  overflow-y: auto;
+  min-width: 340px;
+  max-width: 420px;
+  max-height: 480px;
+  display: flex;
+  flex-direction: column;
   border-radius: var(--radius-lg);
   z-index: 100;
-  padding: 8px;
+  padding: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    0 2px 8px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .dropdown-header {
-  padding: 10px 12px 8px;
-  font-size: 0.75rem;
+  padding: 8px 10px 6px;
+  font-size: 0.7rem;
   font-weight: 600;
   color: var(--text-tertiary);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+/* 搜索框 */
+.dropdown-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  margin: 0 4px 6px;
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  transition: border-color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.dropdown-search:focus-within {
+  border-color: var(--accent);
+}
+
+.dropdown-search svg {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.dropdown-search input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-size: 0.8rem;
+  padding: 0;
+}
+
+.dropdown-search input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.search-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: var(--border);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 0;
+  transition: all var(--transition-fast);
+}
+
+.search-clear:hover {
+  background: var(--text-tertiary);
+  color: var(--bg);
+}
+
+/* 标签筛选栏 */
+.dropdown-tag-bar {
+  display: flex;
+  gap: 6px;
+  padding: 2px 4px 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+
+.dropdown-tag-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.tag-chip {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.tag-chip:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.tag-chip.active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* 滚动区域 */
+.dropdown-scroll {
+  overflow-y: auto;
+  max-height: 260px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.dropdown-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.dropdown-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
 }
 
 .dropdown-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   width: 100%;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: none;
   border-radius: var(--radius-md);
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--text);
   cursor: pointer;
   font-size: 0.85rem;
   text-align: left;
   transition: all var(--transition-fast);
+  position: relative;
 }
 
 .dropdown-item:hover {
   background: var(--surface-hover);
-  color: var(--text);
 }
 
 .dropdown-item.active {
@@ -1704,13 +2002,47 @@ onUnmounted(() => {
   color: var(--accent);
 }
 
+.dropdown-item.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent);
+}
+
+.dropdown-item.is-in-progress {
+  background: rgba(88, 166, 255, 0.06);
+}
+
+.dropdown-item.is-in-progress:hover {
+  background: rgba(88, 166, 255, 0.12);
+}
+
 .item-indicator {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
   border: 1.5px solid var(--text-tertiary);
+  margin-top: 5px;
   transition: all var(--transition-fast);
+}
+
+.item-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.item-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .item-title {
@@ -1718,12 +2050,49 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.item-title.dim {
+  color: var(--text-tertiary);
+  font-weight: 400;
 }
 
 .item-meta {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   color: var(--text-tertiary);
   flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.item-tags-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.item-tag-badge {
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text-tertiary);
+  font-size: 0.65rem;
+  border: 1px solid var(--border);
+}
+
+.item-tag-more {
+  padding: 1px 4px;
+  color: var(--text-tertiary);
+  font-size: 0.65rem;
+}
+
+.item-priority-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 5px;
 }
 
 .dropdown-divider {
@@ -1731,6 +2100,7 @@ onUnmounted(() => {
   background: var(--border);
   margin: 4px 8px;
   opacity: 0.5;
+  flex-shrink: 0;
 }
 
 .dropdown-empty {
@@ -1738,6 +2108,24 @@ onUnmounted(() => {
   text-align: center;
   font-size: 0.8rem;
   color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.clear-filter-link {
+  display: inline;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 4px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.clear-filter-link:hover {
+  color: var(--text);
 }
 
 /* ---- 中央计时器区域 ---- */
