@@ -43,6 +43,8 @@ export default ts.config(
         HTMLDivElement: "readonly",
         HTMLTextAreaElement: "readonly",
         SVGCircleElement: "readonly",
+        SVGSVGElement: "readonly",
+        TouchEvent: "readonly",
         FileReader: "readonly",
         Blob: "readonly",
         BeforeUnloadEvent: "readonly",
