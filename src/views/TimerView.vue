@@ -2309,6 +2309,15 @@ onUnmounted(() => {
 /* 会话类型标签 */
 .session-label-wrapper {
   margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
 }
 
 .session-type-badge {
@@ -3178,6 +3187,8 @@ onUnmounted(() => {
 
   .session-label-wrapper {
     margin-bottom: 12px;
+    padding: 10px 16px;
+    gap: 8px;
   }
 
   .pomodoro-indicators {
