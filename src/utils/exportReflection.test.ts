@@ -3,7 +3,7 @@
  * 覆盖：Markdown 导出 / JSON 导出 / 下载触发 / 格式 roundtrip
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeAll } from "vitest";
 import {
   exportReflectionAsMarkdown,
   exportReflectionAsJson,
@@ -11,6 +11,10 @@ import {
   downloadReflection,
 } from "./exportReflection";
 import type { Reflection } from "@/types";
+
+// 批量导出函数（待实现）
+let batchExportAsMarkdown: (r: Reflection[]) => string;
+let batchExportAsJson: (r: Reflection[]) => string;
 
 // ---- 测试数据 ----
 const fullReflection: Reflection = {
@@ -229,5 +233,95 @@ describe("downloadReflection", () => {
     downloadReflection(fullReflection, "json");
 
     document.createElement = origCreateElement;
+  });
+});
+
+// ============================================================
+// batchExportAsMarkdown
+// ============================================================
+describe("batchExportAsMarkdown", () => {
+  beforeAll(async () => {
+    const mod = await import("./exportReflection");
+    batchExportAsMarkdown = mod.batchExportAsMarkdown;
+  });
+
+  it("空数组应返回只有头部的空报告", () => {
+    const result = batchExportAsMarkdown([]);
+    expect(result).toContain("# 📝 PomodoroX 反思导出");
+    expect(result).toContain("_共 0 条反思记录_");
+    expect(result).not.toContain("---");
+  });
+
+  it("单条反思应包含头部 + 内容 + 分隔线", () => {
+    const result = batchExportAsMarkdown([fullReflection]);
+    expect(result).toContain("_共 1 条反思记录_");
+    expect(result).toContain(fullReflection.content);
+    // 分隔线在内容和头部之间
+    const sepCount = (result.match(/^---$/gm) || []).length;
+    expect(sepCount).toBeGreaterThanOrEqual(2); // frontmatter 的 --- + 尾部分隔
+  });
+
+  it("多条反思应按日期倒序排列", () => {
+    const r1: Reflection = {
+      ...fullReflection,
+      date: "2026-05-01",
+      content: "最早",
+    };
+    const r2: Reflection = {
+      ...fullReflection,
+      date: "2026-05-31",
+      content: "最新",
+    };
+
+    const result = batchExportAsMarkdown([r1, r2]);
+    const idx1 = result.indexOf("最早");
+    const idx2 = result.indexOf("最新");
+    expect(idx2).toBeLessThan(idx1); // 日期大的在前面
+  });
+});
+
+// ============================================================
+// batchExportAsJson
+// ============================================================
+describe("batchExportAsJson", () => {
+  beforeAll(async () => {
+    const mod = await import("./exportReflection");
+    batchExportAsJson = mod.batchExportAsJson;
+  });
+
+  it("应该导出为有效的 JSON 结构", () => {
+    const result = batchExportAsJson([fullReflection]);
+    const parsed = JSON.parse(result);
+
+    expect(parsed.version).toBe("pomodorox-reflections-batch-1.0");
+    expect(parsed.count).toBe(1);
+    expect(parsed.reflections).toHaveLength(1);
+    expect(parsed.reflections[0].date).toBe("2026-05-20");
+    expect(parsed.reflections[0].content).toBe(fullReflection.content);
+  });
+
+  it("空数组应返回 count:0", () => {
+    const result = batchExportAsJson([]);
+    const parsed = JSON.parse(result);
+    expect(parsed.count).toBe(0);
+    expect(parsed.reflections).toEqual([]);
+  });
+
+  it("多条反思应按日期倒序排列", () => {
+    const r1: Reflection = {
+      ...fullReflection,
+      date: "2026-05-01",
+      content: "c1",
+    };
+    const r2: Reflection = {
+      ...fullReflection,
+      date: "2026-05-31",
+      content: "c2",
+    };
+
+    const result = batchExportAsJson([r1, r2]);
+    const parsed = JSON.parse(result);
+    expect(parsed.reflections[0].content).toBe("c2"); // 日期大的在前
+    expect(parsed.reflections[1].content).toBe("c1");
   });
 });

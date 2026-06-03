@@ -30,6 +30,7 @@ import { formatMinutes, getWeekdayName, formatDate } from "@/utils/format";
 import type { Task, SessionType } from "@/types";
 import { animate, spring } from "animejs";
 import GooeyNav from "@/components/shared/GooeyNav.vue";
+import SessionNoteModal from "@/components/shared/SessionNoteModal.vue";
 
 // MagicRings 拆分为异步 chunk，避免 Three.js 拖累 TimerView 主包
 const MagicRings = defineAsyncComponent(
@@ -60,11 +61,21 @@ const celebrationParticles = ref<
   }>
 >([]);
 
-// ---- Session 规划/总结提示 ----
+// ---- Session 规划/总结（SessionNoteModal 回调） ----
 const showSessionPlanPrompt = ref(false);
-const sessionPlanInput = ref("");
 const showSessionCompletionPrompt = ref(false);
-const sessionCompletionInput = ref("");
+
+/** Modal 确认计划 → 开始计时 */
+function onPlanConfirm(plan: string) {
+  showSessionPlanPrompt.value = false;
+  doStartTimer(plan);
+}
+
+/** Modal 跳过计划 */
+function onPlanSkip() {
+  showSessionPlanPrompt.value = false;
+  doStartTimer();
+}
 
 // ---- Anime.js 动效状态 ----
 /** 进度环 SVG 元素引用 */
@@ -437,25 +448,6 @@ async function doStartTimer(plan?: string) {
   }
 }
 
-let sessionPlanTimer: ReturnType<typeof setTimeout> | null = null;
-
-/** 确认 Session 规划并开始 */
-function confirmSessionPlan() {
-  showSessionPlanPrompt.value = false;
-  const plan = sessionPlanInput.value.trim();
-  doStartTimer(plan);
-  // 清空输入，为下次准备
-  sessionPlanTimer = setTimeout(() => {
-    sessionPlanInput.value = "";
-  }, 300);
-}
-
-/** 跳过 Session 规划 */
-function skipSessionPlan() {
-  sessionPlanInput.value = "";
-  confirmSessionPlan();
-}
-
 /** 重置计时器 */
 function resetTimer() {
   timerStore.reset();
@@ -568,42 +560,36 @@ async function handleSessionComplete() {
   });
 }
 
-/** 确认 Session 总结 */
-async function confirmSessionCompletion() {
+/** Modal 确认总结 */
+async function onCompletionConfirm(input: string) {
   const taskId = timerStore.pendingCompletionForTaskId;
-  const input = sessionCompletionInput.value.trim();
-  if (input) {
-    if (taskId) {
+  const trimmed = input.trim();
+  if (trimmed) {
+    if (taskId && taskId !== "__free__") {
       const sessions = sessionStore.getSessionsByTask(taskId);
       const latest = sessions.sort((a, b) =>
         b.startedAt.localeCompare(a.startedAt)
       )[0];
       if (latest) {
-        await sessionStore.updateSession(latest.id, {
-          completion: input,
-        });
+        await sessionStore.updateSession(latest.id, { completion: trimmed });
       }
     } else {
-      // free 模式无关联任务：查找最近一个 free 类型的 session
+      // free 模式（__free__ 哨兵或 null）：查找最近一个 free 类型的 session
       const sessions = sessionStore.sessions.filter((s) => s.type === "free");
       const latest = sessions.sort((a, b) =>
         b.startedAt.localeCompare(a.startedAt)
       )[0];
       if (latest) {
-        await sessionStore.updateSession(latest.id, {
-          completion: input,
-        });
+        await sessionStore.updateSession(latest.id, { completion: trimmed });
       }
     }
   }
   showSessionCompletionPrompt.value = false;
-  sessionCompletionInput.value = "";
   timerStore.clearPendingCompletion();
 }
 
-/** 跳过 Session 总结 */
-function skipSessionCompletion() {
-  sessionCompletionInput.value = "";
+/** Modal 跳过总结 */
+function onCompletionSkip() {
   showSessionCompletionPrompt.value = false;
   timerStore.clearPendingCompletion();
 }
@@ -861,7 +847,6 @@ onUnmounted(() => {
   document.removeEventListener("mouseup", onRingSliderUp);
   document.removeEventListener("touchmove", onRingSliderMove);
   document.removeEventListener("touchend", onRingSliderUp);
-  if (sessionPlanTimer) clearTimeout(sessionPlanTimer);
   if (celebrationTimer) clearTimeout(celebrationTimer);
 });
 </script>
@@ -1540,55 +1525,23 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <!-- Session 规划提示（内联面板） -->
-      <Transition name="dropdown">
-        <div v-if="showSessionPlanPrompt" class="session-prompt glass">
-          <div class="prompt-label">本次专注目标（可选）</div>
-          <input
-            v-model="sessionPlanInput"
-            type="text"
-            class="prompt-input"
-            placeholder="例如：完成登录页面的 UI 设计..."
-            @keydown.enter="confirmSessionPlan"
-          />
-          <div class="prompt-actions">
-            <button class="btn btn-secondary btn-sm" @click="skipSessionPlan">
-              跳过
-            </button>
-            <button class="btn btn-primary btn-sm" @click="confirmSessionPlan">
-              开始专注
-            </button>
-          </div>
-        </div>
-      </Transition>
+      <!-- Session 规划提示（Modal） -->
+      <SessionNoteModal
+        :visible="showSessionPlanPrompt"
+        mode="plan"
+        @confirm="onPlanConfirm"
+        @skip="onPlanSkip"
+        @close="onPlanSkip"
+      />
 
-      <!-- Session 总结提示（内联面板） -->
-      <Transition name="dropdown">
-        <div v-if="showSessionCompletionPrompt" class="session-prompt glass">
-          <div class="prompt-label">本次专注总结（可选）</div>
-          <input
-            v-model="sessionCompletionInput"
-            type="text"
-            class="prompt-input"
-            placeholder="例如：完成了登录页原型，遇到一个小兼容性问题..."
-            @keydown.enter="confirmSessionCompletion"
-          />
-          <div class="prompt-actions">
-            <button
-              class="btn btn-secondary btn-sm"
-              @click="skipSessionCompletion"
-            >
-              跳过
-            </button>
-            <button
-              class="btn btn-primary btn-sm"
-              @click="confirmSessionCompletion"
-            >
-              保存总结
-            </button>
-          </div>
-        </div>
-      </Transition>
+      <!-- Session 总结提示（Modal） -->
+      <SessionNoteModal
+        :visible="showSessionCompletionPrompt"
+        mode="completion"
+        @confirm="onCompletionConfirm"
+        @skip="onCompletionSkip"
+        @close="onCompletionSkip"
+      />
 
       <!-- 快进额度确认弹窗 -->
       <Transition name="dropdown">

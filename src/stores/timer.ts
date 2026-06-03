@@ -175,10 +175,11 @@ export const useTimerStore = defineStore("timer", () => {
     }
 
     // 设置总结弹窗标志：已完成的 work / free session
+    // 使用 "__free__" 哨兵值标记 free 模式无任务关联的完成事件
     pendingCompletionForTaskId.value =
       data.completed &&
       (data.sessionType === "work" || data.sessionType === "free")
-        ? data.taskId
+        ? (data.taskId ?? "__free__")
         : null;
 
     // 自动切换到下一个会话类型

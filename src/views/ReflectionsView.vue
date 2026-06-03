@@ -3,10 +3,17 @@ import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import ReflectionEditor from "@/components/reflection/ReflectionEditor.vue";
 import ReflectionBrowser from "@/components/reflection/ReflectionBrowser.vue";
 import ReflectionDetailModal from "@/components/reflection/ReflectionDetailModal.vue";
+import DateRangePicker from "@/components/shared/DateRangePicker.vue";
+import type { DateRange } from "@/components/shared/DateRangePicker.vue";
 import { useReflectionStore } from "@/stores/reflection";
 import { useTaskStore } from "@/stores/task";
 import type { Mood, Reflection, ReflectionFilter } from "@/types";
 import { formatDate, formatFriendlyDate } from "@/utils/format";
+import {
+  batchExportAsMarkdown,
+  batchExportAsJson,
+  downloadFile,
+} from "@/utils/exportReflection";
 
 // ---- Stores ----
 const reflectionStore = useReflectionStore();
@@ -23,6 +30,50 @@ const saveMessage = ref("");
 const showDeleteConfirm = ref(false);
 const deleteTargetId = ref<string | null>(null);
 const autoSaveTimer = ref<ReturnType<typeof setTimeout> | null>(null);
+
+// ---- 批量导出 ----
+const showExportModal = ref(false);
+const exportRange = ref<DateRange | null>(null);
+const exportFormat = ref<"md" | "json">("md");
+const isExporting = ref(false);
+
+async function handleExport() {
+  if (!exportRange.value || isExporting.value) return;
+  isExporting.value = true;
+
+  try {
+    const { start, end, label } = exportRange.value;
+    const reflections = await reflectionStore.getReflectionsByDateRange(
+      start,
+      end
+    );
+
+    let content: string;
+    let filename: string;
+    let mime: string;
+
+    if (exportFormat.value === "md") {
+      content = batchExportAsMarkdown(reflections);
+      filename = `pomodorox-reflections-${label.replace(/\s+/g, "-")}.md`;
+      mime = "text/markdown;charset=utf-8";
+    } else {
+      content = batchExportAsJson(reflections);
+      filename = `pomodorox-reflections-${label.replace(/\s+/g, "-")}.json`;
+      mime = "application/json;charset=utf-8";
+    }
+
+    downloadFile(content, filename, mime);
+    showExportModal.value = false;
+  } catch (err) {
+    if (import.meta.env.DEV) console.error("批量导出失败:", err);
+  } finally {
+    isExporting.value = false;
+  }
+}
+
+function onExportRangeSelect(range: DateRange) {
+  exportRange.value = range;
+}
 
 /** 页面刷新前保存未保存内容 */
 function handleBeforeUnload(e: BeforeUnloadEvent) {
@@ -354,6 +405,28 @@ onUnmounted(() => {
         >
           {{ saveMessage }}
         </span>
+        <!-- 批量导出按钮 -->
+        <button
+          class="btn-export"
+          title="批量导出反思"
+          @click="showExportModal = true"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          <span>导出</span>
+        </button>
         <button
           v-if="mode === 'edit'"
           class="btn-save"
@@ -559,6 +632,112 @@ onUnmounted(() => {
       @close="closeDetailModal"
       @save="saveDetail"
     />
+
+    <!-- 批量导出弹窗 -->
+    <Teleport to="body">
+      <Transition name="modal-fade">
+        <div
+          v-if="showExportModal"
+          class="modal-overlay"
+          @click.self="showExportModal = false"
+        >
+          <div class="modal-card glass" @click.stop>
+            <div class="modal-card-header">
+              <h3>📥 批量导出反思</h3>
+              <button
+                class="modal-close-btn"
+                aria-label="关闭"
+                @click="showExportModal = false"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <div class="modal-card-body">
+              <!-- 日期范围选择 -->
+              <div class="export-section">
+                <div class="export-section-label">选择导出范围</div>
+                <DateRangePicker @select="onExportRangeSelect" />
+              </div>
+
+              <!-- 格式选择 -->
+              <div class="export-section">
+                <div class="export-section-label">导出格式</div>
+                <div class="format-options">
+                  <label
+                    class="format-option"
+                    :class="{ active: exportFormat === 'md' }"
+                  >
+                    <input
+                      v-model="exportFormat"
+                      type="radio"
+                      value="md"
+                      class="sr-only"
+                    />
+                    <span class="format-icon">📝</span>
+                    <span class="format-name">Markdown</span>
+                    <span class="format-desc">适合导入 Obsidian / Notion</span>
+                  </label>
+                  <label
+                    class="format-option"
+                    :class="{ active: exportFormat === 'json' }"
+                  >
+                    <input
+                      v-model="exportFormat"
+                      type="radio"
+                      value="json"
+                      class="sr-only"
+                    />
+                    <span class="format-icon">📦</span>
+                    <span class="format-name">JSON</span>
+                    <span class="format-desc">结构化数据，可程序化处理</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div class="modal-card-footer">
+              <button
+                class="btn btn-secondary btn-sm"
+                @click="showExportModal = false"
+              >
+                取消
+              </button>
+              <button
+                class="btn btn-primary btn-sm"
+                :disabled="!exportRange || isExporting"
+                @click="handleExport"
+              >
+                <svg
+                  v-if="isExporting"
+                  class="spin-icon"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="M21 12a9 9 0 11-6.219-8.56" />
+                </svg>
+                {{ isExporting ? "导出中..." : "导出" }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -1111,5 +1290,158 @@ onUnmounted(() => {
   .reflections-body {
     padding: 8px;
   }
+}
+
+/* ---- 导出按钮 ---- */
+.btn-export {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-export:hover {
+  background: var(--hover-bg);
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+
+/* ---- 导出弹窗 ---- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  padding: 16px;
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 440px;
+  max-height: 90vh;
+  border-radius: 16px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
+  overflow-y: auto;
+}
+
+.modal-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 0;
+}
+
+.modal-card-header h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.modal-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.modal-close-btn:hover {
+  background: var(--hover-bg);
+}
+
+.modal-card-body {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.modal-card-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px 18px;
+}
+
+/* ---- 导出选项区块 ---- */
+.export-section-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 10px;
+}
+
+.format-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.format-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.format-option:hover {
+  background: var(--hover-bg);
+}
+
+.format-option.active {
+  background: rgba(88, 166, 255, 0.08);
+  border-color: var(--accent);
+}
+
+.format-icon {
+  font-size: 1.3rem;
+  flex-shrink: 0;
+}
+
+.format-name {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.format-desc {
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+  margin-left: auto;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
 }
 </style>

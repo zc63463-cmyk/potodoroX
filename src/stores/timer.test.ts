@@ -408,6 +408,57 @@ describe("handleTimerComplete", () => {
     });
     expect(store.pendingCompletionForTaskId).toBeNull();
   });
+
+  it('free 无任务完成时应设置 "__free__" 哨兵', async () => {
+    mockTimer.sessionType.value = "free";
+    const store = useTimerStore();
+
+    await triggerComplete({
+      completed: true,
+      sessionType: "free",
+      taskId: null,
+      currentTotalDuration: 1800,
+      sessionFastForwardSeconds: 0,
+      startedAt: "2026-05-19 10:00:00",
+      plan: "",
+    });
+
+    expect(store.pendingCompletionForTaskId).toBe("__free__");
+  });
+
+  it("free 有任务完成时应使用真实 taskId", async () => {
+    mockTimer.sessionType.value = "free";
+    const store = useTimerStore();
+
+    await triggerComplete({
+      completed: true,
+      sessionType: "free",
+      taskId: "task-1",
+      currentTotalDuration: 1800,
+      sessionFastForwardSeconds: 0,
+      startedAt: "2026-05-19 10:00:00",
+      plan: "",
+    });
+
+    expect(store.pendingCompletionForTaskId).toBe("task-1");
+  });
+
+  it("break 完成时 pendingCompletionForTaskId 为 null（不弹窗）", async () => {
+    mockTimer.sessionType.value = "long_break";
+    const store = useTimerStore();
+
+    await triggerComplete({
+      completed: true,
+      sessionType: "long_break",
+      taskId: null,
+      currentTotalDuration: 900,
+      sessionFastForwardSeconds: 0,
+      startedAt: "2026-05-19 10:00:00",
+      plan: "",
+    });
+
+    expect(store.pendingCompletionForTaskId).toBeNull();
+  });
 });
 
 // ============================================================
