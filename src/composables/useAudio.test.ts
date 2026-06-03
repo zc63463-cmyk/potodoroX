@@ -33,8 +33,9 @@ async function setupMock(suspended = false) {
     resume: vi.fn(),
   };
 
-  // @ts-expect-error - mock
-  globalThis.AudioContext = vi.fn(() => mockCtx);
+  globalThis.AudioContext = vi.fn().mockImplementation(function () {
+    return mockCtx;
+  }) as unknown as typeof AudioContext;
 
   const mod = await import("./useAudio");
   // 重置音量到默认值

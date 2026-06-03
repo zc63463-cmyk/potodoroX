@@ -26,10 +26,12 @@ function setupMockFetch(
   globalThis.fetch = mockFetch;
 
   const mockAbort = vi.fn();
-  globalThis.AbortController = vi.fn(() => ({
-    signal: { aborted: false, reason: undefined },
-    abort: mockAbort,
-  })) as unknown as typeof AbortController;
+  globalThis.AbortController = vi.fn().mockImplementation(function () {
+    return {
+      signal: { aborted: false, reason: undefined },
+      abort: mockAbort,
+    };
+  }) as unknown as typeof AbortController;
 
   return { mockFetch, mockAbort };
 }
@@ -241,10 +243,12 @@ describe("综合场景", () => {
     // Mock fetch 永不 resolve（模拟超时）
     globalThis.fetch = vi.fn(() => new Promise(() => {})) as any;
     const mockAbort = vi.fn();
-    globalThis.AbortController = vi.fn(() => ({
-      signal: { aborted: false },
-      abort: mockAbort,
-    })) as any;
+    globalThis.AbortController = vi.fn().mockImplementation(function () {
+      return {
+        signal: { aborted: false },
+        abort: mockAbort,
+      };
+    }) as any;
 
     const { probeOnline } = await import("./network");
 

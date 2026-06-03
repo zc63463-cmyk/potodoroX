@@ -158,7 +158,9 @@ describe("sendNotification", () => {
 
     // Mock Notification 实例
     const mockInstance = { onclick: null };
-    mockNotificationClass.mockReturnValue(mockInstance);
+    mockNotificationClass.mockImplementation(function () {
+      return mockInstance;
+    });
 
     await sendNotification("标题", "内容", { onClick });
 
