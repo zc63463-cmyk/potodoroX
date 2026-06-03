@@ -7,6 +7,7 @@ import DateRangePicker from "@/components/shared/DateRangePicker.vue";
 import type { DateRange } from "@/components/shared/DateRangePicker.vue";
 import { useReflectionStore } from "@/stores/reflection";
 import { useTaskStore } from "@/stores/task";
+import { useSessionStore } from "@/stores/session";
 import type { Mood, Reflection, ReflectionFilter } from "@/types";
 import { formatDate, formatFriendlyDate } from "@/utils/format";
 import {
@@ -18,6 +19,7 @@ import {
 // ---- Stores ----
 const reflectionStore = useReflectionStore();
 const taskStore = useTaskStore();
+const sessionStore = useSessionStore();
 
 // ---- 状态 ----
 const mode = ref<"edit" | "browse">("edit");
@@ -122,11 +124,24 @@ const hasUnsavedChanges = computed(() => {
 });
 
 const todayTasks = computed(() => {
+  // 当天有 session 的任务 ID 集合
+  const sessionTaskIds = new Set(
+    sessionStore.sessions
+      .filter(
+        (s) =>
+          s.taskId &&
+          s.startedAt.slice(0, 10) === selectedDate.value &&
+          (s.type === "work" || s.type === "free")
+      )
+      .map((s) => s.taskId)
+  );
+
   return taskStore.tasks.filter((t) => {
     const taskDate = t.createdAt.slice(0, 10); // "YYYY-MM-DD"
     const match = taskDate === selectedDate.value;
     const dueMatch = t.dueDate && t.dueDate.slice(0, 10) === selectedDate.value;
-    return match || dueMatch;
+    const hasSession = sessionTaskIds.has(t.id);
+    return match || dueMatch || hasSession;
   });
 });
 
