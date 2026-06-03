@@ -3,7 +3,6 @@ import { onMounted, onUnmounted, computed } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useAppStore } from "@/stores/app";
 import { useSettingsStore } from "@/stores/settings";
-import { useSyncStore } from "@/stores/sync";
 import { useKeyboard } from "@/composables/useKeyboard";
 import ToastContainer from "@/components/shared/ToastContainer.vue";
 import GlobalSearch from "@/components/shared/GlobalSearch.vue";
@@ -14,7 +13,6 @@ const router = useRouter();
 const route = useRoute();
 const appStore = useAppStore();
 const settingsStore = useSettingsStore();
-const syncStore = useSyncStore();
 
 // ---- 底部导航配置 ----
 const navItems = [
@@ -79,12 +77,8 @@ useKeyboard({
   // 注意：Ctrl+K 全局搜索由 GlobalSearch.vue 自身监听，此处不重复注册
 });
 
-// ---- 页面可见性变化自动同步 ----
-function handleVisibilityChange() {
-  if (document.visibilityState === "visible") {
-    syncStore.backgroundPull().catch(() => {});
-  }
-}
+// ---- 页面可见性变化 ----
+// 注：同步已改为手动触发，不再自动 pull
 
 // ---- 网络状态变化 ----
 let onlineDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -98,8 +92,7 @@ function handleOnline() {
   }
   if (onlineDebounceTimer) clearTimeout(onlineDebounceTimer);
   onlineDebounceTimer = setTimeout(() => {
-    if (import.meta.env.DEV) console.log("[App] 网络恢复，触发同步");
-    syncStore.backgroundPull().catch(() => {});
+    if (import.meta.env.DEV) console.log("[App] 网络恢复");
   }, 300);
 }
 function handleOffline() {
@@ -135,12 +128,6 @@ function handleSwUpdate() {
 onMounted(async () => {
   await settingsStore.loadSettings();
 
-  // 启动时后台同步（WebDAV 已配置且在线时自动触发）
-  syncStore.backgroundPull().catch(() => {});
-
-  // 页面切回前台时自动同步
-  document.addEventListener("visibilitychange", handleVisibilityChange);
-
   // 网络状态监听
   window.addEventListener("online", handleOnline);
   window.addEventListener("offline", handleOffline);
@@ -156,7 +143,6 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  document.removeEventListener("visibilitychange", handleVisibilityChange);
   window.removeEventListener("online", handleOnline);
   window.removeEventListener("offline", handleOffline);
   window.removeEventListener("sw-update", handleSwUpdate);
