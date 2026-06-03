@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onUnmounted } from "vue";
 import MarkdownPreview from "@/components/shared/MarkdownPreview.vue";
+import { useReflectionStore } from "@/stores/reflection";
 import type { Mood, Task } from "@/types";
 import { MOODS } from "@/utils/constants";
 import { formatFriendlyDate, getWeekdayName } from "@/utils/format";
@@ -31,6 +32,24 @@ const showPreview = ref(false);
 const showMoodPicker = ref(false);
 const showTemplatePicker = ref(false);
 const tagInput = ref("");
+const showTagSuggestions = ref(false);
+
+// Store
+const reflectionStore = useReflectionStore();
+
+// 历史标签（去重排序，排除已选中的）
+const historyTags = computed(() =>
+  reflectionStore.allTags.filter((t) => !props.tags.includes(t))
+);
+
+// 根据输入过滤的标签建议
+const tagSuggestions = computed(() => {
+  const query = tagInput.value.trim().toLowerCase();
+  if (!query) return historyTags.value.slice(0, 8);
+  return historyTags.value
+    .filter((t) => t.toLowerCase().includes(query))
+    .slice(0, 5);
+});
 
 // ---- 心情配置 ----
 const moodConfig: Record<
@@ -158,6 +177,17 @@ function addTag() {
   emit("update:tags", [...props.tags, raw]);
   tagInput.value = "";
   emit("triggerAutoSave");
+  showTagSuggestions.value = false;
+}
+
+/** 从历史标签中选择 */
+function selectHistoryTag(tag: string) {
+  if (props.tags.includes(tag)) return;
+  if (props.tags.length >= 8) return;
+  emit("update:tags", [...props.tags, tag]);
+  tagInput.value = "";
+  emit("triggerAutoSave");
+  showTagSuggestions.value = false;
 }
 
 function removeTag(index: number) {
@@ -325,7 +355,7 @@ function getMoodInfo(mood: Mood) {
           </svg>
           <span class="meta-trigger-text">标签</span>
         </div>
-        <div class="tag-input-wrap">
+        <div class="tag-input-wrap" :class="{ focused: showTagSuggestions }">
           <span v-for="(tag, i) in tags" :key="tag" class="tag-chip">
             {{ tag }}
             <button class="tag-remove" @click="removeTag(i)">×</button>
@@ -333,11 +363,28 @@ function getMoodInfo(mood: Mood) {
           <input
             v-model="tagInput"
             class="tag-input"
-            placeholder="输入标签，回车确认…"
+            placeholder="输入标签…"
+            @focus="showTagSuggestions = true"
             @keydown="handleTagInputKey"
             @blur="onBlurTagInput"
           />
         </div>
+        <!-- 历史标签建议 -->
+        <Transition name="dropdown">
+          <div
+            v-if="showTagSuggestions && tagSuggestions.length > 0"
+            class="tag-suggestions"
+          >
+            <button
+              v-for="tag in tagSuggestions"
+              :key="tag"
+              class="tag-suggestion-item"
+              @click="selectHistoryTag(tag)"
+            >
+              {{ tag }}
+            </button>
+          </div>
+        </Transition>
       </div>
     </div>
 
@@ -475,7 +522,8 @@ function getMoodInfo(mood: Mood) {
 .meta-tags {
   flex: 1;
   min-width: 0;
-  padding: 0 10px;
+  padding: 4px 8px;
+  position: relative;
 }
 
 /* 触发按钮 */
@@ -616,6 +664,14 @@ function getMoodInfo(mood: Mood) {
   gap: 4px;
   flex: 1;
   min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  transition: border-color 0.15s;
+}
+
+.tag-input-wrap.focused {
+  border-color: var(--accent-dim);
 }
 
 .tag-chip {
@@ -667,6 +723,44 @@ function getMoodInfo(mood: Mood) {
 
 .tag-input::placeholder {
   color: var(--text-muted);
+}
+
+/* 标签历史建议 */
+.tag-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  margin-top: 4px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+  padding: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.tag-suggestion-item {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tag-suggestion-item:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(88, 166, 255, 0.08);
 }
 
 /* 下拉动画 */
