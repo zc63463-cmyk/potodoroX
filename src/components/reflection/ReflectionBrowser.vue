@@ -78,30 +78,67 @@ function clearDateRange() {
   <div class="browser-panel">
     <!-- 日期筛选栏 -->
     <div class="date-filter-bar">
-      <div class="date-filter-label">📅 日期范围:</div>
-      <div class="date-filter-inputs">
-        <input
-          type="date"
-          class="date-filter-input"
-          :value="dateFrom"
-          placeholder="开始日期"
-          @change="handleDateFromChange"
-        />
-        <span class="date-filter-separator">-</span>
-        <input
-          type="date"
-          class="date-filter-input"
-          :value="dateTo"
-          placeholder="结束日期"
-          @change="handleDateToChange"
-        />
+      <div class="date-filter-label">📅 浏览历史</div>
+      <div class="date-filter-range">
+        <label class="date-field" :class="{ active: !!dateFrom }">
+          <svg
+            class="date-field-icon"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+            <line x1="16" y1="2" x2="16" y2="6" />
+            <line x1="8" y1="2" x2="8" y2="6" />
+            <line x1="3" y1="10" x2="21" y2="10" />
+          </svg>
+          <input
+            type="date"
+            class="date-field-input"
+            :value="dateFrom"
+            placeholder="开始"
+            @change="handleDateFromChange"
+          />
+        </label>
+        <span class="date-range-arrow">→</span>
+        <label class="date-field" :class="{ active: !!dateTo }">
+          <svg
+            class="date-field-icon"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+            <line x1="16" y1="2" x2="16" y2="6" />
+            <line x1="8" y1="2" x2="8" y2="6" />
+            <line x1="3" y1="10" x2="21" y2="10" />
+          </svg>
+          <input
+            type="date"
+            class="date-field-input"
+            :value="dateTo"
+            placeholder="结束"
+            @change="handleDateToChange"
+          />
+        </label>
+      </div>
+      <div class="date-filter-actions">
         <button
           v-if="dateFrom || dateTo"
-          class="date-filter-clear"
-          title="清除日期筛选"
+          class="btn-clear-filter"
           @click="clearDateRange"
         >
-          ✕
+          清除
         </button>
       </div>
     </div>
@@ -229,68 +266,119 @@ function clearDateRange() {
 .date-filter-bar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  border-radius: 10px;
+  gap: 16px;
+  padding: 14px 18px;
+  border-radius: 12px;
   background: var(--surface);
   border: 1px solid var(--glass-border);
-  flex-wrap: wrap;
 }
 
 .date-filter-label {
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  font-weight: 500;
+  font-size: 0.9rem;
+  color: var(--text);
+  font-weight: 600;
   flex-shrink: 0;
+  letter-spacing: 0.02em;
 }
 
-.date-filter-inputs {
+.date-filter-range {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex: 1;
 }
 
-.date-filter-input {
-  padding: 6px 10px;
-  font-size: 0.8rem;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  min-width: 130px;
-}
-
-.date-filter-input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-glow);
-}
-
-.date-filter-separator {
-  color: var(--text-muted);
-  font-size: 0.85rem;
-}
-
-.date-filter-clear {
+/* ---- 日期输入字段 ---- */
+.date-field {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  border: none;
-  background: var(--hover-bg);
-  color: var(--text-muted);
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: 0.85rem;
+  transition: all 0.25s ease;
+  min-width: 0;
+  flex: 1;
 }
 
-.date-filter-clear:hover {
-  background: rgba(248, 81, 73, 0.15);
+.date-field:hover {
+  border-color: var(--accent-dim);
+  background: var(--hover-bg);
+}
+
+.date-field.active {
+  border-color: var(--accent);
+  background: rgba(88, 166, 255, 0.06);
+  box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.08);
+}
+
+.date-field-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: color 0.25s ease;
+}
+
+.date-field.active .date-field-icon {
+  color: var(--accent);
+}
+
+.date-field-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  min-width: 120px;
+  padding: 0;
+}
+
+.date-field-input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: invert(0.6);
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+
+.date-field.active .date-field-input::-webkit-calendar-picker-indicator {
+  opacity: 1;
+  filter: invert(0.5) sepia(1) saturate(5) hue-rotate(180deg);
+}
+
+/* ---- 日期范围箭头 ---- */
+.date-range-arrow {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  font-weight: 300;
+  flex-shrink: 0;
+}
+
+/* ---- 清除按钮 ---- */
+.date-filter-actions {
+  flex-shrink: 0;
+}
+
+.btn-clear-filter {
+  padding: 7px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-clear-filter:hover {
+  background: rgba(248, 81, 73, 0.1);
+  border-color: rgba(248, 81, 73, 0.3);
   color: var(--danger);
 }
 

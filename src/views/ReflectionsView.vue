@@ -75,6 +75,11 @@ function onExportRangeSelect(range: DateRange) {
   exportRange.value = range;
 }
 
+/** 打开批量导出弹窗（由子组件触发） */
+function openBatchExportModal() {
+  showExportModal.value = true;
+}
+
 /** 页面刷新前保存未保存内容 */
 function handleBeforeUnload(e: BeforeUnloadEvent) {
   if (hasUnsavedChanges.value) {
@@ -477,6 +482,7 @@ onUnmounted(() => {
         @go-to-today="goToToday"
         @save="saveReflection"
         @trigger-auto-save="triggerAutoSave"
+        @open-batch-export="openBatchExportModal"
       />
 
       <!-- 浏览模式 -->
@@ -631,6 +637,7 @@ onUnmounted(() => {
       :reflection="selectedReflectionForModal"
       @close="closeDetailModal"
       @save="saveDetail"
+      @open-batch-export="openBatchExportModal"
     />
 
     <!-- 批量导出弹窗 -->
@@ -678,30 +685,54 @@ onUnmounted(() => {
                   <label
                     class="format-option"
                     :class="{ active: exportFormat === 'md' }"
+                    @click="exportFormat = 'md'"
                   >
-                    <input
-                      v-model="exportFormat"
-                      type="radio"
-                      value="md"
-                      class="sr-only"
-                    />
                     <span class="format-icon">📝</span>
-                    <span class="format-name">Markdown</span>
-                    <span class="format-desc">适合导入 Obsidian / Notion</span>
+                    <div class="format-info">
+                      <span class="format-name">Markdown</span>
+                      <span class="format-desc"
+                        >适合导入 Obsidian / Notion</span
+                      >
+                    </div>
+                    <span v-if="exportFormat === 'md'" class="format-check">
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="3"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    </span>
                   </label>
                   <label
                     class="format-option"
                     :class="{ active: exportFormat === 'json' }"
+                    @click="exportFormat = 'json'"
                   >
-                    <input
-                      v-model="exportFormat"
-                      type="radio"
-                      value="json"
-                      class="sr-only"
-                    />
                     <span class="format-icon">📦</span>
-                    <span class="format-name">JSON</span>
-                    <span class="format-desc">结构化数据，可程序化处理</span>
+                    <div class="format-info">
+                      <span class="format-name">JSON</span>
+                      <span class="format-desc">结构化数据，可程序化处理</span>
+                    </div>
+                    <span v-if="exportFormat === 'json'" class="format-check">
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="3"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    </span>
                   </label>
                 </div>
               </div>
@@ -1405,43 +1436,64 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
-  border: 1px solid var(--glass-border);
+  border: 2px solid var(--glass-border);
   border-radius: 10px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.2s ease;
 }
 
 .format-option:hover {
   background: var(--hover-bg);
+  border-color: var(--accent-dim);
 }
 
 .format-option.active {
   background: rgba(88, 166, 255, 0.08);
   border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(88, 166, 255, 0.1);
 }
 
 .format-icon {
-  font-size: 1.3rem;
+  font-size: 1.4rem;
   flex-shrink: 0;
+  line-height: 1;
+}
+
+.format-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .format-name {
   font-size: 0.9rem;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text);
 }
 
 .format-desc {
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   color: var(--text-tertiary);
-  margin-left: auto;
 }
 
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
+.format-check {
+  color: var(--accent);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  animation: check-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes check-pop {
+  from {
+    transform: scale(0);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 </style>

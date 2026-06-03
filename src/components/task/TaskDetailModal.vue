@@ -8,6 +8,7 @@ import { ref, computed, watch, onUnmounted, nextTick } from "vue";
 import { useSessionStore } from "@/stores/session";
 import { PRIORITIES, STATUSES } from "@/utils/constants";
 import { formatRelativeTime, formatFriendlyDate } from "@/utils/format";
+import { useMarkdown } from "@/composables/useMarkdown";
 import type { Task, UpdateTaskInput, Session } from "@/types";
 
 interface Props {
@@ -39,6 +40,7 @@ watch(
 
 // ---- Stores ----
 const sessionStore = useSessionStore();
+const { renderMarkdown } = useMarkdown();
 
 // ---- 状态 ----
 const activeTab = ref<"plan" | "completion" | "sessions">(
@@ -48,6 +50,10 @@ const planText = ref("");
 const completionText = ref("");
 const saving = ref(false);
 let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+
+// 预览切换
+const showPlanPreview = ref(false);
+const showCompletionPreview = ref(false);
 
 // ---- Session 编辑状态 ----
 const expandedSessionId = ref<string | null>(null);
@@ -109,6 +115,8 @@ watch(
     if (task) {
       planText.value = task.plan;
       completionText.value = task.completion;
+      showPlanPreview.value = false;
+      showCompletionPreview.value = false;
     }
     // task 切换时清空 session 编辑状态
     expandedSessionId.value = null;
@@ -505,13 +513,42 @@ function close() {
         <div class="tab-content">
           <!-- 规划 -->
           <div v-if="activeTab === 'plan'" class="tab-pane">
-            <label class="field-label">任务规划</label>
+            <div class="tab-toolbar">
+              <label class="field-label">任务规划</label>
+              <button
+                class="toggle-preview-btn"
+                :class="{ active: showPlanPreview }"
+                @click="showPlanPreview = !showPlanPreview"
+              >
+                <svg
+                  v-if="!showPlanPreview"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                <span>预览</span>
+              </button>
+            </div>
             <textarea
+              v-if="!showPlanPreview"
               v-model="planText"
               class="detail-textarea"
-              placeholder="在此输入任务规划...&#10;例如：&#10;- 第一步：梳理需求&#10;- 第二步：设计原型&#10;- 第三步：开发实现"
+              placeholder="在此输入任务规划...&#10;支持 Markdown 语法&#10;例如：&#10;- 第一步：梳理需求&#10;- 第二步：设计原型&#10;- 第三步：开发实现"
               rows="8"
               @input="onPlanInput"
+            />
+            <div
+              v-else
+              class="detail-preview markdown-body"
+              v-html="renderMarkdown(planText || '*暂无规划*')"
             />
             <div class="save-hint">
               <span v-if="saving">保存中...</span>
@@ -524,13 +561,42 @@ function close() {
 
           <!-- 完成情况 -->
           <div v-if="activeTab === 'completion'" class="tab-pane">
-            <label class="field-label">完成总结</label>
+            <div class="tab-toolbar">
+              <label class="field-label">完成总结</label>
+              <button
+                class="toggle-preview-btn"
+                :class="{ active: showCompletionPreview }"
+                @click="showCompletionPreview = !showCompletionPreview"
+              >
+                <svg
+                  v-if="!showCompletionPreview"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                <span>预览</span>
+              </button>
+            </div>
             <textarea
+              v-if="!showCompletionPreview"
               v-model="completionText"
               class="detail-textarea"
-              placeholder="在此输入完成总结...&#10;例如：&#10;- 已完成登录页面 UI 设计&#10;- 遇到布局兼容性问题，已解决&#10;- 剩余接口联调待下次处理"
+              placeholder="在此输入完成总结...&#10;支持 Markdown 语法&#10;例如：&#10;- 已完成登录页面 UI 设计&#10;- 遇到布局兼容性问题，已解决&#10;- 剩余接口联调待下次处理"
               rows="8"
               @input="onCompletionInput"
+            />
+            <div
+              v-else
+              class="detail-preview markdown-body"
+              v-html="renderMarkdown(completionText || '*暂无总结*')"
             />
             <div class="save-hint">
               <span v-if="saving">保存中...</span>
@@ -709,14 +775,21 @@ function close() {
                       </div>
                     </div>
 
-                    <!-- 折叠时仅展示已有内容（只读预览） -->
+                    <!-- 折叠时仅展示已有内容（markdown 预览） -->
                     <div v-else class="session-preview">
                       <div v-if="session.plan" class="session-note">
-                        <span class="note-label">目标：</span>{{ session.plan }}
+                        <span class="note-label">目标：</span>
+                        <div
+                          class="note-content markdown-body"
+                          v-html="renderMarkdown(session.plan)"
+                        />
                       </div>
                       <div v-if="session.completion" class="session-note">
-                        <span class="note-label">总结：</span
-                        >{{ session.completion }}
+                        <span class="note-label">总结：</span>
+                        <div
+                          class="note-content markdown-body"
+                          v-html="renderMarkdown(session.completion)"
+                        />
                       </div>
                     </div>
                   </div>
@@ -975,6 +1048,228 @@ function close() {
 
 .save-hint .saved {
   color: var(--success);
+}
+
+/* ---- 预览切换按钮 ---- */
+.tab-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.toggle-preview-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.toggle-preview-btn:hover {
+  background: var(--hover-bg);
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+
+.toggle-preview-btn.active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ---- Markdown 预览区 ---- */
+.detail-preview {
+  min-height: 120px;
+  padding: 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.detail-preview :deep(h1),
+.detail-preview :deep(h2),
+.detail-preview :deep(h3) {
+  margin-top: 0;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+
+.detail-preview :deep(h4),
+.detail-preview :deep(h5),
+.detail-preview :deep(h6) {
+  margin-top: 6px;
+  margin-bottom: 3px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.detail-preview :deep(p) {
+  margin: 0 0 8px;
+  color: var(--text);
+}
+
+.detail-preview :deep(ul),
+.detail-preview :deep(ol) {
+  margin: 0 0 8px;
+  padding-left: 20px;
+  color: var(--text);
+}
+
+.detail-preview :deep(li) {
+  margin-bottom: 4px;
+}
+
+.detail-preview :deep(strong) {
+  color: var(--text);
+}
+
+.detail-preview :deep(blockquote) {
+  border-left: 3px solid var(--accent-dim);
+  padding-left: 12px;
+  margin: 8px 0;
+  color: var(--text-secondary);
+}
+
+.detail-preview :deep(code) {
+  background: var(--surface);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+
+.detail-preview :deep(pre) {
+  background: var(--surface);
+  padding: 10px;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.detail-preview :deep(a) {
+  color: var(--accent);
+}
+
+/* ---- 删除线 ---- */
+.detail-preview :deep(s),
+.detail-preview :deep(del) {
+  text-decoration: line-through;
+  color: var(--text-tertiary);
+  opacity: 0.75;
+}
+
+/* ---- 下划线 ---- */
+.detail-preview :deep(ins) {
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-underline-offset: 3px;
+}
+
+/* ---- 高亮 ---- */
+.detail-preview :deep(mark) {
+  background: rgba(88, 166, 255, 0.2);
+  color: var(--text);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+/* ---- 上下标 ---- */
+.detail-preview :deep(sub),
+.detail-preview :deep(sup) {
+  font-size: 0.75em;
+  color: var(--text-secondary);
+}
+
+/* ---- 图片 ---- */
+.detail-preview :deep(img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+
+/* ---- 任务列表 ---- */
+.detail-preview :deep(.contains-task-list) {
+  list-style: none;
+  padding-left: 4px;
+}
+
+.detail-preview :deep(.task-list-item) {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 3px 0;
+}
+
+.detail-preview :deep(.task-list-item-checkbox) {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  min-width: 15px;
+  margin-top: 2px;
+  border: 1.5px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+  cursor: default;
+  position: relative;
+  transition: all 0.15s ease;
+}
+
+.detail-preview :deep(.task-list-item-checkbox:checked) {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.detail-preview :deep(.task-list-item-checkbox:checked::after) {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 1px;
+  width: 5px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* Session note 内嵌 markdown */
+.note-content {
+  display: inline;
+}
+
+.note-content :deep(p) {
+  display: inline;
+  margin: 0;
+}
+
+.note-content :deep(ul),
+.note-content :deep(ol) {
+  display: block;
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.note-content :deep(li) {
+  margin-bottom: 2px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.note-content :deep(strong) {
+  color: var(--text);
+}
+
+.note-content :deep(em) {
+  color: var(--text-secondary);
 }
 
 /* ---- 专注记录列表 ---- */

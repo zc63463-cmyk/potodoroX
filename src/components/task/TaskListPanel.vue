@@ -7,7 +7,10 @@ import {
   formatFriendlyDate,
 } from "@/utils/format";
 import { useTaskStore } from "@/stores/task";
+import { useMarkdown } from "@/composables/useMarkdown";
 import type { Task, TaskStatus, Priority } from "@/types";
+
+const { renderMarkdown } = useMarkdown();
 
 interface Props {
   tasks: Task[];
@@ -331,9 +334,11 @@ function onInlineEditKeydown(e: KeyboardEvent, task: Task) {
               </div>
               <div v-if="task.plan || task.completion" class="detail-section">
                 <div class="detail-label">计划</div>
-                <p v-if="task.plan" class="detail-description">
-                  {{ task.plan }}
-                </p>
+                <div
+                  v-if="task.plan"
+                  class="detail-description markdown-body"
+                  v-html="renderMarkdown(task.plan)"
+                />
                 <p
                   v-else-if="task.completion"
                   class="detail-description text-muted"
@@ -618,6 +623,35 @@ function onInlineEditKeydown(e: KeyboardEvent, task: Task) {
   color: var(--text-secondary);
   line-height: 1.5;
   word-break: break-word;
+}
+
+.detail-description :deep(p) {
+  margin: 0 0 6px;
+}
+
+.detail-description :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.detail-description :deep(ul),
+.detail-description :deep(ol) {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+
+.detail-description :deep(li) {
+  margin-bottom: 2px;
+}
+
+.detail-description :deep(strong) {
+  color: var(--text);
+}
+
+.detail-description :deep(blockquote) {
+  border-left: 2px solid var(--accent-dim);
+  padding-left: 10px;
+  margin: 6px 0;
+  color: var(--text-tertiary);
 }
 
 .detail-description.text-muted {

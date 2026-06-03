@@ -3,7 +3,6 @@ import { ref, computed, onMounted } from "vue";
 import MarkdownPreview from "@/components/shared/MarkdownPreview.vue";
 import type { Reflection } from "@/types";
 import { formatFriendlyDate, getWeekdayName } from "@/utils/format";
-import { downloadReflection } from "@/utils/exportReflection";
 
 const props = defineProps<{
   reflection: Reflection;
@@ -12,12 +11,12 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "close"): void;
   (e: "save", id: string, payload: { content: string }): void;
+  (e: "openBatchExport"): void;
 }>();
 
 const editedContent = ref(props.reflection.content);
 const showPreview = ref(false);
 const isSaving = ref(false);
-const showExportMenu = ref(false);
 const panelRef = ref<HTMLDivElement | null>(null);
 
 onMounted(() => {
@@ -111,47 +110,25 @@ function onClose() {
         <!-- 底部操作栏 -->
         <div class="modal-footer">
           <div class="footer-left">
-            <div class="export-dropdown" @mouseleave="showExportMenu = false">
-              <button
-                class="btn-export"
-                :disabled="isSaving"
-                @mouseenter="showExportMenu = true"
+            <button
+              class="btn-export"
+              :disabled="isSaving"
+              @click="emit('openBatchExport')"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
               >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" y1="15" x2="12" y2="3" />
-                </svg>
-                导出
-              </button>
-              <div v-if="showExportMenu" class="export-menu">
-                <button
-                  class="export-menu-item"
-                  @click="
-                    downloadReflection(reflection, 'md');
-                    showExportMenu = false;
-                  "
-                >
-                  Markdown (.md)
-                </button>
-                <button
-                  class="export-menu-item"
-                  @click="
-                    downloadReflection(reflection, 'json');
-                    showExportMenu = false;
-                  "
-                >
-                  JSON (.json)
-                </button>
-              </div>
-            </div>
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              批量导出
+            </button>
           </div>
           <div class="footer-right">
             <button class="btn-cancel" @click="onClose">关闭</button>
@@ -377,11 +354,7 @@ function onClose() {
   cursor: not-allowed;
 }
 
-/* ---- 导出下拉 ---- */
-.export-dropdown {
-  position: relative;
-}
-
+/* ---- 导出按钮 ---- */
 .btn-export {
   display: flex;
   align-items: center;
@@ -405,40 +378,6 @@ function onClose() {
 .btn-export:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.export-menu {
-  position: absolute;
-  bottom: calc(100% + 4px);
-  left: 0;
-  background: var(--glass-bg);
-  backdrop-filter: blur(16px);
-  border: 1px solid var(--glass-border);
-  border-radius: 10px;
-  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
-  padding: 4px;
-  min-width: 140px;
-  z-index: 10;
-}
-
-.export-menu-item {
-  display: block;
-  width: 100%;
-  padding: 6px 12px;
-  border: none;
-  background: transparent;
-  color: var(--text);
-  font-size: 0.8rem;
-  text-align: left;
-  cursor: pointer;
-  border-radius: 6px;
-  transition: background 0.2s ease;
-  white-space: nowrap;
-}
-
-.export-menu-item:hover {
-  background: var(--surface-hover);
-  color: var(--accent);
 }
 
 /* ---- 响应式 ---- */

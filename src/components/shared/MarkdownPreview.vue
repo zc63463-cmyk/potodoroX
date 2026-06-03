@@ -216,6 +216,29 @@ onBeforeUnmount(() => {
   color: var(--text);
 }
 
+.markdown-body :deep(h4) {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 10px 0 4px;
+  color: var(--text);
+}
+
+.markdown-body :deep(h5) {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 8px 0 4px;
+  color: var(--text-secondary);
+}
+
+.markdown-body :deep(h6) {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 8px 0 4px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .markdown-body :deep(ul),
 .markdown-body :deep(ol) {
   margin: 8px 0;
@@ -301,6 +324,103 @@ onBeforeUnmount(() => {
 .markdown-body :deep(p) {
   margin: 8px 0;
   color: var(--text-secondary);
+}
+
+/* ---- 删除线 ---- */
+.markdown-body :deep(s),
+.markdown-body :deep(del) {
+  text-decoration: line-through;
+  color: var(--text-tertiary);
+  opacity: 0.75;
+}
+
+/* ---- 下划线 ---- */
+.markdown-body :deep(ins) {
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-underline-offset: 3px;
+}
+
+/* ---- 高亮 ---- */
+.markdown-body :deep(mark) {
+  background: rgba(88, 166, 255, 0.2);
+  color: var(--text);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+/* ---- 上下标 ---- */
+.markdown-body :deep(sub),
+.markdown-body :deep(sup) {
+  font-size: 0.75em;
+  color: var(--text-secondary);
+}
+
+/* ---- 链接 ---- */
+.markdown-body :deep(a) {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s ease;
+}
+
+.markdown-body :deep(a:hover) {
+  border-bottom-color: var(--accent);
+  opacity: 0.9;
+}
+
+/* ---- 图片 ---- */
+.markdown-body :deep(img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  display: block;
+  margin: 12px 0;
+}
+
+/* ---- 任务列表 ---- */
+.markdown-body :deep(.contains-task-list) {
+  list-style: none;
+  padding-left: 4px;
+}
+
+.markdown-body :deep(.task-list-item) {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.markdown-body :deep(.task-list-item-checkbox) {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  margin-top: 2px;
+  border: 1.5px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+  cursor: default;
+  position: relative;
+  transition: all 0.15s ease;
+}
+
+.markdown-body :deep(.task-list-item-checkbox:checked) {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.markdown-body :deep(.task-list-item-checkbox:checked::after) {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 5px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
 }
 
 /* ---- 响应式 ---- */

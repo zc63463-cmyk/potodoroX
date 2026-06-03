@@ -1,5 +1,10 @@
 import MarkdownIt from "markdown-it";
 import anchor from "markdown-it-anchor";
+import taskLists from "markdown-it-task-lists";
+import ins from "markdown-it-ins";
+import mark from "markdown-it-mark";
+import sub from "markdown-it-sub";
+import sup from "markdown-it-sup";
 import { sanitizeHtml } from "@/utils/sanitize";
 
 const md = new MarkdownIt({
@@ -19,6 +24,19 @@ md.use(anchor, {
   slugify,
   permalink: false,
 });
+
+// GFM 任务列表：- [x] / - [ ] → checkbox
+md.use(taskLists);
+
+// 下划线：++text++ → <ins>
+md.use(ins);
+
+// 高亮：==text== → <mark>
+md.use(mark);
+
+// 上下标：~sub~ → <sub>, ^sup^ → <sup>
+md.use(sub);
+md.use(sup);
 
 export interface TocItem {
   level: number;
@@ -41,7 +59,7 @@ export function useMarkdown() {
     for (let i = 0; i < tokens.length; i++) {
       if (
         tokens[i].type === "heading_open" &&
-        tokens[i].tag.match(/^h[1-3]$/)
+        tokens[i].tag.match(/^h[1-4]$/)
       ) {
         const level = parseInt(tokens[i].tag[1]);
         const textToken = tokens[i + 1];

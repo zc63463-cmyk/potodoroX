@@ -4,7 +4,6 @@ import MarkdownPreview from "@/components/shared/MarkdownPreview.vue";
 import type { Mood, Task } from "@/types";
 import { MOODS } from "@/utils/constants";
 import { formatFriendlyDate, getWeekdayName } from "@/utils/format";
-import { downloadReflection } from "@/utils/exportReflection";
 
 // ---- Props ----
 const props = defineProps<{
@@ -24,12 +23,12 @@ const emit = defineEmits<{
   (e: "goToToday"): void;
   (e: "save"): void;
   (e: "triggerAutoSave"): void;
+  (e: "openBatchExport"): void;
 }>();
 
 // ---- 本地状态 ----
 const showPreview = ref(false);
 const tagInput = ref("");
-const showExportMenu = ref(false);
 
 // ---- 心情配置 ----
 const moodConfig: Record<
@@ -172,69 +171,21 @@ function getMoodInfo(mood: Mood) {
     <div class="editor-date-header">
       <h2 class="date-title">{{ dateDisplayText }}</h2>
       <div class="header-actions">
-        <div class="export-dropdown" @mouseleave="showExportMenu = false">
-          <button class="btn-export" @mouseenter="showExportMenu = true">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-            导出
-          </button>
-          <div v-if="showExportMenu" class="export-menu">
-            <button
-              class="export-menu-item"
-              @click="
-                downloadReflection(
-                  {
-                    id: reflectionId || '',
-                    date,
-                    content,
-                    mood,
-                    tags,
-                    relatedTaskIds: [],
-                    createdAt: '',
-                    updatedAt: '',
-                    synced: false,
-                  },
-                  'md'
-                );
-                showExportMenu = false;
-              "
-            >
-              Markdown (.md)
-            </button>
-            <button
-              class="export-menu-item"
-              @click="
-                downloadReflection(
-                  {
-                    id: reflectionId || '',
-                    date,
-                    content,
-                    mood,
-                    tags,
-                    relatedTaskIds: [],
-                    createdAt: '',
-                    updatedAt: '',
-                    synced: false,
-                  },
-                  'json'
-                );
-                showExportMenu = false;
-              "
-            >
-              JSON (.json)
-            </button>
-          </div>
-        </div>
+        <button class="btn-export" @click="emit('openBatchExport')">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          批量导出
+        </button>
         <button class="btn-today" @click="emit('goToToday')">回到今天</button>
       </div>
     </div>
@@ -381,10 +332,6 @@ function getMoodInfo(mood: Mood) {
   gap: 10px;
 }
 
-.export-dropdown {
-  position: relative;
-}
-
 .btn-export {
   display: flex;
   align-items: center;
@@ -404,39 +351,6 @@ function getMoodInfo(mood: Mood) {
   color: var(--accent);
   border-color: var(--accent-dim);
   box-shadow: 0 0 8px var(--accent-glow);
-}
-
-.export-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  background: var(--glass-bg);
-  backdrop-filter: blur(16px);
-  border: 1px solid var(--glass-border);
-  border-radius: 10px;
-  box-shadow: var(--glass-shadow);
-  padding: 4px;
-  min-width: 140px;
-  z-index: 10;
-}
-
-.export-menu-item {
-  display: block;
-  width: 100%;
-  padding: 6px 12px;
-  border: none;
-  background: transparent;
-  color: var(--text);
-  font-size: 0.8rem;
-  text-align: left;
-  cursor: pointer;
-  border-radius: 6px;
-  transition: background 0.2s ease;
-}
-
-.export-menu-item:hover {
-  background: var(--surface-hover);
-  color: var(--accent);
 }
 
 /* ---- 心情选择器 ---- */
