@@ -8,7 +8,7 @@ import type { DateRange } from "@/components/shared/DateRangePicker.vue";
 import { useReflectionStore } from "@/stores/reflection";
 import { useTaskStore } from "@/stores/task";
 import { useSessionStore } from "@/stores/session";
-import type { Mood, Reflection, ReflectionFilter } from "@/types";
+import type { Mood, Reflection, ReflectionFilter, Task } from "@/types";
 import { formatDate, formatFriendlyDate } from "@/utils/format";
 import {
   batchExportAsMarkdown,
@@ -123,26 +123,44 @@ const hasUnsavedChanges = computed(() => {
   );
 });
 
-const todayTasks = computed(() => {
-  // 当天有 session 的任务 ID 集合
-  const sessionTaskIds = new Set(
-    sessionStore.sessions
-      .filter(
-        (s) =>
-          s.taskId &&
-          s.startedAt.slice(0, 10) === selectedDate.value &&
-          (s.type === "work" || s.type === "free")
-      )
-      .map((s) => s.taskId)
-  );
+interface TodayTask extends Task {
+  dayPomoCount: number;
+  dayMinutes: number;
+}
 
-  return taskStore.tasks.filter((t) => {
-    const taskDate = t.createdAt.slice(0, 10); // "YYYY-MM-DD"
-    const match = taskDate === selectedDate.value;
-    const dueMatch = t.dueDate && t.dueDate.slice(0, 10) === selectedDate.value;
-    const hasSession = sessionTaskIds.has(t.id);
-    return match || dueMatch || hasSession;
-  });
+const todayTasks = computed<TodayTask[]>(() => {
+  // 当天所有 work/free session 按 taskId 分组统计
+  const sessionStats = new Map<string, { count: number; minutes: number }>();
+  for (const s of sessionStore.sessions) {
+    if (
+      !s.taskId ||
+      s.startedAt.slice(0, 10) !== selectedDate.value ||
+      (s.type !== "work" && s.type !== "free")
+    )
+      continue;
+    const stat = sessionStats.get(s.taskId) || { count: 0, minutes: 0 };
+    stat.count++;
+    stat.minutes += Math.round(s.duration / 60);
+    sessionStats.set(s.taskId, stat);
+  }
+
+  return taskStore.tasks
+    .filter((t) => {
+      const taskDate = t.createdAt.slice(0, 10); // "YYYY-MM-DD"
+      const match = taskDate === selectedDate.value;
+      const dueMatch =
+        t.dueDate && t.dueDate.slice(0, 10) === selectedDate.value;
+      const hasSession = sessionStats.has(t.id);
+      return match || dueMatch || hasSession;
+    })
+    .map((t) => {
+      const stat = sessionStats.get(t.id);
+      return {
+        ...t,
+        dayPomoCount: stat?.count ?? 0,
+        dayMinutes: stat?.minutes ?? 0,
+      };
+    });
 });
 
 const recentReflections = computed(() => {
@@ -556,6 +574,13 @@ onUnmounted(() => {
                 }"
               />
               <span class="task-link-title">{{ task.title }}</span>
+              <span
+                v-if="(task as any).dayPomoCount > 0"
+                class="task-day-stats"
+              >
+                {{ (task as any).dayPomoCount }}个番茄钟 ·
+                {{ (task as any).dayMinutes }}分钟
+              </span>
               <span class="task-pomo-count">
                 {{ task.actualPomodoros }}/{{ task.estimatedPomodoros }}
               </span>
@@ -1140,6 +1165,16 @@ onUnmounted(() => {
 .task-pomo-count {
   font-size: 0.75rem;
   color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.task-day-stats {
+  font-size: 0.7rem;
+  color: var(--accent-primary);
+  background: var(--accent-primary-alpha, rgba(59, 130, 246, 0.12));
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
   flex-shrink: 0;
 }
 

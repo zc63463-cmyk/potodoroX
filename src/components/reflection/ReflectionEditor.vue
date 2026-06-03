@@ -13,7 +13,7 @@ const props = defineProps<{
   mood: Mood;
   tags: string[];
   reflectionId: string | null;
-  todayTasks: Task[];
+  todayTasks: (Task & { dayPomoCount?: number; dayMinutes?: number })[];
 }>();
 
 const emit = defineEmits<{
