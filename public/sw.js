@@ -146,7 +146,7 @@ async function cacheFirst(request) {
 
   try {
     const networkResponse = await fetch(request);
-    if (networkResponse && networkResponse.ok) {
+    if (networkResponse && networkResponse.ok && request.method === "GET") {
       cache.put(request, networkResponse.clone());
     }
     return networkResponse;
@@ -163,7 +163,7 @@ async function cacheFirst(request) {
 async function networkFirstNavigate(request) {
   try {
     const networkResponse = await fetch(request, { redirect: "follow" });
-    if (networkResponse && networkResponse.ok) {
+    if (networkResponse && networkResponse.ok && request.method === "GET") {
       // 后台更新缓存
       const cache = await caches.open(CACHE_NAME);
       cache.put(request, networkResponse.clone());
@@ -221,7 +221,7 @@ async function staleWhileRevalidate(request) {
   // 后台网络更新
   const networkPromise = fetch(request)
     .then((response) => {
-      if (response && response.ok) {
+      if (response && response.ok && request.method === "GET") {
         cache.put(request, response.clone());
       }
       return response;
