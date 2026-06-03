@@ -28,7 +28,11 @@ const emit = defineEmits<{
 
 // ---- 本地状态 ----
 const showPreview = ref(false);
+const showMetaPanel = ref(false);
 const tagInput = ref("");
+
+// 当前心情的显示文本
+const currentMoodInfo = computed(() => getMoodInfo(props.mood));
 
 // ---- 心情配置 ----
 const moodConfig: Record<
@@ -190,91 +194,133 @@ function getMoodInfo(mood: Mood) {
       </div>
     </div>
 
-    <!-- 心情选择器 -->
-    <div class="mood-selector">
-      <span class="mood-label">今日心情</span>
-      <div class="mood-options">
-        <button
-          v-for="m in MOODS"
-          :key="m.value"
-          class="mood-card"
-          :class="{ active: mood === m.value }"
-          :style="{
-            '--mood-color': getMoodInfo(m.value).color,
-            '--mood-bg': getMoodInfo(m.value).bgColor,
-          }"
-          @click="selectMood(m.value)"
+    <!-- 可折叠元信息面板 -->
+    <div class="meta-panel" :class="{ expanded: showMetaPanel }">
+      <!-- 折叠状态：一行摘要 -->
+      <div class="meta-summary" @click="showMetaPanel = !showMetaPanel">
+        <span class="meta-summary-item">
+          <span class="meta-summary-emoji">{{ currentMoodInfo.emoji }}</span>
+          {{ currentMoodInfo.label }}
+        </span>
+        <span class="meta-summary-divider">·</span>
+        <span class="meta-summary-item">
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+            <line x1="3" y1="9" x2="21" y2="9" />
+            <line x1="9" y1="21" x2="9" y2="9" />
+          </svg>
+          {{ tags.length ? tags.length + " 个标签" : "无标签" }}
+        </span>
+        <svg
+          class="meta-chevron"
+          :class="{ rotated: showMetaPanel }"
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
         >
-          <span class="mood-emoji">{{ getMoodInfo(m.value).emoji }}</span>
-          <span class="mood-text">{{ getMoodInfo(m.value).label }}</span>
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </div>
+
+      <!-- 展开时显示完整选择器 -->
+      <div v-if="showMetaPanel" class="meta-body">
+        <!-- 心情选择 -->
+        <div class="meta-section">
+          <span class="meta-section-label">心情</span>
+          <div class="mood-options">
+            <button
+              v-for="m in MOODS"
+              :key="m.value"
+              class="mood-card"
+              :class="{ active: mood === m.value }"
+              :style="{
+                '--mood-color': getMoodInfo(m.value).color,
+                '--mood-bg': getMoodInfo(m.value).bgColor,
+              }"
+              @click="selectMood(m.value)"
+            >
+              <span class="mood-emoji">{{ getMoodInfo(m.value).emoji }}</span>
+              <span class="mood-text">{{ getMoodInfo(m.value).label }}</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 快速模板 -->
+        <div class="meta-section">
+          <span class="meta-section-label">模板</span>
+          <div class="template-options">
+            <button
+              v-for="tpl in templates"
+              :key="tpl.label"
+              class="template-btn"
+              @click="insertTemplate(tpl)"
+            >
+              {{ tpl.label }}
+            </button>
+          </div>
+        </div>
+
+        <!-- 标签输入 -->
+        <div class="meta-section">
+          <span class="meta-section-label">标签</span>
+          <div class="tag-input-wrap">
+            <span v-for="(tag, i) in tags" :key="tag" class="tag-chip">
+              {{ tag }}
+              <button class="tag-remove" @click="removeTag(i)">×</button>
+            </span>
+            <input
+              v-model="tagInput"
+              class="tag-input"
+              placeholder="输入标签，回车确认"
+              @keydown="handleTagInputKey"
+              @blur="onBlurTagInput"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 编辑/预览区（占据剩余空间） -->
+    <div class="editor-main">
+      <div class="editor-toolbar">
+        <button
+          class="toolbar-btn"
+          :class="{ active: !showPreview }"
+          @click="showPreview = false"
+        >
+          编辑
+        </button>
+        <button
+          class="toolbar-btn"
+          :class="{ active: showPreview }"
+          @click="showPreview = true"
+        >
+          预览
         </button>
       </div>
+      <textarea
+        v-if="!showPreview"
+        :value="content"
+        class="reflection-textarea"
+        placeholder="写下今天的反思..."
+        @input="
+          emit('update:content', ($event.target as HTMLTextAreaElement).value);
+          emit('triggerAutoSave');
+        "
+      />
+      <MarkdownPreview v-else :content="content" show-toc />
     </div>
-
-    <!-- 快速模板 -->
-    <div class="template-bar">
-      <span class="template-label">快速模板</span>
-      <button
-        v-for="tpl in templates"
-        :key="tpl.label"
-        class="template-btn"
-        @click="insertTemplate(tpl)"
-      >
-        {{ tpl.label }}
-      </button>
-    </div>
-
-    <!-- 标签输入 -->
-    <div class="tag-bar">
-      <span class="tag-label">标签</span>
-      <div class="tag-input-wrap">
-        <span v-for="(tag, i) in tags" :key="tag" class="tag-chip">
-          {{ tag }}
-          <button class="tag-remove" @click="removeTag(i)">×</button>
-        </span>
-        <input
-          ref="tagInputRef"
-          v-model="tagInput"
-          class="tag-input"
-          placeholder="添加标签，按回车确认"
-          @keydown="handleTagInputKey"
-          @blur="onBlurTagInput"
-        />
-      </div>
-    </div>
-
-    <!-- 编辑/预览切换 -->
-    <div class="editor-toolbar">
-      <button
-        class="toolbar-btn"
-        :class="{ active: !showPreview }"
-        @click="showPreview = false"
-      >
-        编辑
-      </button>
-      <button
-        class="toolbar-btn"
-        :class="{ active: showPreview }"
-        @click="showPreview = true"
-      >
-        预览
-      </button>
-    </div>
-
-    <!-- 编辑模式 -->
-    <textarea
-      v-if="!showPreview"
-      :value="content"
-      class="reflection-textarea"
-      placeholder="写下今天的反思..."
-      @input="
-        emit('update:content', ($event.target as HTMLTextAreaElement).value);
-        emit('triggerAutoSave');
-      "
-    />
-
-    <!-- 预览模式 -->
-    <MarkdownPreview v-else :content="content" show-toc />
   </div>
 </template>
 
@@ -282,11 +328,11 @@ function getMoodInfo(mood: Mood) {
 /* ---- 编辑器面板 (Glass) ---- */
 .editor-panel {
   flex: 1;
-  overflow-y: auto;
-  padding: 24px;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 12px;
+  padding: 20px 24px;
   background: var(--glass-bg);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -299,12 +345,39 @@ function getMoodInfo(mood: Mood) {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
 }
 
 .date-title {
-  font-size: 1.25rem;
+  font-size: 1.2rem;
   font-weight: 600;
   color: var(--text);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-export {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-export:hover {
+  background: var(--hover-bg);
+  color: var(--accent);
+  border-color: var(--accent-dim);
 }
 
 .btn-today {
@@ -322,63 +395,97 @@ function getMoodInfo(mood: Mood) {
   background: var(--hover-bg);
   color: var(--accent);
   border-color: var(--accent-dim);
-  box-shadow: 0 0 8px var(--accent-glow);
 }
 
-/* ---- 导出下拉 ---- */
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+/* ---- 可折叠元信息面板 ---- */
+.meta-panel {
+  flex-shrink: 0;
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: border-color 0.2s ease;
 }
 
-.btn-export {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: all 0.25s ease;
-}
-
-.btn-export:hover {
-  background: var(--hover-bg);
-  color: var(--accent);
+.meta-panel.expanded {
   border-color: var(--accent-dim);
-  box-shadow: 0 0 8px var(--accent-glow);
 }
 
-/* ---- 心情选择器 ---- */
-.mood-selector {
+.meta-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.meta-summary:hover {
+  background: var(--hover-bg);
+}
+
+.meta-summary-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.meta-summary-emoji {
+  font-size: 1rem;
+}
+
+.meta-summary-divider {
+  color: var(--text-muted);
+}
+
+.meta-chevron {
+  margin-left: auto;
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.meta-chevron.rotated {
+  transform: rotate(180deg);
+}
+
+.meta-body {
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--glass-border);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
-.mood-label {
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  font-weight: 500;
+.meta-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
+.meta-section-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ---- 心情选择 ---- */
 .mood-options {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
 .mood-card {
-  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  border-radius: 12px;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 10px;
   border: 1.5px solid transparent;
   background: linear-gradient(
     135deg,
@@ -386,122 +493,67 @@ function getMoodInfo(mood: Mood) {
     var(--bg-elevated) 100%
   );
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.25s ease;
   color: var(--text-secondary);
-  overflow: hidden;
-}
-
-.mood-card::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: var(--mood-bg);
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  pointer-events: none;
+  font-size: 0.82rem;
 }
 
 .mood-card:hover {
   border-color: var(--mood-color, var(--border));
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px var(--mood-bg);
-}
-
-.mood-card:hover::before {
-  opacity: 0.6;
+  transform: translateY(-1px);
 }
 
 .mood-card.active {
   border-color: var(--mood-color, var(--accent));
   background: linear-gradient(135deg, var(--mood-bg) 0%, var(--surface) 100%);
   color: var(--mood-color, var(--accent));
-  box-shadow:
-    0 0 20px var(--mood-bg),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
-}
-
-.mood-card.active::before {
-  opacity: 1;
+  box-shadow: 0 0 16px var(--mood-bg);
 }
 
 .mood-emoji {
-  position: relative;
-  z-index: 1;
-  font-size: 1.4rem;
+  font-size: 1.1rem;
   line-height: 1;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.15));
 }
 
-.mood-text {
-  position: relative;
-  z-index: 1;
-  font-size: 0.85rem;
-  font-weight: 500;
-}
-
-/* ---- 快速模板 ---- */
-.template-bar {
+/* ---- 模板选项 ---- */
+.template-options {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
-.template-label {
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
 .template-btn {
-  padding: 6px 14px;
-  border-radius: 8px;
+  padding: 5px 12px;
+  border-radius: 7px;
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text-secondary);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.2s ease;
 }
 
 .template-btn:hover {
   border-color: var(--accent);
   color: var(--accent);
   background: var(--hover-bg);
-  box-shadow: 0 0 10px var(--accent-glow);
-  transform: translateY(-1px);
 }
 
 /* ---- 标签输入 ---- */
-.tag-bar {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.tag-label {
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
 .tag-input-wrap {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--surface);
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
+  transition: border-color 0.2s ease;
 }
 
 .tag-input-wrap:focus-within {
-  border-color: var(--accent-dim);
+  border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
@@ -509,12 +561,12 @@ function getMoodInfo(mood: Mood) {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 10px;
+  padding: 2px 9px;
   border-radius: 999px;
   border: 1px solid var(--accent-dim);
   background: rgba(88, 166, 255, 0.08);
   color: var(--accent);
-  font-size: 0.75rem;
+  font-size: 0.73rem;
   font-weight: 500;
 }
 
@@ -531,7 +583,7 @@ function getMoodInfo(mood: Mood) {
   cursor: pointer;
   font-size: 0.7rem;
   line-height: 1;
-  transition: background 0.2s ease;
+  transition: background 0.2s;
 }
 
 .tag-remove:hover {
@@ -541,20 +593,30 @@ function getMoodInfo(mood: Mood) {
 
 .tag-input {
   flex: 1;
-  min-width: 120px;
+  min-width: 100px;
   border: none;
   background: transparent;
   color: var(--text);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   outline: none;
-  padding: 4px 0;
+  padding: 3px 0;
 }
 
 .tag-input::placeholder {
   color: var(--text-muted);
 }
 
-/* ---- 编辑区 ---- */
+/* ---- 编辑/预览主区域（占据剩余空间） ---- */
+.editor-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
 .editor-toolbar {
   display: flex;
   gap: 0;
@@ -565,14 +627,14 @@ function getMoodInfo(mood: Mood) {
 
 .toolbar-btn {
   flex: 1;
-  padding: 10px;
+  padding: 9px;
   border: none;
   background: transparent;
   color: var(--text-secondary);
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.25s ease;
+  transition: all 0.2s ease;
   border-bottom: 2px solid transparent;
 }
 
@@ -590,16 +652,16 @@ function getMoodInfo(mood: Mood) {
 .reflection-textarea {
   flex: 1;
   width: 100%;
-  padding: 20px;
+  padding: 18px 20px;
   border: none;
   background: transparent;
   color: var(--text);
   font-size: 0.95rem;
-  line-height: 1.7;
+  line-height: 1.75;
   resize: none;
   outline: none;
   font-family: inherit;
-  transition: background 0.2s ease;
+  transition: background 0.15s;
 }
 
 .reflection-textarea::placeholder {
@@ -607,25 +669,30 @@ function getMoodInfo(mood: Mood) {
 }
 
 .reflection-textarea:focus {
-  background: var(--surface-hover);
+  background: rgba(88, 166, 255, 0.02);
 }
 
 /* ---- 响应式 ---- */
 @media (max-width: 600px) {
   .editor-panel {
-    padding: 16px;
+    padding: 12px 14px;
+    gap: 8px;
   }
 
   .mood-options {
-    gap: 6px;
+    gap: 4px;
   }
 
   .mood-card {
-    padding: 8px 12px;
+    padding: 6px 10px;
   }
 
   .mood-text {
     display: none;
+  }
+
+  .meta-summary {
+    font-size: 0.78rem;
   }
 }
 </style>

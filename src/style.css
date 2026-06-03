@@ -755,15 +755,22 @@ select:focus {
 }
 
 /* 列表 */
-.markdown-body ul,
+.markdown-body ul {
+  margin: 8px 0;
+  padding-left: 24px;
+  list-style: disc;
+}
+
 .markdown-body ol {
   margin: 8px 0;
   padding-left: 24px;
+  list-style: decimal;
 }
 
 .markdown-body li {
   margin: 4px 0;
   color: var(--text-secondary);
+  display: list-item;
 }
 
 .markdown-body ul ul,

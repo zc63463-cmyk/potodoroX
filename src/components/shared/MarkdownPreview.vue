@@ -239,15 +239,22 @@ onBeforeUnmount(() => {
   letter-spacing: 0.04em;
 }
 
-.markdown-body :deep(ul),
+.markdown-body :deep(ul) {
+  margin: 8px 0;
+  padding-left: 24px;
+  list-style: disc;
+}
+
 .markdown-body :deep(ol) {
   margin: 8px 0;
   padding-left: 24px;
+  list-style: decimal;
 }
 
 .markdown-body :deep(li) {
   margin: 4px 0;
   color: var(--text-secondary);
+  display: list-item;
 }
 
 .markdown-body :deep(strong) {

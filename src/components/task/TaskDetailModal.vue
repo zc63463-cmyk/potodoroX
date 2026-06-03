@@ -1119,15 +1119,23 @@ function close() {
   color: var(--text);
 }
 
-.detail-preview :deep(ul),
+.detail-preview :deep(ul) {
+  margin: 0 0 8px;
+  padding-left: 20px;
+  color: var(--text);
+  list-style: disc;
+}
+
 .detail-preview :deep(ol) {
   margin: 0 0 8px;
   padding-left: 20px;
   color: var(--text);
+  list-style: decimal;
 }
 
 .detail-preview :deep(li) {
   margin-bottom: 4px;
+  display: list-item;
 }
 
 .detail-preview :deep(strong) {
@@ -1251,17 +1259,25 @@ function close() {
   margin: 0;
 }
 
-.note-content :deep(ul),
+.note-content :deep(ul) {
+  display: block;
+  margin: 4px 0 0;
+  padding-left: 18px;
+  list-style: disc;
+}
+
 .note-content :deep(ol) {
   display: block;
   margin: 4px 0 0;
   padding-left: 18px;
+  list-style: decimal;
 }
 
 .note-content :deep(li) {
   margin-bottom: 2px;
   font-size: 0.82rem;
   color: var(--text-secondary);
+  display: list-item;
 }
 
 .note-content :deep(strong) {
