@@ -122,17 +122,20 @@ const hasUnsavedChanges = computed(() => {
 });
 
 const todayTasks = computed(() => {
-  return taskStore.tasks.filter(
-    (t) =>
-      t.createdAt.startsWith(selectedDate.value) ||
-      (t.dueDate && t.dueDate.startsWith(selectedDate.value))
-  );
+  return taskStore.tasks.filter((t) => {
+    const taskDate = t.createdAt.slice(0, 10); // "YYYY-MM-DD"
+    const match = taskDate === selectedDate.value;
+    const dueMatch = t.dueDate && t.dueDate.slice(0, 10) === selectedDate.value;
+    return match || dueMatch;
+  });
 });
 
 const recentReflections = computed(() => {
-  return reflectionStore.filteredReflections
-    .filter((r) => r.id !== currentReflectionId.value)
-    .slice(0, 10);
+  const today = formatDate(new Date());
+  return reflectionStore.reflections
+    .filter((r) => r.date !== today && r.id !== currentReflectionId.value)
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 7);
 });
 
 // ---- 方法 ----
