@@ -646,3 +646,266 @@ select:focus {
     align-items: flex-end;
   }
 }
+
+/* ============================================================
+   Markdown 渲染样式（全局，对抗 reset）
+   所有 .markdown-body 容器内的 v-html 内容自动生效
+   ============================================================ */
+
+.markdown-body {
+  color: var(--text-secondary);
+  line-height: 1.7;
+  font-size: 0.95rem;
+}
+
+.markdown-body > *:first-child {
+  margin-top: 0;
+}
+
+.markdown-body > *:last-child {
+  margin-bottom: 0;
+}
+
+/* 标题 */
+.markdown-body h1 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin: 20px 0 10px;
+  color: var(--accent);
+}
+
+.markdown-body h2 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 16px 0 8px;
+  color: var(--text);
+}
+
+.markdown-body h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 14px 0 6px;
+  color: var(--text);
+}
+
+.markdown-body h4 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 12px 0 4px;
+  color: var(--text);
+}
+
+.markdown-body h5 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 10px 0 4px;
+  color: var(--text-secondary);
+}
+
+.markdown-body h6 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 8px 0 4px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* 段落 */
+.markdown-body p {
+  margin: 8px 0;
+  color: var(--text-secondary);
+}
+
+/* 行内语义 */
+.markdown-body strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.markdown-body em {
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+.markdown-body s,
+.markdown-body del {
+  text-decoration: line-through;
+  color: var(--text-tertiary);
+  opacity: 0.75;
+}
+
+.markdown-body ins {
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-underline-offset: 3px;
+}
+
+.markdown-body mark {
+  background: rgba(88, 166, 255, 0.2);
+  color: var(--text);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.markdown-body sub,
+.markdown-body sup {
+  font-size: 0.75em;
+  color: var(--text-secondary);
+}
+
+/* 列表 */
+.markdown-body ul,
+.markdown-body ol {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.markdown-body li {
+  margin: 4px 0;
+  color: var(--text-secondary);
+}
+
+.markdown-body ul ul,
+.markdown-body ol ol,
+.markdown-body ul ol,
+.markdown-body ol ul {
+  margin: 4px 0;
+}
+
+/* 引用块 */
+.markdown-body blockquote {
+  margin: 10px 0;
+  padding: 8px 16px;
+  border-left: 3px solid var(--accent-dim);
+  background: rgba(88, 166, 255, 0.05);
+  border-radius: 0 8px 8px 0;
+  color: var(--text-secondary);
+}
+
+.markdown-body blockquote p {
+  margin: 4px 0;
+}
+
+/* 代码 */
+.markdown-body code {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 0.875em;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
+}
+
+.markdown-body pre {
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: var(--surface);
+  overflow-x: auto;
+  margin: 10px 0;
+}
+
+.markdown-body pre code {
+  background: transparent;
+  padding: 0;
+  color: var(--text-secondary);
+}
+
+/* 表格 */
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 0.9rem;
+}
+
+.markdown-body th,
+.markdown-body td {
+  padding: 8px 12px;
+  border: 1px solid var(--glass-border);
+  text-align: left;
+}
+
+.markdown-body th {
+  background: var(--bg-elevated);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.markdown-body td {
+  color: var(--text-secondary);
+}
+
+/* 分割线 */
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid var(--glass-border);
+  margin: 16px 0;
+}
+
+/* 链接 */
+.markdown-body a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s ease;
+}
+
+.markdown-body a:hover {
+  border-bottom-color: var(--accent);
+  opacity: 0.9;
+}
+
+/* 图片 */
+.markdown-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  display: block;
+  margin: 12px 0;
+}
+
+/* 任务列表 */
+.markdown-body .contains-task-list {
+  list-style: none;
+  padding-left: 4px;
+}
+
+.markdown-body .task-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.markdown-body .task-list-item-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  margin-top: 3px;
+  border: 1.5px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+  cursor: default;
+  position: relative;
+  transition: all 0.15s ease;
+}
+
+.markdown-body .task-list-item-checkbox:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.markdown-body .task-list-item-checkbox:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 5px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
