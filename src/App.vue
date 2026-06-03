@@ -7,6 +7,7 @@ import { useSyncStore } from "@/stores/sync";
 import { useKeyboard } from "@/composables/useKeyboard";
 import ToastContainer from "@/components/shared/ToastContainer.vue";
 import GlobalSearch from "@/components/shared/GlobalSearch.vue";
+import { sanitizeHtml } from "@/utils/sanitize";
 import type { ViewName } from "@/types";
 
 const router = useRouter();
@@ -87,8 +88,14 @@ function handleVisibilityChange() {
 
 // ---- 网络状态变化 ----
 let onlineDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+let wasOffline = !navigator.onLine;
+
 function handleOnline() {
   appStore.isOnline = true;
+  if (wasOffline) {
+    appStore.showToast("网络已恢复 ✅", "success", 3000);
+    wasOffline = false;
+  }
   if (onlineDebounceTimer) clearTimeout(onlineDebounceTimer);
   onlineDebounceTimer = setTimeout(() => {
     if (import.meta.env.DEV) console.log("[App] 网络恢复，触发同步");
@@ -97,6 +104,31 @@ function handleOnline() {
 }
 function handleOffline() {
   appStore.isOnline = false;
+  wasOffline = true;
+  appStore.showToast("📴 当前离线，数据已本地保存", "warning", 5000);
+}
+
+// ---- PWA 更新提示 ----
+let swUpdateDismissed = false;
+
+function listenForSwUpdates() {
+  // 监听 SW 激活消息
+  if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.addEventListener("message", (event) => {
+      if (event.data?.type === "SW_ACTIVATED" && !swUpdateDismissed) {
+        appStore.showToast("🔄 有新版本可用，刷新页面以更新", "info", 0);
+        swUpdateDismissed = true;
+      }
+    });
+  }
+}
+
+// index.html 注册的 sw-update 事件
+function handleSwUpdate() {
+  if (!swUpdateDismissed) {
+    appStore.showToast("🔄 发现新版本，刷新页面以更新", "info", 0);
+    swUpdateDismissed = true;
+  }
 }
 
 // ---- 初始化 ----
@@ -113,6 +145,10 @@ onMounted(async () => {
   window.addEventListener("online", handleOnline);
   window.addEventListener("offline", handleOffline);
 
+  // PWA 更新监听
+  listenForSwUpdates();
+  window.addEventListener("sw-update", handleSwUpdate);
+
   const currentNav = navItems.find((item) => item.path === route.path);
   if (currentNav) {
     appStore.navigateTo(currentNav.name);
@@ -123,6 +159,7 @@ onUnmounted(() => {
   document.removeEventListener("visibilitychange", handleVisibilityChange);
   window.removeEventListener("online", handleOnline);
   window.removeEventListener("offline", handleOffline);
+  window.removeEventListener("sw-update", handleSwUpdate);
   if (onlineDebounceTimer) clearTimeout(onlineDebounceTimer);
 });
 
@@ -131,20 +168,28 @@ function renderIcon(name: string, active: boolean) {
   const color = active ? "currentColor" : "currentColor";
   const opacity = active ? "1" : "0.5";
 
+  let svg: string;
   switch (name) {
     case "focus":
-      return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`;
+      svg = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`;
+      break;
     case "tasks":
-      return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>`;
+      svg = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>`;
+      break;
     case "journal":
-      return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`;
+      svg = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`;
+      break;
     case "stats":
-      return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>`;
+      svg = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>`;
+      break;
     case "settings":
-      return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.67 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.67a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>`;
+      svg = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:${opacity}"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.67 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.67a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>`;
+      break;
     default:
-      return "";
+      svg = "";
+      break;
   }
+  return svg ? sanitizeHtml(svg) : "";
 }
 </script>
 
@@ -200,6 +245,30 @@ function renderIcon(name: string, active: boolean) {
       </div>
     </header>
 
+    <!-- 离线提示条 -->
+    <div v-if="!appStore.isOnline" class="offline-banner">
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        style="flex-shrink: 0"
+      >
+        <line x1="1" y1="1" x2="23" y2="23" />
+        <path d="M16.72 11.06A10.94 10.94 0 0119 12.55" />
+        <path d="M5 12.55a10.94 10.94 0 015.17-2.39" />
+        <path d="M10.71 5.05A16 16 0 0122.58 9" />
+        <path d="M1.42 9a15.91 15.91 0 014.7-2.88" />
+        <path d="M8.53 16.11a6 6 0 016.95 0" />
+        <line x1="12" y1="20" x2="12.01" y2="20" />
+      </svg>
+      <span>当前离线 — 数据保存在本地，恢复网络后自动同步</span>
+    </div>
+
     <!-- 主内容区 -->
     <main class="main-content">
       <div class="router-wrapper">
@@ -221,6 +290,7 @@ function renderIcon(name: string, active: boolean) {
         :aria-current="activeNav?.name === item.name ? 'page' : undefined"
         @click="navigateTo(item.name)"
       >
+        <!-- eslint-disable-next-line vue/no-v-html -->
         <span
           class="nav-icon"
           v-html="renderIcon(item.icon, activeNav?.name === item.name)"
@@ -267,6 +337,36 @@ function renderIcon(name: string, active: boolean) {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+/* ---- 离线提示条 ---- */
+.offline-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 20px;
+  background: linear-gradient(
+    135deg,
+    rgba(240, 136, 62, 0.15),
+    rgba(248, 81, 73, 0.1)
+  );
+  border-bottom: 1px solid rgba(240, 136, 62, 0.2);
+  color: #f0883e;
+  font-size: 0.85rem;
+  font-weight: 500;
+  flex-shrink: 0;
+  animation: offline-banner-in 0.3s ease-out;
+}
+
+@keyframes offline-banner-in {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .app-logo {

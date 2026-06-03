@@ -104,6 +104,7 @@ onBeforeUnmount(() => {
     </nav>
 
     <!-- Markdown 内容 -->
+    <!-- eslint-disable-next-line vue/no-v-html -->
     <div
       ref="contentRef"
       class="markdown-body"

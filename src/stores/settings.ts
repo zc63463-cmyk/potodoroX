@@ -9,6 +9,7 @@ import type { AppConfig, ThemeName } from "@/types";
 import { DEFAULT_CONFIG, STORE_FILENAME } from "@/utils/constants";
 import { isTauriAvailable } from "@/utils/tauri";
 import { formatDate } from "@/utils/format";
+import { secureSetItem, secureGetItem, secureRemoveItem } from "@/utils/crypto";
 
 export const useSettingsStore = defineStore("settings", () => {
   // ---- 状态 ----
@@ -36,11 +37,16 @@ export const useSettingsStore = defineStore("settings", () => {
           settings.value = { ...DEFAULT_CONFIG, ...saved };
         }
       } else {
-        // 回退到 localStorage
-        const saved = localStorage.getItem("pomodorox-settings");
-        if (saved && saved.trim()) {
-          const parsed = JSON.parse(saved) as Partial<AppConfig>;
+        // 回退到 localStorage（token 字段加密存储）
+        const savedRaw = localStorage.getItem("pomodorox-settings");
+        if (savedRaw && savedRaw.trim()) {
+          const parsed = JSON.parse(savedRaw) as Partial<AppConfig>;
           settings.value = { ...DEFAULT_CONFIG, ...parsed };
+        }
+        // 单独加载加密的 githubToken（覆盖未加密的兜底值）
+        const encryptedToken = await secureGetItem("githubToken");
+        if (encryptedToken) {
+          settings.value.githubToken = encryptedToken;
         }
       }
     } catch (err) {
@@ -64,10 +70,13 @@ export const useSettingsStore = defineStore("settings", () => {
         });
         await store.set("settings", settings.value);
       } else {
+        // Token 单独加密存储，其余设置明文字段存入 localStorage
+        const { githubToken, ...safeSettings } = settings.value;
         localStorage.setItem(
           "pomodorox-settings",
-          JSON.stringify(settings.value)
+          JSON.stringify(safeSettings)
         );
+        await secureSetItem("githubToken", githubToken);
       }
     } catch (err) {
       console.warn("[Settings] 保存设置失败:", err);
@@ -105,6 +114,10 @@ export const useSettingsStore = defineStore("settings", () => {
   async function resetSettings(): Promise<void> {
     settings.value = { ...DEFAULT_CONFIG };
     applyTheme(DEFAULT_CONFIG.theme);
+    // 浏览器端需单独清除加密 token
+    if (!isTauriAvailable()) {
+      secureRemoveItem("githubToken");
+    }
     await saveSettings();
   }
 

@@ -1,5 +1,6 @@
 import MarkdownIt from "markdown-it";
 import anchor from "markdown-it-anchor";
+import { sanitizeHtml } from "@/utils/sanitize";
 
 const md = new MarkdownIt({
   html: false,
@@ -27,13 +28,10 @@ export interface TocItem {
 
 export function useMarkdown() {
   function renderMarkdown(text: string): string {
-    let html = md.render(text);
-    // Defense-in-depth: strip dangerous protocols that might slip through linkify
-    html = html.replace(
-      /(href|src)=['"](javascript|data|vbscript):[^'"]*['"]/gi,
-      '$1="#"'
-    );
-    return html;
+    const html = md.render(text);
+    // Defense-in-depth: DOM-based sanitization strips dangerous elements,
+    // event handlers, and protocol-based attacks that may have slipped through
+    return sanitizeHtml(html);
   }
 
   function extractToc(text: string): TocItem[] {
