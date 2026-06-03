@@ -31,6 +31,7 @@ const emit = defineEmits<{
 const showPreview = ref(false);
 const showMoodPicker = ref(false);
 const showTemplatePicker = ref(false);
+const showMdCheatsheet = ref(false);
 const tagInput = ref("");
 const showTagSuggestions = ref(false);
 
@@ -129,6 +130,9 @@ function handleClickOutside(e: MouseEvent) {
   }
   if (!target.closest(".meta-template") && showTemplatePicker.value) {
     showTemplatePicker.value = false;
+  }
+  if (!target.closest(".meta-cheatsheet") && showMdCheatsheet.value) {
+    showMdCheatsheet.value = false;
   }
 }
 
@@ -331,6 +335,93 @@ function getMoodInfo(mood: Mood) {
             >
               {{ tpl.label }}
             </button>
+          </div>
+        </Transition>
+      </div>
+
+      <!-- MD语法速查 -->
+      <div class="meta-field meta-cheatsheet">
+        <button
+          class="meta-trigger meta-trigger-hint"
+          @click.stop="showMdCheatsheet = !showMdCheatsheet"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="16" x2="12" y2="12" />
+            <line x1="12" y1="8" x2="12.01" y2="8" />
+          </svg>
+          <span class="meta-trigger-text">MD语法</span>
+        </button>
+        <Transition name="dropdown">
+          <div
+            v-if="showMdCheatsheet"
+            class="meta-dropdown md-cheatsheet-dropdown"
+          >
+            <table class="cheatsheet-table">
+              <tr>
+                <td><code>**粗体**</code></td>
+                <td><strong>粗体</strong></td>
+              </tr>
+              <tr>
+                <td><code>*斜体*</code></td>
+                <td><em>斜体</em></td>
+              </tr>
+              <tr>
+                <td><code>~~删除~~</code></td>
+                <td><s>删除线</s></td>
+              </tr>
+              <tr>
+                <td><code>++下划线++</code></td>
+                <td><ins>下划线</ins></td>
+              </tr>
+              <tr>
+                <td><code>==高亮==</code></td>
+                <td><mark>高亮</mark></td>
+              </tr>
+              <tr>
+                <td><code># 标题</code></td>
+                <td>一级标题</td>
+              </tr>
+              <tr>
+                <td><code>- 列表</code></td>
+                <td>无序列表</td>
+              </tr>
+              <tr>
+                <td><code>1. 有序</code></td>
+                <td>有序列表</td>
+              </tr>
+              <tr>
+                <td><code>- [x] 任务</code></td>
+                <td>☑ 任务勾选</td>
+              </tr>
+              <tr>
+                <td><code>&gt; 引用</code></td>
+                <td>块引用</td>
+              </tr>
+              <tr>
+                <td><code>| 表格 |</code></td>
+                <td>表格</td>
+              </tr>
+              <tr>
+                <td><code>\`代码\`</code></td>
+                <td>行内代码</td>
+              </tr>
+              <tr>
+                <td><code>\`\`\`代码块</code></td>
+                <td>代码块</td>
+              </tr>
+              <tr>
+                <td><code>[链接](url)</code></td>
+                <td>链接</td>
+              </tr>
+            </table>
           </div>
         </Transition>
       </div>
@@ -733,16 +824,16 @@ function getMoodInfo(mood: Mood) {
   right: 0;
   z-index: 50;
   margin-top: 4px;
-  background: var(--glass-bg);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(22, 27, 34, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--glass-border);
   border-radius: 10px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
-  padding: 4px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  padding: 6px;
   display: flex;
   flex-wrap: wrap;
-  gap: 3px;
+  gap: 4px;
 }
 
 .tag-suggestion-item {
@@ -761,6 +852,43 @@ function getMoodInfo(mood: Mood) {
   border-color: var(--accent);
   color: var(--accent);
   background: rgba(88, 166, 255, 0.08);
+}
+
+/* MD 语法速查 */
+.meta-trigger-hint {
+  color: var(--text-tertiary);
+}
+
+.meta-trigger-hint:hover {
+  color: var(--accent);
+}
+
+.md-cheatsheet-dropdown {
+  min-width: 260px;
+  padding: 8px;
+}
+
+.cheatsheet-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.cheatsheet-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+}
+
+.cheatsheet-table td:first-child {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.78rem;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.cheatsheet-table tr:last-child td {
+  border-bottom: none;
 }
 
 /* 下拉动画 */
