@@ -115,8 +115,12 @@ export const useTimerStore = defineStore("timer", () => {
       const taskStore = useTaskStore();
       const syncStore = useSyncStore();
 
-      // 如果是完成的工作会话且有关联任务，使用原子事务同时创建 session 和更新 task
-      if (data.completed && data.sessionType === "work" && data.taskId) {
+      // 如果是完成的工作/自由会话且有关联任务，使用原子事务同时创建 session 和更新 task
+      if (
+        data.completed &&
+        (data.sessionType === "work" || data.sessionType === "free") &&
+        data.taskId
+      ) {
         const task = taskStore.tasks.find((t) => t.id === data.taskId);
         if (task) {
           const updates: Parameters<typeof taskStore.updateTask>[1] = {
@@ -158,7 +162,10 @@ export const useTimerStore = defineStore("timer", () => {
         }
       } else {
         await sessionStore.addSession(sessionInput);
-        if (data.completed && data.sessionType === "work") {
+        if (
+          data.completed &&
+          (data.sessionType === "work" || data.sessionType === "free")
+        ) {
           completedPomodoros.value++;
           pomodoroStreak.value++;
         }
@@ -282,6 +289,14 @@ export const useTimerStore = defineStore("timer", () => {
     pendingCompletionForTaskId.value = null;
   }
 
+  /**
+   * 直接设置当前 session 的剩余时长和总时长（用于 UI 自定义时长选择）
+   */
+  function setDuration(seconds: number) {
+    timer.remaining.value = seconds;
+    timer.currentTotalDuration.value = seconds;
+  }
+
   return {
     // 状态
     remaining,
@@ -302,6 +317,7 @@ export const useTimerStore = defineStore("timer", () => {
     isWorkSession,
     // 方法
     setSessionType,
+    setDuration,
     start,
     pause,
     resume,

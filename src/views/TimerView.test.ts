@@ -73,6 +73,8 @@ vi.mock("@/components/timer/MagicRings.vue", () => ({
 // Mock Stores — 纯值（模拟 Pinia auto-unwrap）
 // ============================================================
 
+const mockSetDuration = vi.fn();
+
 vi.mock("@/stores/timer", () => ({
   useTimerStore: vi.fn(() => ({
     remaining: 1500,
@@ -91,6 +93,7 @@ vi.mock("@/stores/timer", () => ({
     progress: 1,
     isWorkSession: true,
     setSessionType: vi.fn(),
+    setDuration: mockSetDuration,
     setCurrentTaskId: vi.fn(),
     start: vi.fn(),
     pause: vi.fn(),
@@ -121,6 +124,8 @@ vi.mock("@/stores/task", () => ({
   })),
 }));
 
+const mockUpdateSetting = vi.fn();
+
 vi.mock("@/stores/settings", () => ({
   useSettingsStore: vi.fn(() => ({
     settings: {
@@ -140,19 +145,22 @@ vi.mock("@/stores/settings", () => ({
       language: "zh",
     },
     updateSettings: vi.fn(),
+    updateSetting: mockUpdateSetting,
     checkAndResetWeeklyQuota: vi.fn(),
     loadSettings: vi.fn(),
   })),
 }));
 
+const mockSessionStore = {
+  sessions: [] as any[],
+  todaySessions: [] as any[],
+  todayPomodoros: 0,
+  loadAllSessions: vi.fn().mockResolvedValue(undefined),
+  addSession: vi.fn().mockResolvedValue({ id: "s1" }),
+};
+
 vi.mock("@/stores/session", () => ({
-  useSessionStore: vi.fn(() => ({
-    sessions: [],
-    todaySessions: [],
-    todayPomodoros: 0,
-    loadAllSessions: vi.fn().mockResolvedValue(undefined),
-    addSession: vi.fn().mockResolvedValue({ id: "s1" }),
-  })),
+  useSessionStore: vi.fn(() => mockSessionStore),
 }));
 
 vi.mock("@/stores/app", () => ({
@@ -172,6 +180,11 @@ vi.mock("@/stores/app", () => ({
 describe("TimerView 冒烟测试", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
+    mockSessionStore.sessions = [];
+    mockSessionStore.todaySessions = [];
+    mockSessionStore.todayPomodoros = 0;
+    mockSetDuration.mockClear();
+    mockUpdateSetting.mockClear();
   });
 
   it("组件能成功挂载且不崩溃", async () => {
@@ -218,5 +231,47 @@ describe("TimerView 冒烟测试", () => {
     });
 
     expect(wrapper.html()).toContain("magic-rings-stub");
+  });
+
+  it("自由计时应计入专注时长统计", async () => {
+    mockSessionStore.todaySessions = [
+      { id: "s1", type: "free", completed: true, duration: 1800 },
+    ];
+    const TimerView = (await import("./TimerView.vue")).default;
+    const wrapper = mount(TimerView, {
+      global: { stubs: { MagicRings: true } },
+    });
+
+    expect(wrapper.text()).toContain("30分钟");
+    expect(wrapper.text()).toContain("专注时长");
+  });
+
+  it("work 模式 idle 态应显示 45/60/90/120 四挡按钮", async () => {
+    const TimerView = (await import("./TimerView.vue")).default;
+    const wrapper = mount(TimerView, {
+      global: { stubs: { MagicRings: true } },
+    });
+
+    expect(wrapper.find(".work-duration-selector").exists()).toBe(true);
+    expect(wrapper.text()).toContain("45");
+    expect(wrapper.text()).toContain("60");
+    expect(wrapper.text()).toContain("90");
+    expect(wrapper.text()).toContain("120");
+  });
+
+  it("点击专注时长按钮应更新设置和当前时长", async () => {
+    const TimerView = (await import("./TimerView.vue")).default;
+    const wrapper = mount(TimerView, {
+      global: { stubs: { MagicRings: true } },
+    });
+
+    const btn60 = wrapper
+      .findAll(".work-duration-btn")
+      .find((b) => b.text().includes("60"));
+    expect(btn60).toBeDefined();
+    await btn60!.trigger("click");
+
+    expect(mockUpdateSetting).toHaveBeenCalledWith("workDuration", 3600);
+    expect(mockSetDuration).toHaveBeenCalledWith(3600);
   });
 });

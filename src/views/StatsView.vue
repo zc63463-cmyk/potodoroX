@@ -104,6 +104,20 @@ const prevWorkSessions = computed(() => {
   );
 });
 
+/** 当前周期的已完成专注会话（work + free） */
+const currentFocusSessions = computed(() => {
+  const [start, end] = dateRange.value;
+  const endDate = new Date(end + "T23:59:59");
+  const startDate = new Date(start + "T00:00:00");
+  return sessionStore.sessions.filter(
+    (s) =>
+      (s.type === "work" || s.type === "free") &&
+      s.completed &&
+      new Date(s.startedAt) >= startDate &&
+      new Date(s.startedAt) <= endDate
+  );
+});
+
 // ---- 统计卡片 ----
 
 /** 总番茄钟数 */
@@ -122,7 +136,7 @@ const pomodoroTrend = computed(() => {
 
 /** 总专注时间（分钟） */
 const totalFocusMinutes = computed(() =>
-  currentWorkSessions.value.reduce(
+  currentFocusSessions.value.reduce(
     (sum, s) => sum + Math.round(s.duration / 60),
     0
   )
@@ -142,7 +156,10 @@ const streakDays = computed(() => {
     d.setDate(d.getDate() - i);
     const dateStr = formatDate(d);
     const hasSession = sessionStore.sessions.some(
-      (s) => s.type === "work" && s.completed && s.startedAt.startsWith(dateStr)
+      (s) =>
+        (s.type === "work" || s.type === "free") &&
+        s.completed &&
+        s.startedAt.startsWith(dateStr)
     );
     if (hasSession) {
       streak++;

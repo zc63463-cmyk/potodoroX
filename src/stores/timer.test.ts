@@ -214,6 +214,46 @@ describe("handleTimerComplete", () => {
     expect(store.pomodoroStreak).toBe(1);
   });
 
+  it("free+completed+taskId 应使用原子事务并同步内存", async () => {
+    mockTasks.value = [{ id: "task-1", actualPomodoros: 2, plan: "" }];
+    mockDb.createSessionAndUpdateTask.mockResolvedValue({
+      session: {
+        id: "sess-free",
+        taskId: "task-1",
+        type: "free",
+      },
+      updatedTask: { id: "task-1", actualPomodoros: 3, plan: "" },
+    });
+    const store = useTimerStore();
+    mockTimer.sessionType.value = "free";
+
+    await triggerComplete({
+      completed: true,
+      sessionType: "free",
+      taskId: "task-1",
+      currentTotalDuration: 1800,
+      sessionFastForwardSeconds: 0,
+      startedAt: "2026-05-19 10:00:00",
+      plan: "自由时段规划",
+    });
+
+    expect(mockDb.createSessionAndUpdateTask).toHaveBeenCalled();
+    expect(mockRecordEvent).toHaveBeenCalledWith(
+      "session.created",
+      "sess-free",
+      expect.any(Object)
+    );
+    expect(mockRecordEvent).toHaveBeenCalledWith(
+      "task.updated",
+      "task-1",
+      expect.any(Object)
+    );
+    expect(mockSessions.value).toHaveLength(1);
+    expect(mockTasks.value[0].actualPomodoros).toBe(3);
+    expect(store.completedPomodoros).toBe(1);
+    expect(store.pomodoroStreak).toBe(1);
+  });
+
   it("task 不在内存中时应退化为 addSession", async () => {
     mockTasks.value = [];
     const store = useTimerStore();
@@ -564,6 +604,18 @@ describe("clearPendingCompletion", () => {
     store.pendingCompletionForTaskId = "task-1";
     store.clearPendingCompletion();
     expect(store.pendingCompletionForTaskId).toBeNull();
+  });
+});
+
+// ============================================================
+// setDuration
+// ============================================================
+describe("setDuration", () => {
+  it("应直接设置 remaining 和 currentTotalDuration", () => {
+    const store = useTimerStore();
+    store.setDuration(2700);
+    expect(mockTimer.remaining.value).toBe(2700);
+    expect(mockTimer.currentTotalDuration.value).toBe(2700);
   });
 });
 

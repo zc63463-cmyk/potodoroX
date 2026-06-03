@@ -159,7 +159,7 @@ const todayDisplay = computed(() => {
 /** 今日专注总时长（秒） */
 const todayFocusSeconds = computed(() => {
   return sessionStore.todaySessions
-    .filter((s) => s.type === "work" && s.completed)
+    .filter((s) => (s.type === "work" || s.type === "free") && s.completed)
     .reduce((sum, s) => sum + s.duration, 0);
 });
 
@@ -459,6 +459,16 @@ function skipSessionPlan() {
 /** 重置计时器 */
 function resetTimer() {
   timerStore.reset();
+}
+
+/** 专注模式四挡预设时长（分钟） */
+const WORK_DURATION_PRESETS = [45, 60, 90, 120];
+
+/** 选择专注模式时长 */
+function selectWorkDuration(minutes: number) {
+  const seconds = minutes * 60;
+  settingsStore.updateSetting("workDuration", seconds);
+  timerStore.setDuration(seconds);
 }
 
 /** 处理快进请求 */
@@ -1414,6 +1424,34 @@ onUnmounted(() => {
         </div>
       </Transition>
 
+      <!-- 专注模式时长选择（四挡按钮） -->
+      <Transition name="fade">
+        <div
+          v-if="isIdle && timerStore.sessionType === 'work'"
+          class="work-duration-selector"
+        >
+          <div class="work-duration-label">专注时长</div>
+          <div class="work-duration-buttons">
+            <button
+              v-for="min in WORK_DURATION_PRESETS"
+              :key="min"
+              class="work-duration-btn"
+              :class="{
+                active:
+                  Math.round(timerStore.currentTotalDuration / 60) === min,
+              }"
+              :style="{
+                '--btn-color': sessionColor,
+              }"
+              @click="selectWorkDuration(min)"
+            >
+              {{ min }}
+              <span class="work-duration-unit">分钟</span>
+            </button>
+          </div>
+        </div>
+      </Transition>
+
       <!-- 控制按钮区（玻璃拟态面板） -->
       <div class="timer-controls glass">
         <!-- 重置/回退按钮 -->
@@ -2347,6 +2385,70 @@ onUnmounted(() => {
   transition: all var(--transition-slow);
 }
 
+/* ---- 专注模式时长选择面板 ---- */
+.work-duration-selector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: -4px;
+  margin-bottom: 4px;
+  padding: 14px 28px;
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.work-duration-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.work-duration-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.work-duration-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  padding: 8px 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.work-duration-btn:hover {
+  border-color: var(--btn-color, var(--primary));
+  color: var(--btn-color, var(--primary));
+  background: var(--btn-color, var(--primary)) 0a;
+}
+
+.work-duration-btn.active {
+  border-color: var(--btn-color, var(--primary));
+  color: var(--btn-color, var(--primary));
+  background: var(--btn-color, var(--primary)) 15;
+  box-shadow: 0 0 0 2px var(--btn-color, var(--primary)) 30;
+}
+
+.work-duration-unit {
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.7;
+}
+
 /* ---- 自由计时外置设置面板 ---- */
 .free-duration-setter {
   display: flex;
@@ -3010,6 +3112,16 @@ onUnmounted(() => {
     padding: 12px 20px;
   }
 
+  .work-duration-selector {
+    padding: 12px 20px;
+  }
+
+  .work-duration-btn {
+    min-width: 48px;
+    padding: 6px 10px;
+    font-size: 14px;
+  }
+
   .setter-ring {
     width: 80px;
     height: 80px;
@@ -3091,6 +3203,16 @@ onUnmounted(() => {
     margin-top: -4px;
     margin-bottom: 4px;
     padding: 10px 16px;
+  }
+
+  .work-duration-selector {
+    padding: 10px 16px;
+  }
+
+  .work-duration-btn {
+    min-width: 40px;
+    padding: 5px 8px;
+    font-size: 13px;
   }
 
   .setter-ring {
