@@ -63,11 +63,30 @@ function walkAndClean(node: Node): void {
       walkAndClean(child);
     }
 
-    // 删除危险元素
+    // 删除危险元素，但保留 markdown-it-task-lists 生成的安全 checkbox
     if (
       child.nodeType === Node.ELEMENT_NODE &&
       REMOVE_TAGS.has((child as Element).tagName.toLowerCase())
     ) {
+      const el = child as HTMLInputElement;
+
+      // 例外：<input type="checkbox" disabled> — 任务列表勾选框（无交互能力，纯展示）
+      if (
+        el.tagName.toLowerCase() === "input" &&
+        (el as HTMLInputElement).type === "checkbox" &&
+        (el as HTMLInputElement).disabled
+      ) {
+        // 仅保留安全属性：type / checked / disabled / class
+        const allowedAttrs = new Set(["type", "checked", "disabled", "class"]);
+        for (const attr of [...el.attributes]) {
+          if (!allowedAttrs.has(attr.name.toLowerCase())) {
+            el.removeAttribute(attr.name);
+          }
+        }
+        child = next;
+        continue;
+      }
+
       node.removeChild(child);
       child = next;
       continue;

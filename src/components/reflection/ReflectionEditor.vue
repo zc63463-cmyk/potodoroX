@@ -863,6 +863,8 @@ function getMoodInfo(mood: Mood) {
 
 .md-cheatsheet-dropdown {
   min-width: 260px;
+  max-height: 320px;
+  overflow-y: auto;
   padding: 8px;
 }
 
