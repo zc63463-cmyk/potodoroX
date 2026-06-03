@@ -682,12 +682,10 @@ function getMoodInfo(mood: Mood) {
   left: 0;
   z-index: 50;
   min-width: 150px;
-  background: var(--glass-bg);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--glass-border);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-solid);
   border-radius: 10px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
   padding: 4px;
   display: flex;
   flex-direction: column;
