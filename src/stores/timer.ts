@@ -24,7 +24,7 @@ export const useTimerStore = defineStore("timer", () => {
 
   /**
    * 待显示的 Session 总结弹窗关联的 taskId
-   * 仅在实际完成的 work session（且有任务上下文）后设置
+   * 在实际完成的 work / free session 后设置（taskId 可能为 null）
    * TimerView 监听此值来显示总结弹窗，而非直接监听 isRunning
    */
   const pendingCompletionForTaskId = ref<string | null>(null);
@@ -167,9 +167,10 @@ export const useTimerStore = defineStore("timer", () => {
       console.error("[Timer] 保存会话失败:", err);
     }
 
-    // 设置总结弹窗标志：仅已完成的 work session（且有任务上下文）
+    // 设置总结弹窗标志：已完成的 work / free session
     pendingCompletionForTaskId.value =
-      data.completed && data.sessionType === "work" && data.taskId
+      data.completed &&
+      (data.sessionType === "work" || data.sessionType === "free")
         ? data.taskId
         : null;
 

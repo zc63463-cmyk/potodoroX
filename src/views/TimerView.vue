@@ -401,13 +401,15 @@ function toggleTimer() {
     // 恢复
     timerStore.resume();
   } else {
-    // 开始 — 工作会话且有任务关联时，先显示规划提示
-    if (timerStore.sessionType === "work" && timerStore.currentTaskId) {
+    // 开始 — 工作/自由会话且有任务关联时，先显示规划提示
+    if (
+      (timerStore.sessionType === "work" && timerStore.currentTaskId) ||
+      timerStore.sessionType === "free"
+    ) {
       showSessionPlanPrompt.value = true;
       return; // 等待用户输入规划后再开始
     }
 
-    // 开始 — 自由模式时传入自定义时长
     doStartTimer();
   }
 }
@@ -423,7 +425,7 @@ async function doStartTimer(plan?: string) {
   if (timerStore.sessionType === "free") {
     const customDuration = freeMinutes.value * 60 + freeSeconds.value;
     if (customDuration <= 0) return; // 防止零时长开始
-    timerStore.start(customDuration);
+    timerStore.start(customDuration, plan);
   } else {
     timerStore.start(undefined, plan);
   }
@@ -559,15 +561,29 @@ async function handleSessionComplete() {
 /** 确认 Session 总结 */
 async function confirmSessionCompletion() {
   const taskId = timerStore.pendingCompletionForTaskId;
-  if (taskId && sessionCompletionInput.value.trim()) {
-    const sessions = sessionStore.getSessionsByTask(taskId);
-    const latest = sessions.sort((a, b) =>
-      b.startedAt.localeCompare(a.startedAt)
-    )[0];
-    if (latest) {
-      await sessionStore.updateSession(latest.id, {
-        completion: sessionCompletionInput.value.trim(),
-      });
+  const input = sessionCompletionInput.value.trim();
+  if (input) {
+    if (taskId) {
+      const sessions = sessionStore.getSessionsByTask(taskId);
+      const latest = sessions.sort((a, b) =>
+        b.startedAt.localeCompare(a.startedAt)
+      )[0];
+      if (latest) {
+        await sessionStore.updateSession(latest.id, {
+          completion: input,
+        });
+      }
+    } else {
+      // free 模式无关联任务：查找最近一个 free 类型的 session
+      const sessions = sessionStore.sessions.filter((s) => s.type === "free");
+      const latest = sessions.sort((a, b) =>
+        b.startedAt.localeCompare(a.startedAt)
+      )[0];
+      if (latest) {
+        await sessionStore.updateSession(latest.id, {
+          completion: input,
+        });
+      }
     }
   }
   showSessionCompletionPrompt.value = false;
